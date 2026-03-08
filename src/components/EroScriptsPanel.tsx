@@ -125,7 +125,8 @@ export default function EroScriptsPanel({ currentVideoName }: EroScriptsPanelPro
           if (post.link_counts) {
             for (const link of post.link_counts) {
               if (link.url && isFunscriptUrl(link.url)) {
-                const filename = link.title || link.url.split('/').pop() || 'script.funscript'
+                const rawName = link.title || link.url.split('/').pop() || 'script.funscript'
+                const filename = safeDecodeURI(rawName)
                 const fullUrl = link.url.startsWith('http') ? link.url : `${BASE_URL}${link.url}`
                 links.push({ filename, url: fullUrl })
               }
@@ -137,7 +138,7 @@ export default function EroScriptsPanel({ currentVideoName }: EroScriptsPanelPro
           while ((match = hrefRegex.exec(cooked)) !== null) {
             const url = match[1]
             const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`
-            const filename = decodeURIComponent(fullUrl.split('/').pop() || 'script')
+            const filename = safeDecodeURI(fullUrl.split('/').pop() || 'script')
             if (!links.some(l => l.url === fullUrl)) {
               links.push({ filename, url: fullUrl })
             }
@@ -327,6 +328,10 @@ function cleanVideoTitle(filename: string): string {
     .trim()
   const words = title.split(' ').filter(w => w.length > 1)
   return words.slice(0, 6).join(' ')
+}
+
+function safeDecodeURI(str: string): string {
+  try { return decodeURIComponent(str) } catch { return str }
 }
 
 function isFunscriptUrl(url: string): boolean {

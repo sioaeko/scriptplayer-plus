@@ -122,25 +122,42 @@ export default function EroScriptsPanel({ currentVideoName }: EroScriptsPanelPro
         const links: Array<{ filename: string; url: string }> = []
 
         for (const post of posts) {
-          if (post.link_counts) {
-            for (const link of post.link_counts) {
-              if (link.url && isFunscriptUrl(link.url)) {
-                const rawName = link.title || link.url.split('/').pop() || 'script.funscript'
-                const filename = safeDecodeURI(rawName)
-                const fullUrl = link.url.startsWith('http') ? link.url : `${BASE_URL}${link.url}`
-                links.push({ filename, url: fullUrl })
-              }
+          const cooked = post.cooked || ''
+
+          // Parse cooked HTML: <a href="...">Original Filename.funscript</a>
+          const linkRegex = /<a[^>]+href="([^"]*)"[^>]*>([^<]*\.(?:funscript|zip|7z|rar))<\/a>/gi
+          let match
+          while ((match = linkRegex.exec(cooked)) !== null) {
+            const url = match[1]
+            const linkText = match[2].trim()
+            const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`
+            const filename = safeDecodeURI(linkText)
+            if (!links.some(l => l.url === fullUrl)) {
+              links.push({ filename, url: fullUrl })
             }
           }
-          const cooked = post.cooked || ''
+
+          // Fallback: href-only regex for links without visible text matching
           const hrefRegex = /href="([^"]*\.(?:funscript|zip|7z|rar)[^"]*)"/gi
-          let match
           while ((match = hrefRegex.exec(cooked)) !== null) {
             const url = match[1]
             const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`
-            const filename = safeDecodeURI(fullUrl.split('/').pop() || 'script')
             if (!links.some(l => l.url === fullUrl)) {
+              const filename = safeDecodeURI(fullUrl.split('/').pop() || 'script')
               links.push({ filename, url: fullUrl })
+            }
+          }
+
+          // Fallback: link_counts (only if not already found via HTML)
+          if (post.link_counts) {
+            for (const link of post.link_counts) {
+              if (link.url && isFunscriptUrl(link.url)) {
+                const fullUrl = link.url.startsWith('http') ? link.url : `${BASE_URL}${link.url}`
+                if (!links.some(l => l.url === fullUrl)) {
+                  const rawName = link.title || link.url.split('/').pop() || 'script.funscript'
+                  links.push({ filename: safeDecodeURI(rawName), url: fullUrl })
+                }
+              }
             }
           }
         }

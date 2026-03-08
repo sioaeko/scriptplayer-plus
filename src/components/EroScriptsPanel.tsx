@@ -10,6 +10,8 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Film,
+  FileText,
 } from 'lucide-react'
 import { useTranslation } from '../i18n'
 
@@ -38,7 +40,7 @@ export default function EroScriptsPanel({ currentVideoName, scriptFolder }: EroS
   const [username, setUsername] = useState('')
   const [loggingIn, setLoggingIn] = useState(false)
   const [expandedTopic, setExpandedTopic] = useState<number | null>(null)
-  const [downloadLinks, setDownloadLinks] = useState<Record<number, Array<{ filename: string; url: string }>>>({})
+  const [downloadLinks, setDownloadLinks] = useState<Record<number, Array<{ filename: string; url: string; type: 'script' | 'video' }>>>({})
   const [downloading, setDownloading] = useState<string | null>(null)
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set())
 
@@ -120,7 +122,7 @@ export default function EroScriptsPanel({ currentVideoName, scriptFolder }: EroS
       const resp = await window.electronAPI.eroscriptsFetch(`${BASE_URL}/t/${topicId}.json`)
       if (resp.ok && resp.data) {
         const posts = resp.data.post_stream?.posts || []
-        const links: Array<{ filename: string; url: string }> = []
+        const links: Array<{ filename: string; url: string; type: 'script' | 'video' }> = []
 
         for (const post of posts) {
           const cooked = post.cooked || ''
@@ -134,7 +136,7 @@ export default function EroScriptsPanel({ currentVideoName, scriptFolder }: EroS
             const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`
             const filename = safeDecodeURI(linkText)
             if (!links.some(l => l.url === fullUrl)) {
-              links.push({ filename, url: fullUrl })
+              links.push({ filename, url: fullUrl, type: 'script' })
             }
           }
 
@@ -145,7 +147,7 @@ export default function EroScriptsPanel({ currentVideoName, scriptFolder }: EroS
             const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`
             if (!links.some(l => l.url === fullUrl)) {
               const filename = safeDecodeURI(fullUrl.split('/').pop() || 'script')
-              links.push({ filename, url: fullUrl })
+              links.push({ filename, url: fullUrl, type: 'script' })
             }
           }
 
@@ -156,12 +158,36 @@ export default function EroScriptsPanel({ currentVideoName, scriptFolder }: EroS
                 const fullUrl = link.url.startsWith('http') ? link.url : `${BASE_URL}${link.url}`
                 if (!links.some(l => l.url === fullUrl)) {
                   const rawName = link.title || link.url.split('/').pop() || 'script.funscript'
-                  links.push({ filename: safeDecodeURI(rawName), url: fullUrl })
+                  links.push({ filename: safeDecodeURI(rawName), url: fullUrl, type: 'script' })
+                }
+              }
+            }
+          }
+
+          // Detect video/cloud links from cooked HTML and link_counts
+          const allHrefRegex = /<a[^>]+href="([^"]*)"[^>]*>/gi
+          while ((match = allHrefRegex.exec(cooked)) !== null) {
+            const url = match[1]
+            const cloud = getCloudService(url)
+            if (cloud && !links.some(l => l.url === url)) {
+              links.push({ filename: cloud.label, url, type: 'video' })
+            }
+          }
+
+          if (post.link_counts) {
+            for (const link of post.link_counts) {
+              if (link.url) {
+                const cloud = getCloudService(link.url)
+                if (cloud && !links.some(l => l.url === link.url)) {
+                  links.push({ filename: cloud.label, url: link.url, type: 'video' })
                 }
               }
             }
           }
         }
+
+        // Sort: scripts first, then video links
+        links.sort((a, b) => (a.type === b.type ? 0 : a.type === 'script' ? -1 : 1))
         setDownloadLinks(prev => ({ ...prev, [topicId]: links }))
       }
     }
@@ -294,18 +320,29 @@ export default function EroScriptsPanel({ currentVideoName, scriptFolder }: EroS
                       downloadLinks[result.topicId].map(link => (
                         <button
                           key={link.url}
-                          onClick={() => handleDownload(link.url, link.filename)}
-                          disabled={downloading === link.url}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 bg-surface-300/50 hover:bg-surface-100/30 rounded text-[10px] transition-colors disabled:opacity-50"
+                          onClick={() => link.type === 'video' ? window.open(link.url, '_blank') : handleDownload(link.url, link.filename)}
+                          disabled={link.type === 'script' && downloading === link.url}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-[10px] transition-colors disabled:opacity-50 ${
+                            link.type === 'video'
+                              ? 'bg-blue-500/10 hover:bg-blue-500/20'
+                              : 'bg-surface-300/50 hover:bg-surface-100/30'
+                          }`}
                         >
-                          {downloaded.has(link.url) ? (
+                          {link.type === 'video' ? (
+                            <Film size={11} className="text-blue-400 flex-shrink-0" />
+                          ) : downloaded.has(link.url) ? (
                             <Check size={11} className="text-green-400 flex-shrink-0" />
                           ) : downloading === link.url ? (
                             <RefreshCw size={11} className="animate-spin text-accent flex-shrink-0" />
                           ) : (
-                            <Download size={11} className="text-accent flex-shrink-0" />
+                            <FileText size={11} className="text-accent flex-shrink-0" />
                           )}
-                          <span className="text-text-secondary truncate">{link.filename}</span>
+                          <span className={`truncate ${link.type === 'video' ? 'text-blue-300' : 'text-text-secondary'}`}>
+                            {link.filename}
+                          </span>
+                          {link.type === 'video' && (
+                            <ExternalLink size={9} className="text-blue-400/50 flex-shrink-0 ml-auto" />
+                          )}
                         </button>
                       ))
                     ) : (
@@ -350,6 +387,39 @@ function cleanVideoTitle(filename: string): string {
 
 function safeDecodeURI(str: string): string {
   try { return decodeURIComponent(str) } catch { return str }
+}
+
+const CLOUD_SERVICES: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /mega\.nz|mega\.co\.nz/i, label: 'MEGA' },
+  { pattern: /drive\.google\.com/i, label: 'Google Drive' },
+  { pattern: /pixeldrain\.com/i, label: 'Pixeldrain' },
+  { pattern: /dropbox\.com/i, label: 'Dropbox' },
+  { pattern: /mediafire\.com/i, label: 'MediaFire' },
+  { pattern: /gofile\.(io|me)/i, label: 'GoFile' },
+  { pattern: /workupload\.com/i, label: 'WorkUpload' },
+  { pattern: /anonfiles\.com/i, label: 'AnonFiles' },
+  { pattern: /1fichier\.com/i, label: '1Fichier' },
+  { pattern: /sendspace\.com/i, label: 'SendSpace' },
+  { pattern: /rapidgator\.(net|asia)/i, label: 'Rapidgator' },
+  { pattern: /uploaded\.(net|to)/i, label: 'Uploaded' },
+  { pattern: /katfile\.com/i, label: 'Katfile' },
+  { pattern: /spankbang\.com/i, label: 'SpankBang' },
+  { pattern: /pornhub\.com/i, label: 'Pornhub' },
+  { pattern: /xhamster\.com/i, label: 'xHamster' },
+  { pattern: /xvideos\.com/i, label: 'XVideos' },
+  { pattern: /erome\.com/i, label: 'Erome' },
+  { pattern: /redgifs\.com/i, label: 'RedGIFs' },
+  { pattern: /onedrive\.live\.com|1drv\.ms/i, label: 'OneDrive' },
+]
+
+function getCloudService(url: string): { label: string } | null {
+  // Skip EroScripts internal links
+  if (url.includes('eroscripts.com')) return null
+  if (url.includes('/uploads/')) return null
+  for (const svc of CLOUD_SERVICES) {
+    if (svc.pattern.test(url)) return { label: svc.label }
+  }
+  return null
 }
 
 function isFunscriptUrl(url: string): boolean {

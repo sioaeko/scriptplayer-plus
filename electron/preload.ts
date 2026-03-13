@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFunscript: (videoPath: string, scriptFolder?: string) => ipcRenderer.invoke('fs:readFunscript', videoPath, scriptFolder),
   saveFunscript: (videoPath: string, data: string) => ipcRenderer.invoke('fs:saveFunscript', videoPath, data),
   getVideoUrl: (filePath: string) => ipcRenderer.invoke('fs:getVideoUrl', filePath),
+  findArtwork: (mediaPath: string) => ipcRenderer.invoke('fs:findArtwork', mediaPath),
 
   // NAS operations
   nasWebdavConnect: (url: string, username: string, password: string) =>

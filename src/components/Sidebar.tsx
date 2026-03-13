@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap } from 'lucide-react'
+import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4 } from 'lucide-react'
 import { VideoFile } from '../types'
 import { useTranslation } from '../i18n'
 import EroScriptsPanel from './EroScriptsPanel'
@@ -160,7 +160,9 @@ export default function Sidebar({
       {file.hasScript ? (
         <FileCheck size={14} className="flex-shrink-0 mt-0.5 text-green-400" />
       ) : (
-        <Film size={14} className="flex-shrink-0 mt-0.5" />
+        file.type === 'audio'
+          ? <Music4 size={14} className="flex-shrink-0 mt-0.5" />
+          : <Film size={14} className="flex-shrink-0 mt-0.5" />
       )}
       <span className="break-all leading-relaxed">{file.name}</span>
     </button>

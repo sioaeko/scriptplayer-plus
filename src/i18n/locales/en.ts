@@ -6,10 +6,11 @@ const en: Record<string, string> = {
   'sidebar.device': 'Device',
   'sidebar.openFolder': 'Open Folder',
   'sidebar.filterFiles': 'Filter files...',
-  'sidebar.noFiles': 'Open a folder to browse videos',
+  'sidebar.noFiles': 'Open a folder to browse media files',
   'sidebar.noMatch': 'No matching files',
 
-  'player.noVideo': 'Open a folder or drag a video to start',
+  'player.noVideo': 'Open a folder or drag a video or audio file to start',
+  'player.audioMode': 'Audio playback',
   'player.fullscreen': 'Fullscreen',
 
   'eroscripts.search': 'Search EroScripts...',

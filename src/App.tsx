@@ -3,25 +3,36 @@ import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import VideoPlayer from './components/VideoPlayer'
 import Settings from './components/Settings'
-import { VideoFile, Funscript, FunscriptAction } from './types'
+import { VideoFile, Funscript, FunscriptAction, MediaType } from './types'
 import { parseFunscript } from './services/funscript'
 import { handyService, HandyUploadStatus } from './services/handy'
 import { AppSettings, loadSettings, saveSettings } from './services/settings'
 import { useTranslation } from './i18n'
-import { Settings as SettingsIcon } from 'lucide-react'
+
+const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
+const AUDIO_EXTS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wma']
+
+function getMediaTypeFromPath(filePath: string): MediaType | null {
+  const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
+  if (VIDEO_EXTS.includes(ext)) return 'video'
+  if (AUDIO_EXTS.includes(ext)) return 'audio'
+  return null
+}
 
 export default function App() {
   const { locale, setLocale } = useTranslation()
   const [files, setFiles] = useState<VideoFile[]>([])
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [currentFileType, setCurrentFileType] = useState<MediaType | null>(null)
+  const [artworkUrl, setArtworkUrl] = useState<string | null>(null)
   const [funscript, setFunscript] = useState<Funscript | null>(null)
   const [handyConnected, setHandyConnected] = useState(false)
   const [scriptUploadUrl, setScriptUploadUrl] = useState<string | null>(null)
   const [handyUploadStatus, setHandyUploadStatus] = useState<HandyUploadStatus>('idle')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<AppSettings>(loadSettings)
-  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const mediaRef = useRef<HTMLMediaElement | null>(null)
 
   const actions: FunscriptAction[] = funscript?.actions || []
 
@@ -49,16 +60,30 @@ export default function App() {
   const handleOpenFolder = useCallback(async () => {
     const folderPath = await window.electronAPI.openFolder()
     if (!folderPath) return
-    const videoFiles = await window.electronAPI.readDir(folderPath)
-    setFiles(videoFiles)
+    const mediaFiles = await window.electronAPI.readDir(folderPath)
+    setFiles(mediaFiles)
   }, [])
 
-  const handleFileSelect = useCallback(async (file: VideoFile) => {
-    setCurrentFile(file.path)
-    const url = await window.electronAPI.getVideoUrl(file.path)
-    setVideoUrl(url)
+  const openMediaFile = useCallback(async (filePath: string, fileType?: MediaType) => {
+    const resolvedType = fileType ?? getMediaTypeFromPath(filePath)
+    if (!resolvedType) return
 
-    const script = await window.electronAPI.readFunscript(file.path, settings.scriptFolder)
+    setCurrentFile(filePath)
+    setCurrentFileType(resolvedType)
+
+    const url = await window.electronAPI.getVideoUrl(filePath)
+    setVideoUrl(url)
+    setArtworkUrl(null)
+
+    if (resolvedType === 'audio') {
+      const artworkPath = await window.electronAPI.findArtwork(filePath)
+      if (artworkPath) {
+        const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
+        setArtworkUrl(nextArtworkUrl)
+      }
+    }
+
+    const script = await window.electronAPI.readFunscript(filePath, settings.scriptFolder)
     const parsed = script ? parseFunscript(script) : null
     setFunscript(parsed)
     setScriptUploadUrl(null)
@@ -67,6 +92,10 @@ export default function App() {
       uploadToHandy(parsed.actions)
     }
   }, [settings.scriptFolder])
+
+  const handleFileSelect = useCallback(async (file: VideoFile) => {
+    await openMediaFile(file.path, file.type)
+  }, [openMediaFile])
 
   const uploadToHandy = async (scriptActions: FunscriptAction[]) => {
     const url = await handyService.uploadAndSetup(scriptActions)
@@ -95,11 +124,11 @@ export default function App() {
 
   const handlePlay = useCallback(async () => {
     if (handyService.isConnected && scriptUploadUrl) {
-      const video = videoRef.current
-      if (video) {
+      const media = mediaRef.current
+      if (media) {
         const serverTime = handyService.getServerTime()
         const offset = settings.timeOffset || 0
-        await handyService.hsspPlay(serverTime, Math.round(video.currentTime * 1000) + offset)
+        await handyService.hsspPlay(serverTime, Math.round(media.currentTime * 1000) + offset)
       }
     }
   }, [scriptUploadUrl, settings.timeOffset])
@@ -113,8 +142,8 @@ export default function App() {
   const handleSeek = useCallback(
     async (time: number) => {
       if (handyService.isConnected && scriptUploadUrl) {
-        const video = videoRef.current
-        if (video && !video.paused) {
+        const media = mediaRef.current
+        if (media && !media.paused) {
           await handyService.hsspStop()
           const serverTime = handyService.getServerTime()
           const offset = settings.timeOffset || 0
@@ -147,23 +176,11 @@ export default function App() {
       if (!files || files.length === 0) return
 
       const file = files[0]
-      const videoExts = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
-      const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-      if (videoExts.includes(ext)) {
+      const mediaType = getMediaTypeFromPath(file.name)
+      if (mediaType) {
         const path = (file as any).path as string
         if (path) {
-          setCurrentFile(path)
-          const url = await window.electronAPI.getVideoUrl(path)
-          setVideoUrl(url)
-
-          const script = await window.electronAPI.readFunscript(path, settings.scriptFolder)
-          const parsed = script ? parseFunscript(script) : null
-          setFunscript(parsed)
-          setScriptUploadUrl(null)
-
-          if (parsed && handyService.isConnected) {
-            uploadToHandy(parsed.actions)
-          }
+          await openMediaFile(path, mediaType)
         }
       }
     }
@@ -178,7 +195,7 @@ export default function App() {
       window.removeEventListener('drop', handleDrop)
       window.removeEventListener('dragover', handleDragOver)
     }
-  }, [])
+  }, [openMediaFile])
 
   // Load default folder on startup
   useEffect(() => {
@@ -203,12 +220,15 @@ export default function App() {
         />
         <VideoPlayer
           videoUrl={videoUrl}
+          mediaType={currentFileType}
+          currentFileName={currentFile ? getFileName(currentFile) : null}
+          artworkUrl={artworkUrl}
           actions={actions}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
           onPause={handlePause}
           onSeek={handleSeek}
-          videoRef={videoRef}
+          mediaRef={mediaRef}
           handyInfo={handyConnected ? { connected: true, ping: handyService.ping, uploadStatus: handyUploadStatus } : { connected: false, ping: null, uploadStatus: 'idle' as const }}
           timelineHeight={settings.timelineHeight}
           timelineWindow={settings.timelineWindow}
@@ -224,4 +244,8 @@ export default function App() {
       />
     </div>
   )
+}
+
+function getFileName(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || ''
 }

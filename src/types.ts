@@ -23,9 +23,12 @@ export interface Funscript {
   }
 }
 
+export type MediaType = 'video' | 'audio'
+
 export interface VideoFile {
   name: string
   path: string
+  type: MediaType
   hasScript: boolean
   relativePath?: string
 }
@@ -56,6 +59,7 @@ declare global {
       readFunscript: (videoPath: string, scriptFolder?: string) => Promise<Funscript | null>
       saveFunscript: (videoPath: string, data: string) => Promise<boolean>
       getVideoUrl: (filePath: string) => Promise<string>
+      findArtwork: (mediaPath: string) => Promise<string | null>
 
       // EroScripts
       eroscriptsCheckSession: () => Promise<{ loggedIn: boolean; username: string }>

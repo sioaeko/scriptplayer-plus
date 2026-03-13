@@ -1,26 +1,8 @@
-const { execSync } = require('child_process')
-const path = require('path')
 const fs = require('fs')
-const glob = require('path')
+const path = require('path')
+const ResEdit = require('resedit')
 
-// Find rcedit in electron-builder cache
-const cacheDir = path.join(process.env.LOCALAPPDATA || '', 'electron-builder', 'Cache', 'winCodeSign')
-let rceditPath = null
-
-if (fs.existsSync(cacheDir)) {
-  for (const entry of fs.readdirSync(cacheDir)) {
-    const candidate = path.join(cacheDir, entry, 'rcedit-x64.exe')
-    if (fs.existsSync(candidate)) {
-      rceditPath = candidate
-      break
-    }
-  }
-}
-
-if (!rceditPath) {
-  console.log('[set-icon] rcedit not found, skipping icon update')
-  process.exit(0)
-}
+const pkg = require('../package.json')
 
 const exe = path.join(__dirname, '..', 'release', 'win-unpacked', 'ScriptPlayerPlus.exe')
 const ico = path.join(__dirname, '..', 'public', 'icon.ico')
@@ -30,6 +12,53 @@ if (!fs.existsSync(exe)) {
   process.exit(0)
 }
 
-console.log('[set-icon] Applying icon to', exe)
-execSync(`"${rceditPath}" "${exe}" --set-icon "${ico}"`, { stdio: 'inherit' })
+function normalizeVersion(version) {
+  const parts = String(version).split('.').map((part) => Number.parseInt(part, 10) || 0)
+  while (parts.length < 4) parts.push(0)
+  return parts.slice(0, 4).join('.')
+}
+
+const version = normalizeVersion(pkg.version)
+const lang = 1033
+const codepage = 1200
+
+console.log('[set-icon] Updating executable resources for', exe)
+
+const exeData = fs.readFileSync(exe)
+const executable = ResEdit.NtExecutable.from(exeData)
+const resources = ResEdit.NtExecutableResource.from(executable)
+const iconFile = ResEdit.Data.IconFile.from(fs.readFileSync(ico))
+const iconGroups = ResEdit.Resource.IconGroupEntry.fromEntries(resources.entries)
+const versionInfos = ResEdit.Resource.VersionInfo.fromEntries(resources.entries)
+
+ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
+  resources.entries,
+  iconGroups[0]?.id ?? 101,
+  iconGroups[0]?.lang ?? lang,
+  iconFile.icons.map((item) => item.data)
+)
+
+const versionInfo = versionInfos[0] ?? ResEdit.Resource.VersionInfo.createEmpty()
+versionInfo.lang = versionInfo.lang || lang
+versionInfo.setFileVersion(version, lang)
+versionInfo.setProductVersion(version, lang)
+versionInfo.setStringValues(
+  { lang, codepage },
+  {
+    CompanyName: 'ScriptPlayerPlus',
+    FileDescription: pkg.description,
+    FileVersion: version,
+    InternalName: pkg.build.productName,
+    OriginalFilename: 'ScriptPlayerPlus.exe',
+    ProductName: pkg.build.productName,
+    ProductVersion: version,
+  }
+)
+versionInfo.outputToResourceEntries(resources.entries)
+
+resources.outputResource(executable)
+const outputPath = `${exe}.tmp`
+fs.writeFileSync(outputPath, Buffer.from(executable.generate()))
+fs.renameSync(outputPath, exe)
+
 console.log('[set-icon] Done!')

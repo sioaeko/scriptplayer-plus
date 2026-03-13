@@ -15,8 +15,12 @@ export default function TitleBar({ onOpenSettings }: TitleBarProps) {
         <div className="w-4 h-4 rounded bg-accent flex items-center justify-center text-[8px] font-bold text-surface-300">
           S+
         </div>
-        <span className="text-xs font-medium text-text-secondary">{t('app.name')}</span>
-        <span className="text-[10px] text-text-muted/50">v0.1.1</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-text-primary">{t('app.name')}</span>
+          <span className="inline-flex items-center rounded-full border border-accent/25 bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent/90">
+            v0.1.2
+          </span>
+        </div>
       </div>
       <div className="titlebar-no-drag flex items-center">
         <button

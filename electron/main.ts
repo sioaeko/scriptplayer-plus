@@ -6,6 +6,10 @@ import https from 'https'
 import { URL } from 'url'
 
 const isMac = process.platform === 'darwin'
+const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
+const AUDIO_EXTS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wma']
+const MEDIA_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS]
+const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']
 
 let mainWindow: BrowserWindow | null = null
 
@@ -69,7 +73,7 @@ ipcMain.handle('dialog:openVideo', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile'],
     filters: [
-      { name: 'Videos', extensions: ['mp4', 'mkv', 'avi', 'webm', 'mov', 'wmv'] },
+      { name: 'Media', extensions: MEDIA_EXTS.map((ext) => ext.slice(1)) },
     ],
   })
   if (result.canceled) return null
@@ -87,8 +91,7 @@ ipcMain.handle('dialog:openFolder', async () => {
 // File system operations
 ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
   try {
-    const videoExts = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
-    const files: Array<{ name: string; path: string; hasScript: boolean; relativePath: string }> = []
+    const files: Array<{ name: string; path: string; type: 'video' | 'audio'; hasScript: boolean; relativePath: string }> = []
 
     function scanDir(dir: string, prefix: string) {
       let entries: fs.Dirent[]
@@ -103,12 +106,13 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
           scanDir(fullPath, prefix ? prefix + '/' + entry.name : entry.name)
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase()
-          if (videoExts.includes(ext)) {
+          if (MEDIA_EXTS.includes(ext)) {
             const baseName = path.basename(entry.name, ext)
             const scriptPath = path.join(dir, baseName + '.funscript')
             files.push({
               name: entry.name,
               path: fullPath,
+              type: VIDEO_EXTS.includes(ext) ? 'video' : 'audio',
               hasScript: fs.existsSync(scriptPath),
               relativePath: prefix ? prefix + '/' + entry.name : entry.name,
             })
@@ -164,12 +168,64 @@ ipcMain.handle('fs:getVideoUrl', async (_event, filePath: string) => {
   return `file:///${filePath.replace(/\\/g, '/')}`
 })
 
+ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {
+  try {
+    return findArtworkForMedia(mediaPath)
+  } catch {
+    return null
+  }
+})
+
 // ============================================================
 // NAS (WebDAV / FTP) Service
 // ============================================================
 
-const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
-const NAS_EXTS = [...VIDEO_EXTS, '.funscript']
+const NAS_EXTS = [...MEDIA_EXTS, '.funscript']
+
+function findArtworkForMedia(mediaPath: string): string | null {
+  const dir = path.dirname(mediaPath)
+  const ext = path.extname(mediaPath)
+  const baseName = path.basename(mediaPath, ext).toLowerCase()
+
+  let entries: string[]
+  try {
+    entries = fs.readdirSync(dir)
+  } catch {
+    return null
+  }
+
+  const images = entries
+    .filter((name) => IMAGE_EXTS.includes(path.extname(name).toLowerCase()))
+    .sort((a, b) => a.localeCompare(b))
+
+  if (images.length === 0) return null
+
+  const sameBase = images.find((name) => path.basename(name, path.extname(name)).toLowerCase() === baseName)
+  if (sameBase) return path.join(dir, sameBase)
+
+  const priorityKeywords = ['cover', 'folder', 'front', 'poster', 'preview', 'artwork', 'album', 'thumb']
+  const scored = images
+    .map((name) => {
+      const stem = path.basename(name, path.extname(name)).toLowerCase()
+      let score = 0
+
+      if (stem.includes(baseName)) score += 100
+      for (const keyword of priorityKeywords) {
+        if (stem === keyword) score += 80
+        else if (stem.startsWith(keyword) || stem.endsWith(keyword)) score += 60
+        else if (stem.includes(keyword)) score += 40
+      }
+
+      return { name, score }
+    })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+
+  if (scored[0]?.score > 0) {
+    return path.join(dir, scored[0].name)
+  }
+
+  return path.join(dir, images[0])
+}
 
 // ---- WebDAV helpers (raw HTTP) ----
 

@@ -1,6 +1,6 @@
 {
   "name": "scriptplayer-plus",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ScriptPlayer+ - Funscript video player with Handy integration",
   "main": "dist-electron/main.js",
   "scripts": {

@@ -400,10 +400,14 @@ function AboutSection() {
           <Activity size={24} className="text-accent" />
         </div>
         <div>
-          <div className="text-sm font-semibold text-text-primary">
-            {t('app.name')}
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-semibold text-text-primary">
+              {t('app.name')}
+            </div>
+            <div className="inline-flex items-center rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold leading-none text-accent/90">
+              v0.1.2
+            </div>
           </div>
-          <div className="text-xs text-text-muted">{t('settings.version')} 0.1.1</div>
         </div>
       </div>
 

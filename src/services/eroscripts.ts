@@ -162,7 +162,7 @@ function cleanVideoTitle(filename: string): string {
   let title = filename
     .replace(/\.[^.]+$/, '')
     .replace(/\b(1080p|720p|480p|2160p|4k|uhd|hd)\b/gi, '')
-    .replace(/\b(mp4|mkv|avi|webm|wmv)\b/gi, '')
+    .replace(/\b(mp4|mkv|avi|webm|wmv|mp3|wav|flac|m4a|aac|ogg|opus|wma)\b/gi, '')
     .replace(/\b(xxx|porn)\b/gi, '')
     .replace(/\[.*?\]/g, '')
     .replace(/\(.*?\)/g, '')

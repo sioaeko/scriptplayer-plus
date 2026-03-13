@@ -6,10 +6,11 @@ const zh: Record<string, string> = {
   'sidebar.device': '\u8BBE\u5907',
   'sidebar.openFolder': '\u6253\u5F00\u6587\u4EF6\u5939',
   'sidebar.filterFiles': '\u7B5B\u9009\u6587\u4EF6...',
-  'sidebar.noFiles': '\u6253\u5F00\u6587\u4EF6\u5939\u4EE5\u6D4F\u89C8\u89C6\u9891',
+  'sidebar.noFiles': '\u6253\u5F00\u6587\u4EF6\u5939\u4EE5\u6D4F\u89C8\u5A92\u4F53\u6587\u4EF6',
   'sidebar.noMatch': '\u6CA1\u6709\u5339\u914D\u7684\u6587\u4EF6',
 
-  'player.noVideo': '\u6253\u5F00\u6587\u4EF6\u5939\u6216\u62D6\u5165\u89C6\u9891\u5F00\u59CB',
+  'player.noVideo': '\u6253\u5F00\u6587\u4EF6\u5939\u6216\u62D6\u5165\u89C6\u9891\u6216\u97F3\u9891\u6587\u4EF6\u5F00\u59CB',
+  'player.audioMode': '\u97F3\u9891\u64AD\u653E',
   'player.fullscreen': '\u5168\u5C4F',
 
   'eroscripts.search': '\u641C\u7D22 EroScripts...',

@@ -14,8 +14,9 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Music4,
 } from 'lucide-react'
-import { FunscriptAction } from '../types'
+import { FunscriptAction, MediaType } from '../types'
 import { HandyUploadStatus } from '../services/handy'
 import { useTranslation } from '../i18n'
 import ScriptTimeline from './ScriptTimeline'
@@ -29,12 +30,15 @@ interface HandyOverlayInfo {
 
 interface VideoPlayerProps {
   videoUrl: string | null
+  mediaType: MediaType | null
+  currentFileName: string | null
+  artworkUrl: string | null
   actions: FunscriptAction[]
   onTimeUpdate: (time: number) => void
   onPlay: () => void
   onPause: () => void
   onSeek: (time: number) => void
-  videoRef: React.RefObject<HTMLVideoElement | null>
+  mediaRef: React.MutableRefObject<HTMLMediaElement | null>
   handyInfo?: HandyOverlayInfo | null
   timelineHeight?: number
   timelineWindow?: number
@@ -43,12 +47,15 @@ interface VideoPlayerProps {
 
 export default function VideoPlayer({
   videoUrl,
+  mediaType,
+  currentFileName,
+  artworkUrl,
   actions,
   onTimeUpdate,
   onPlay,
   onPause,
   onSeek,
-  videoRef,
+  mediaRef,
   handyInfo,
   timelineHeight = 64,
   timelineWindow = 10,
@@ -73,51 +80,51 @@ export default function VideoPlayer({
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleTimeUpdate = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-    const t = video.currentTime
+    const media = mediaRef.current
+    if (!media) return
+    const t = media.currentTime
     setCurrentTime(t)
     onTimeUpdate(t)
-  }, [onTimeUpdate, videoRef])
+  }, [mediaRef, onTimeUpdate])
 
   const togglePlay = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-    if (video.paused) {
-      video.play()
+    const media = mediaRef.current
+    if (!media) return
+    if (media.paused) {
+      media.play()
       setPlaying(true)
       onPlay()
     } else {
-      video.pause()
+      media.pause()
       setPlaying(false)
       onPause()
     }
-  }, [onPlay, onPause, videoRef])
+  }, [mediaRef, onPause, onPlay])
 
   const handleSeek = useCallback(
     (time: number) => {
-      const video = videoRef.current
-      if (!video) return
-      video.currentTime = time
+      const media = mediaRef.current
+      if (!media) return
+      media.currentTime = time
       setCurrentTime(time)
       onSeek(time)
     },
-    [onSeek, videoRef]
+    [mediaRef, onSeek]
   )
 
   const handleVolumeChange = (v: number) => {
-    const video = videoRef.current
-    if (!video) return
-    video.volume = v
+    const media = mediaRef.current
+    if (!media) return
+    media.volume = v
     setVolume(v)
     localStorage.setItem('volume', v.toString())
     if (v > 0) setMuted(false)
   }
 
   const toggleMute = () => {
-    const video = videoRef.current
-    if (!video) return
-    video.muted = !muted
+    const media = mediaRef.current
+    if (!media) return
+    media.muted = !muted
     setMuted(!muted)
   }
 
@@ -213,10 +220,17 @@ export default function VideoPlayer({
   }, [togglePlay, volume, currentTime, duration])
 
   useEffect(() => {
-    const video = videoRef.current
-    if (!video || !videoUrl) return
-    video.volume = volume
-  }, [videoUrl, videoRef])
+    const media = mediaRef.current
+    if (!media || !videoUrl) return
+    media.volume = volume
+  }, [mediaRef, videoUrl, volume])
+
+  useEffect(() => {
+    setCurrentTime(0)
+    setDuration(0)
+    setPlaying(false)
+    setShowControls(true)
+  }, [videoUrl])
 
   return (
     <div
@@ -225,22 +239,64 @@ export default function VideoPlayer({
       onMouseMove={resetHideTimer}
       onMouseLeave={() => playing && setShowControls(false)}
     >
-      {/* Video */}
+      {/* Media */}
       <div className="flex-1 relative flex items-center justify-center overflow-hidden" onClick={togglePlay}>
         {videoUrl ? (
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            className="max-w-full max-h-full"
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={() => {
-              const video = videoRef.current
-              if (video) setDuration(video.duration)
-            }}
-            onPlay={() => { setPlaying(true); onPlay() }}
-            onPause={() => { setPlaying(false); onPause() }}
-            onEnded={() => setPlaying(false)}
-          />
+          mediaType === 'audio' ? (
+            <>
+              <audio
+                ref={(node) => { mediaRef.current = node }}
+                src={videoUrl}
+                className="hidden"
+                onTimeUpdate={handleTimeUpdate}
+                onLoadedMetadata={() => {
+                  const media = mediaRef.current
+                  if (media) setDuration(media.duration)
+                }}
+                onPlay={() => { setPlaying(true); onPlay() }}
+                onPause={() => { setPlaying(false); onPause() }}
+                onEnded={() => setPlaying(false)}
+              />
+              <div className="flex flex-col items-center justify-center gap-4 text-center px-6">
+                {artworkUrl ? (
+                  <div className="w-56 h-56 rounded-2xl overflow-hidden border border-surface-100/30 shadow-[0_20px_60px_rgba(0,0,0,0.45)] bg-surface-200/40">
+                    <img
+                      src={artworkUrl}
+                      alt={currentFileName || 'Artwork'}
+                      className="w-full h-full object-cover"
+                      draggable={false}
+                    />
+                  </div>
+                ) : (
+                  <div className="w-24 h-24 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center">
+                    <Music4 size={40} className="text-accent" />
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <div className="text-lg text-text-primary font-medium break-all">
+                    {currentFileName || t('player.audioMode')}
+                  </div>
+                  <div className="text-sm text-text-muted">
+                    {t('player.audioMode')}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <video
+              ref={(node) => { mediaRef.current = node }}
+              src={videoUrl}
+              className="max-w-full max-h-full"
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={() => {
+                const media = mediaRef.current
+                if (media) setDuration(media.duration)
+              }}
+              onPlay={() => { setPlaying(true); onPlay() }}
+              onPause={() => { setPlaying(false); onPause() }}
+              onEnded={() => setPlaying(false)}
+            />
+          )
         ) : (
           <div className="text-text-muted text-sm flex flex-col items-center gap-3">
             <Play size={48} strokeWidth={1} className="text-text-muted/30" />

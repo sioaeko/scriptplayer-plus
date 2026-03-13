@@ -16,17 +16,21 @@
 
 ## Screenshots
 
-| Windows Playback | Audio Playback |
+| Audio Playback + Heatmap | Audio Playback |
 |:-:|:-:|
-| ![Windows](docs/screenshots/playing_mode1.png) | ![Audio Playback](docs/screenshots/main.png) |
+| ![Audio Playback + Heatmap](docs/screenshots/VOICE_HM_TL.png) | ![Audio Playback](docs/screenshots/VOICE_ASMR.png) |
 
-| Heatmap & Timeline | Settings |
+| Timeline Settings | Windows Playback |
 |:-:|:-:|
-| ![Heatmap](docs/screenshots/heatmap.png) | ![Settings](docs/screenshots/setting.png) |
+| ![Timeline Settings](docs/screenshots/Timeline_setting.png) | ![Windows Playback](docs/screenshots/playing_mode1.png) |
 
-| EroScripts Search | macOS |
+| Heatmap & Timeline | EroScripts Search |
 |:-:|:-:|
-| ![Scripts](docs/screenshots/scripts_search.png) | ![macOS](docs/screenshots/macos.png) |
+| ![Heatmap](docs/screenshots/heatmap.png) | ![Scripts](docs/screenshots/scripts_search.png) |
+
+| Settings | macOS |
+|:-:|:-:|
+| ![Settings](docs/screenshots/setting.png) | ![macOS](docs/screenshots/macos.png) |
 
 ## What's New In v0.1.2
 

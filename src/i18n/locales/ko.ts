@@ -12,6 +12,9 @@ const ko: Record<string, string> = {
   'player.noVideo': '\uD3F4\uB354\uB97C \uC5F4\uAC70\uB098 \uB3D9\uC601\uC0C1 \uB610\uB294 \uC624\uB514\uC624 \uD30C\uC77C\uC744 \uB4DC\uB798\uADF8\uD558\uC5EC \uC2DC\uC791\uD558\uC138\uC694',
   'player.audioMode': '\uC624\uB514\uC624 \uC7AC\uC0DD',
   'player.fullscreen': '\uC804\uCCB4 \uD654\uBA74',
+  'player.subtitles': '\uC790\uB9C9',
+  'player.keepAspectRatio': '\uC6D0\uBCF8 \uBE44\uC728 \uC720\uC9C0',
+  'player.fillScreen': '\uD654\uBA74 \uAC00\uB4DD \uCC44\uC6B0\uAE30',
 
   'eroscripts.search': 'EroScripts \uAC80\uC0C9...',
   'eroscripts.autoSearch': '\uD604\uC7AC \uB3D9\uC601\uC0C1 \uC790\uB3D9 \uAC80\uC0C9',
@@ -45,6 +48,7 @@ const ko: Record<string, string> = {
   'settings.title': '\uC124\uC815',
   'settings.general': '\uC77C\uBC18',
   'settings.appearance': '\uC678\uAD00',
+  'settings.subtitleSize': '\uC790\uB9C9 \uD06C\uAE30',
   'settings.language': '\uC5B8\uC5B4',
   'settings.theme': '\uD14C\uB9C8',
   'settings.dark': '\uB2E4\uD06C',

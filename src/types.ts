@@ -46,6 +46,17 @@ export interface EroScriptResult {
   date: string
 }
 
+export interface SubtitleCue {
+  start: number
+  end: number
+  text: string
+}
+
+export interface SubtitleFile {
+  path: string
+  content: string
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -60,6 +71,7 @@ declare global {
       saveFunscript: (videoPath: string, data: string) => Promise<boolean>
       getVideoUrl: (filePath: string) => Promise<string>
       findArtwork: (mediaPath: string) => Promise<string | null>
+      readSubtitles: (mediaPath: string) => Promise<SubtitleFile[]>
 
       // EroScripts
       eroscriptsCheckSession: () => Promise<{ loggedIn: boolean; username: string }>

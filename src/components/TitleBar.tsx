@@ -1,4 +1,5 @@
 import { Minus, Square, X, Settings } from 'lucide-react'
+import { APP_VERSION } from '../constants/app'
 import { useTranslation } from '../i18n'
 
 interface TitleBarProps {
@@ -18,7 +19,7 @@ export default function TitleBar({ onOpenSettings }: TitleBarProps) {
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-medium text-text-primary">{t('app.name')}</span>
           <span className="inline-flex items-center rounded-full border border-accent/25 bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent/90">
-            v0.1.2
+            v{APP_VERSION}
           </span>
         </div>
       </div>

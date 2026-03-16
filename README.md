@@ -32,13 +32,12 @@
 |:-:|:-:|
 | ![Settings](docs/screenshots/setting.png) | ![macOS](docs/screenshots/macos.png) |
 
-## What's New In v0.1.2
+## What's New In v0.1.3
 
-- **Audio Playback Support** — Play local audio files with artwork detection and the same Handy/funscript workflow
-- **Default Timeline Visibility Settings** — Choose whether the timeline and heatmap start enabled when opening scripted media
-- **Cleaner First Launch** — New installs start with both timeline and heatmap turned off by default
-- **Custom Windows App Icon** — Restored custom executable icon and updated Windows metadata/version info
-- **Refined Player UI** — Improved title bar version badge and updated settings to match the new playback options
+- **Edge-To-Edge Fullscreen Video** — Fullscreen playback now fills the screen instead of leaving unused letterboxed space
+- **Auto-Hiding Fullscreen Controls** — The playback bar and scripted overlays fade away while playing so the video can use the full area
+- **Expanded Subtitle Detection** — Matching `.vtt`, `.srt`, or timestamped `.txt` files can now be detected from the media folder and common subtitle/script subfolders
+- **Version Sync Cleanup** — UI version badges now read directly from the app package version to keep releases aligned
 
 ## Features
 
@@ -66,7 +65,7 @@
 
 ### Windows
 
-1. Download the latest `ScriptPlayerPlus-0.1.2-Windows-x64.zip` from [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)
+1. Download the latest `ScriptPlayerPlus-0.1.3-Windows-x64.zip` from [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)
 2. Extract and run `ScriptPlayerPlus.exe` — no installation required
 
 ### macOS

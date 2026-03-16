@@ -32,13 +32,12 @@
 |:-:|:-:|
 | ![설정](screenshots/setting_kor.png) | ![macOS](screenshots/macos.png) |
 
-## v0.1.2에서 추가된 내용
+## v0.1.3에서 추가된 내용
 
-- **오디오 재생 지원** — 앨범 아트 감지와 함께 로컬 오디오 파일을 재생하고 기존 Handy / funscript 흐름을 그대로 사용할 수 있습니다
-- **기본 타임라인 / 히트맵 표시 설정** — 스크립트가 있는 미디어를 열 때 타임라인과 히트맵을 기본으로 켤지 설정에서 선택할 수 있습니다
-- **더 깔끔한 초기 상태** — 새 설치 기준으로 타임라인과 히트맵은 둘 다 꺼진 상태에서 시작합니다
-- **커스텀 Windows 아이콘 복원** — 실행 파일 아이콘과 Windows 메타데이터를 다시 정리했습니다
-- **플레이어 UI 정리** — 버전 배지와 설정 화면이 새 기능에 맞게 다듬어졌습니다
+- **전체화면 영상 채우기 개선** — 전체화면 재생 시 영상이 화면을 더 꽉 채우도록 표시 방식을 조정했습니다
+- **전체화면 컨트롤 자동 숨김** — 재생 중에는 재생바와 스크립트 오버레이가 서서히 사라져 영상 영역을 온전히 사용할 수 있습니다
+- **확장된 자막 탐지** — 미디어 폴더와 자막/스크립트 하위 폴더의 `.vtt`, `.srt`, 타임스탬프형 `.txt` 자막을 자동으로 찾아 표시합니다
+- **버전 표시 동기화** — 타이틀바와 설정 화면의 버전 배지가 앱 패키지 버전과 항상 같도록 정리했습니다
 
 ## 주요 기능
 
@@ -66,7 +65,7 @@
 
 ### Windows
 
-1. [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)에서 최신 `ScriptPlayerPlus-0.1.2-Windows-x64.zip` 다운로드
+1. [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)에서 최신 `ScriptPlayerPlus-0.1.3-Windows-x64.zip` 다운로드
 2. 압축 해제 후 `ScriptPlayerPlus.exe` 실행 — 설치 불필요
 
 ### macOS

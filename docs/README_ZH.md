@@ -32,13 +32,12 @@
 |:-:|:-:|
 | ![设置](screenshots/setting.png) | ![macOS](screenshots/macos.png) |
 
-## v0.1.2 新增内容
+## v0.1.3 新增内容
 
-- **音频播放支持** — 现在可以播放本地音频文件，并自动检测封面图，同时保留原有 Handy / funscript 工作流
-- **时间线 / 热力图默认显示设置** — 可以在设置中决定打开带脚本的媒体时是否默认显示时间线和热力图
-- **更干净的初始状态** — 新安装时，时间线和热力图默认都处于关闭状态
-- **恢复自定义 Windows 图标** — 重新应用了自定义可执行文件图标和 Windows 元数据
-- **播放器 UI 调整** — 版本徽标和设置界面已经根据新功能做了整理
+- **全屏铺满显示** — 全屏播放时，视频现在会更完整地铺满整个屏幕
+- **全屏控件自动隐藏** — 播放过程中，进度条和脚本叠层会逐渐淡出，让视频占满可用区域
+- **扩展字幕检测** — 现在会自动从媒体文件夹以及常见字幕/脚本子文件夹中查找 `.vtt`、`.srt` 和带时间戳的 `.txt` 字幕
+- **版本显示同步** — 标题栏和设置页中的版本徽标现在会直接跟随应用包版本
 
 ## 主要功能
 
@@ -66,7 +65,7 @@
 
 ### Windows
 
-1. 从 [Releases](https://github.com/sioaeko/scriptplayer-plus/releases) 下载最新的 `ScriptPlayerPlus-0.1.2-Windows-x64.zip`
+1. 从 [Releases](https://github.com/sioaeko/scriptplayer-plus/releases) 下载最新的 `ScriptPlayerPlus-0.1.3-Windows-x64.zip`
 2. 解压后运行 `ScriptPlayerPlus.exe` — 无需安装
 
 ### macOS

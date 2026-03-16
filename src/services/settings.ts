@@ -6,6 +6,7 @@ export interface AppSettings {
 
   // Appearance
   theme: 'dark' // only dark for now
+  subtitleFontSize: number // px, 14-32
 
   // Timeline
   showHeatmapByDefault: boolean
@@ -25,6 +26,7 @@ export const defaultSettings: AppSettings = {
   defaultVideoFolder: '',
   scriptFolder: '',
   theme: 'dark',
+  subtitleFontSize: 20,
   showHeatmapByDefault: false,
   showTimelineByDefault: false,
   timelineHeight: 64,

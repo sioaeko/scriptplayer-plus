@@ -10,15 +10,17 @@ import {
   Minimize,
   BarChart3,
   Activity,
+  Captions,
   Upload,
   Check,
   AlertCircle,
   Loader2,
   Music4,
 } from 'lucide-react'
-import { FunscriptAction, MediaType } from '../types'
+import { FunscriptAction, MediaType, SubtitleCue } from '../types'
 import { HandyUploadStatus } from '../services/handy'
 import { useTranslation } from '../i18n'
+import { getActiveSubtitleText } from '../services/subtitles'
 import ScriptTimeline from './ScriptTimeline'
 import ScriptHeatmap from './ScriptHeatmap'
 
@@ -34,6 +36,7 @@ interface VideoPlayerProps {
   currentFileName: string | null
   artworkUrl: string | null
   actions: FunscriptAction[]
+  subtitleCues: SubtitleCue[]
   onTimeUpdate: (time: number) => void
   onPlay: () => void
   onPause: () => void
@@ -45,6 +48,7 @@ interface VideoPlayerProps {
   timelineHeight?: number
   timelineWindow?: number
   speedColors?: boolean
+  subtitleFontSize?: number
 }
 
 export default function VideoPlayer({
@@ -53,6 +57,7 @@ export default function VideoPlayer({
   currentFileName,
   artworkUrl,
   actions,
+  subtitleCues,
   onTimeUpdate,
   onPlay,
   onPause,
@@ -64,6 +69,7 @@ export default function VideoPlayer({
   timelineHeight = 64,
   timelineWindow = 10,
   speedColors = true,
+  subtitleFontSize = 20,
 }: VideoPlayerProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -81,7 +87,20 @@ export default function VideoPlayer({
   const [muted, setMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showControls, setShowControls] = useState(true)
+  const [showSubtitles, setShowSubtitles] = useState(subtitleCues.length > 0)
+  const [videoFitMode, setVideoFitMode] = useState<'contain' | 'cover'>(() => {
+    const saved = localStorage.getItem('video-fit-mode')
+    return saved === 'cover' ? 'cover' : 'contain'
+  })
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const controlsVisible = !isFullscreen || showControls || !playing
+  const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, currentTime) : ''
+  const subtitleBottomOffset = controlsVisible
+    ? 88 + (showHeatmap ? 32 : 0) + (showTimeline ? timelineHeight : 0)
+    : 24
+  const videoClassName = videoFitMode === 'cover'
+    ? 'block w-full h-full object-cover'
+    : 'block w-full h-full object-contain'
 
   const handleTimeUpdate = useCallback(() => {
     const media = mediaRef.current
@@ -116,43 +135,61 @@ export default function VideoPlayer({
     [mediaRef, onSeek]
   )
 
-  const handleVolumeChange = (v: number) => {
+  const handleVolumeChange = useCallback((v: number) => {
     const media = mediaRef.current
     if (!media) return
     media.volume = v
+    if (v > 0 && media.muted) {
+      media.muted = false
+    }
     setVolume(v)
     localStorage.setItem('volume', v.toString())
     if (v > 0) setMuted(false)
-  }
+  }, [mediaRef])
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     const media = mediaRef.current
     if (!media) return
     media.muted = !muted
     setMuted(!muted)
-  }
+  }, [mediaRef, muted])
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return
-    if (document.fullscreenElement) {
+    if (document.fullscreenElement === containerRef.current) {
       document.exitFullscreen()
     } else {
       containerRef.current.requestFullscreen()
     }
-  }
+  }, [])
 
-  const skip = (seconds: number) => {
+  const toggleVideoFitMode = useCallback(() => {
+    setVideoFitMode((current) => {
+      const next = current === 'cover' ? 'contain' : 'cover'
+      localStorage.setItem('video-fit-mode', next)
+      return next
+    })
+  }, [])
+
+  const skip = useCallback((seconds: number) => {
     handleSeek(Math.max(0, Math.min(duration, currentTime + seconds)))
-  }
+  }, [currentTime, duration, handleSeek])
+
+  const clearHideControlsTimer = useCallback(() => {
+    if (hideControlsTimer.current) {
+      clearTimeout(hideControlsTimer.current)
+      hideControlsTimer.current = null
+    }
+  }, [])
 
   // Mouse movement for auto-hide controls
   const resetHideTimer = useCallback(() => {
     setShowControls(true)
-    if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current)
-    if (playing) {
-      hideControlsTimer.current = setTimeout(() => setShowControls(false), 3000)
+    clearHideControlsTimer()
+    if (isFullscreen && playing) {
+      hideControlsTimer.current = setTimeout(() => setShowControls(false), 2200)
     }
-  }, [playing])
+  }, [clearHideControlsTimer, isFullscreen, playing])
 
   // Show Handy overlay for 2s when connection status or upload status changes
   const prevHandyConnected = useRef<boolean | undefined>(undefined)
@@ -176,11 +213,29 @@ export default function VideoPlayer({
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement)
+      setIsFullscreen(document.fullscreenElement === containerRef.current)
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
+
+  useEffect(() => {
+    if (!isFullscreen || !playing) {
+      clearHideControlsTimer()
+      setShowControls(true)
+      return
+    }
+
+    resetHideTimer()
+    return clearHideControlsTimer
+  }, [clearHideControlsTimer, isFullscreen, playing, resetHideTimer])
+
+  useEffect(() => {
+    return () => {
+      clearHideControlsTimer()
+      if (handyOverlayTimer.current) clearTimeout(handyOverlayTimer.current)
+    }
+  }, [clearHideControlsTimer])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -221,7 +276,7 @@ export default function VideoPlayer({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [togglePlay, volume, currentTime, duration])
+  }, [handleVolumeChange, skip, toggleFullscreen, toggleMute, togglePlay, volume])
 
   useEffect(() => {
     const media = mediaRef.current
@@ -234,19 +289,25 @@ export default function VideoPlayer({
     setDuration(0)
     setPlaying(false)
     setShowControls(true)
+    setShowSubtitles(subtitleCues.length > 0)
     setShowHeatmap(defaultShowHeatmap)
     setShowTimeline(defaultShowTimeline)
-  }, [videoUrl, defaultShowHeatmap, defaultShowTimeline])
+  }, [videoUrl, subtitleCues, defaultShowHeatmap, defaultShowTimeline])
 
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col bg-black relative"
+      className="flex-1 bg-black relative overflow-hidden"
       onMouseMove={resetHideTimer}
-      onMouseLeave={() => playing && setShowControls(false)}
+      onMouseLeave={() => {
+        clearHideControlsTimer()
+        if (isFullscreen && playing) {
+          setShowControls(false)
+        }
+      }}
     >
       {/* Media */}
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden" onClick={togglePlay}>
+      <div className="absolute inset-0 flex items-center justify-center overflow-hidden" onClick={togglePlay}>
         {videoUrl ? (
           mediaType === 'audio' ? (
             <>
@@ -292,7 +353,7 @@ export default function VideoPlayer({
             <video
               ref={(node) => { mediaRef.current = node }}
               src={videoUrl}
-              className="max-w-full max-h-full"
+              className={videoClassName}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={() => {
                 const media = mediaRef.current
@@ -352,122 +413,164 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Script timeline / heatmap */}
-      {actions.length > 0 && (showHeatmap || showTimeline) && (
-        <div className="flex-shrink-0 border-t border-surface-100/20">
-          {showHeatmap && (
-            <div className="h-8">
-              <ScriptHeatmap
-                actions={actions}
-                duration={duration}
-                currentTime={currentTime}
-                onSeek={handleSeek}
-              />
+      {subtitleCues.length > 0 && (
+        <div
+          className="absolute inset-x-0 z-10 px-4 pointer-events-none transition-[bottom] duration-300 ease-out"
+          style={{ bottom: subtitleBottomOffset }}
+          aria-live="polite"
+        >
+          <div className={`mx-auto max-w-4xl text-center transition-opacity duration-200 ${currentSubtitleText ? 'opacity-100' : 'opacity-0'}`}>
+            <div className="inline-block max-w-full rounded-2xl bg-black/72 px-4 py-2 backdrop-blur-sm shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+              <div
+                className="text-white font-medium leading-relaxed whitespace-pre-line [text-shadow:0_1px_2px_rgba(0,0,0,0.85)]"
+                style={{ fontSize: `${subtitleFontSize}px`, lineHeight: 1.45 }}
+              >
+                {currentSubtitleText || ' '}
+              </div>
             </div>
-          )}
-          {showTimeline && (
-            <div style={{ height: timelineHeight }}>
-              <ScriptTimeline
-                actions={actions}
-                currentTime={currentTime}
-                duration={duration}
-                onSeek={handleSeek}
-                windowSize={timelineWindow}
-              />
-            </div>
-          )}
+          </div>
         </div>
       )}
 
-      {/* Controls overlay */}
       <div
-        className={`flex-shrink-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-4 pb-3 pt-8 transition-opacity duration-300 ${
-          showControls || !playing ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        className={`absolute inset-x-0 bottom-0 z-10 transition-[opacity,transform] duration-500 ease-out ${
+          controlsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6 pointer-events-none'
         }`}
       >
-        {/* Progress bar */}
-        <div className="mb-2">
-          <input
-            type="range"
-            min={0}
-            max={duration || 100}
-            step={0.1}
-            value={currentTime}
-            onChange={(e) => handleSeek(parseFloat(e.target.value))}
-            className="w-full h-1"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-
-        {/* Control buttons */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); skip(-5) }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <SkipBack size={18} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); togglePlay() }}
-              className="p-2 text-text-primary hover:text-accent transition-colors"
-            >
-              {playing ? <Pause size={22} /> : <Play size={22} />}
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); skip(5) }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <SkipForward size={18} />
-            </button>
-            <span className="text-xs text-text-secondary ml-2 font-mono tabular-nums">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
+        {/* Script timeline / heatmap */}
+        {actions.length > 0 && (showHeatmap || showTimeline) && (
+          <div className="border-t border-surface-100/20 bg-black/35 backdrop-blur-sm">
+            {showHeatmap && (
+              <div className="h-8">
+                <ScriptHeatmap
+                  actions={actions}
+                  duration={duration}
+                  currentTime={currentTime}
+                  onSeek={handleSeek}
+                />
+              </div>
+            )}
+            {showTimeline && (
+              <div style={{ height: timelineHeight }}>
+                <ScriptTimeline
+                  actions={actions}
+                  currentTime={currentTime}
+                  duration={duration}
+                  onSeek={handleSeek}
+                  windowSize={timelineWindow}
+                />
+              </div>
+            )}
           </div>
+        )}
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleMute() }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
+        {/* Controls overlay */}
+        <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent px-4 pb-3 pt-8">
+          {/* Progress bar */}
+          <div className="mb-2">
             <input
               type="range"
               min={0}
-              max={1}
-              step={0.01}
-              value={muted ? 0 : volume}
-              onChange={(e) => { e.stopPropagation(); handleVolumeChange(parseFloat(e.target.value)) }}
+              max={duration || 100}
+              step={0.1}
+              value={currentTime}
+              onChange={(e) => handleSeek(parseFloat(e.target.value))}
+              className="w-full h-1"
               onClick={(e) => e.stopPropagation()}
-              className="w-20 h-1"
             />
-            {actions.length > 0 && (
-              <>
+          </div>
+
+          {/* Control buttons */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); skip(-5) }}
+                className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <SkipBack size={18} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePlay() }}
+                className="p-2 text-text-primary hover:text-accent transition-colors"
+              >
+                {playing ? <Pause size={22} /> : <Play size={22} />}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); skip(5) }}
+                className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <SkipForward size={18} />
+              </button>
+              <span className="text-xs text-text-secondary ml-2 font-mono tabular-nums">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleMute() }}
+                className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
+              >
+                {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={muted ? 0 : volume}
+                onChange={(e) => { e.stopPropagation(); handleVolumeChange(parseFloat(e.target.value)) }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-20 h-1"
+              />
+              {actions.length > 0 && (
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowTimeline(v => !v) }}
+                    className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showTimeline ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                    title="Timeline"
+                  >
+                    <Activity size={16} />
+                    <span className="text-[10px] font-medium">TL</span>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowHeatmap(v => !v) }}
+                    className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showHeatmap ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                    title="Heatmap"
+                  >
+                    <BarChart3 size={16} />
+                    <span className="text-[10px] font-medium">HM</span>
+                  </button>
+                </>
+              )}
+              {subtitleCues.length > 0 && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowTimeline(v => !v) }}
-                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showTimeline ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                  title="Timeline"
+                  onClick={(e) => { e.stopPropagation(); setShowSubtitles((value) => !value) }}
+                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showSubtitles ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                  title={t('player.subtitles')}
                 >
-                  <Activity size={16} />
-                  <span className="text-[10px] font-medium">TL</span>
+                  <Captions size={16} />
+                  <span className="text-[10px] font-medium">CC</span>
                 </button>
+              )}
+              {mediaType === 'video' && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowHeatmap(v => !v) }}
-                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showHeatmap ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                  title="Heatmap"
+                  onClick={(e) => { e.stopPropagation(); toggleVideoFitMode() }}
+                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${videoFitMode === 'cover' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                  title={videoFitMode === 'cover' ? t('player.fillScreen') : t('player.keepAspectRatio')}
                 >
-                  <BarChart3 size={16} />
-                  <span className="text-[10px] font-medium">HM</span>
+                  <span className="text-[10px] font-semibold tracking-wide">
+                    {videoFitMode === 'cover' ? 'FILL' : 'FIT'}
+                  </span>
                 </button>
-              </>
-            )}
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
+                className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
+              >
+                {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              </button>
+            </div>
           </div>
         </div>
       </div>

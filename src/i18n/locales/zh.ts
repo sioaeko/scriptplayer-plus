@@ -12,6 +12,9 @@ const zh: Record<string, string> = {
   'player.noVideo': '\u6253\u5F00\u6587\u4EF6\u5939\u6216\u62D6\u5165\u89C6\u9891\u6216\u97F3\u9891\u6587\u4EF6\u5F00\u59CB',
   'player.audioMode': '\u97F3\u9891\u64AD\u653E',
   'player.fullscreen': '\u5168\u5C4F',
+  'player.subtitles': '\u5B57\u5E55',
+  'player.keepAspectRatio': '\u4FDD\u6301\u539F\u59CB\u6BD4\u4F8B',
+  'player.fillScreen': '\u94FA\u6EE1\u5C4F\u5E55',
 
   'eroscripts.search': '\u641C\u7D22 EroScripts...',
   'eroscripts.autoSearch': '\u81EA\u52A8\u641C\u7D22\u5F53\u524D\u89C6\u9891',
@@ -45,6 +48,7 @@ const zh: Record<string, string> = {
   'settings.title': '\u8BBE\u7F6E',
   'settings.general': '\u5E38\u89C4',
   'settings.appearance': '\u5916\u89C2',
+  'settings.subtitleSize': '\u5B57\u5E55\u5927\u5C0F',
   'settings.language': '\u8BED\u8A00',
   'settings.theme': '\u4E3B\u9898',
   'settings.dark': '\u6DF1\u8272',

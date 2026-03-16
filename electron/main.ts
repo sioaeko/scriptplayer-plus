@@ -10,6 +10,33 @@ const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
 const AUDIO_EXTS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wma']
 const MEDIA_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS]
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']
+const SUBTITLE_EXTS = ['.vtt', '.srt', '.txt']
+const SUBTITLE_DIR_KEYWORDS = [
+  'script',
+  'scripts',
+  'subtitle',
+  'subtitles',
+  'subs',
+  'caption',
+  'captions',
+  'lyric',
+  'lyrics',
+  'transcript',
+  'translation',
+  'translated',
+  '자막',
+  '대본',
+  '번역',
+  '스크립트',
+  '가사',
+  '字幕',
+  '翻译',
+  '翻譯',
+  '脚本',
+  '歌詞',
+  '歌词',
+]
+const MAX_SUBTITLE_SEARCH_DEPTH = 2
 
 let mainWindow: BrowserWindow | null = null
 
@@ -176,6 +203,25 @@ ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {
   }
 })
 
+ipcMain.handle('fs:readSubtitles', async (_event, mediaPath: string) => {
+  try {
+    return findSubtitleFilesForMedia(mediaPath)
+      .map((subtitlePath) => {
+        try {
+          return {
+            path: subtitlePath,
+            content: readSubtitleContent(subtitlePath),
+          }
+        } catch {
+          return null
+        }
+      })
+      .filter((entry): entry is { path: string; content: string } => entry !== null)
+  } catch {
+    return []
+  }
+})
+
 // ============================================================
 // NAS (WebDAV / FTP) Service
 // ============================================================
@@ -225,6 +271,110 @@ function findArtworkForMedia(mediaPath: string): string | null {
   }
 
   return path.join(dir, images[0])
+}
+
+function findSubtitleFilesForMedia(mediaPath: string): string[] {
+  const mediaDir = path.dirname(mediaPath)
+  const ext = path.extname(mediaPath)
+  const baseName = path.basename(mediaPath, ext).toLowerCase()
+
+  return collectSubtitleCandidates(mediaDir)
+    .map((filePath) => ({
+      filePath,
+      score: scoreSubtitleCandidate(filePath, mediaDir, baseName),
+    }))
+    .sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath))
+    .map(({ filePath }) => filePath)
+}
+
+function collectSubtitleCandidates(rootDir: string): string[] {
+  const results = new Set<string>()
+  const visited = new Set<string>()
+
+  const walk = (currentDir: string, depth: number, matchedKeyword: boolean) => {
+    if (visited.has(currentDir)) return
+    visited.add(currentDir)
+
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      const ext = path.extname(entry.name).toLowerCase()
+      if (SUBTITLE_EXTS.includes(ext)) {
+        results.add(path.join(currentDir, entry.name))
+      }
+    }
+
+    if (depth >= MAX_SUBTITLE_SEARCH_DEPTH) return
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const nextMatchedKeyword = matchedKeyword || directoryLooksLikeSubtitle(entry.name)
+      const shouldDescend = depth === 0 || nextMatchedKeyword
+      if (!shouldDescend) continue
+      walk(path.join(currentDir, entry.name), depth + 1, nextMatchedKeyword)
+    }
+  }
+
+  walk(rootDir, 0, false)
+  return Array.from(results)
+}
+
+function directoryLooksLikeSubtitle(name: string): boolean {
+  const normalized = name.toLowerCase()
+  return SUBTITLE_DIR_KEYWORDS.some((keyword) => normalized.includes(keyword))
+}
+
+function scoreSubtitleCandidate(filePath: string, mediaDir: string, baseName: string): number {
+  const ext = path.extname(filePath).toLowerCase()
+  const stem = path.basename(filePath, ext).toLowerCase()
+  const fileName = path.basename(filePath).toLowerCase()
+  const relativeDir = path.relative(mediaDir, path.dirname(filePath)).toLowerCase()
+
+  let score = 0
+
+  if (ext === '.vtt') score += 400
+  else if (ext === '.srt') score += 320
+  else if (ext === '.txt') score += 240
+
+  if (path.dirname(filePath) === mediaDir) score += 120
+  if (stem === baseName) score += 1200
+  else if (stem.startsWith(`${baseName}.`)) score += 950
+  else if (stem.includes(baseName)) score += 700
+
+  if (directoryLooksLikeSubtitle(relativeDir)) score += 180
+  if (fileName.includes('subtitle') || fileName.includes('caption') || fileName.includes('lyrics')) score += 80
+  if (fileName.includes('자막') || fileName.includes('대본') || fileName.includes('번역')) score += 80
+
+  return score
+}
+
+function readSubtitleContent(filePath: string): string {
+  const buffer = fs.readFileSync(filePath)
+  const utf8 = buffer.toString('utf-8')
+  const utf8ReplacementCount = countReplacementChars(utf8)
+
+  if (utf8ReplacementCount === 0) {
+    return utf8
+  }
+
+  try {
+    const eucKr = new TextDecoder('euc-kr').decode(buffer)
+    if (countReplacementChars(eucKr) < utf8ReplacementCount) {
+      return eucKr
+    }
+  } catch {}
+
+  return utf8
+}
+
+function countReplacementChars(value: string): number {
+  return (value.match(/\uFFFD/g) ?? []).length
 }
 
 // ---- WebDAV helpers (raw HTTP) ----

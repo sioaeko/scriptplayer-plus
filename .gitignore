@@ -22,3 +22,6 @@ Thumbs.db
 
 # Temp
 package-lock.json
+
+# Local private notes
+LOCAL_WORKLOG.md

@@ -12,6 +12,9 @@ const ja: Record<string, string> = {
   'player.noVideo': '\u30D5\u30A9\u30EB\u30C0\u30FC\u3092\u958B\u304F\u304B\u52D5\u753B\u307E\u305F\u306F\u97F3\u58F0\u30D5\u30A1\u30A4\u30EB\u3092\u30C9\u30E9\u30C3\u30B0\u3057\u3066\u958B\u59CB',
   'player.audioMode': '\u97F3\u58F0\u518D\u751F',
   'player.fullscreen': '\u30D5\u30EB\u30B9\u30AF\u30EA\u30FC\u30F3',
+  'player.subtitles': '\u5B57\u5E55',
+  'player.keepAspectRatio': '\u5143\u306E\u7E26\u6A2A\u6BD4\u3092\u7DAD\u6301',
+  'player.fillScreen': '\u753B\u9762\u3044\u3063\u3071\u3044\u306B\u8868\u793A',
 
   'eroscripts.search': 'EroScripts\u3092\u691C\u7D22...',
   'eroscripts.autoSearch': '\u73FE\u5728\u306E\u52D5\u753B\u3092\u81EA\u52D5\u691C\u7D22',
@@ -45,6 +48,7 @@ const ja: Record<string, string> = {
   'settings.title': '\u8A2D\u5B9A',
   'settings.general': '\u4E00\u822C',
   'settings.appearance': '\u5916\u89B3',
+  'settings.subtitleSize': '\u5B57\u5E55\u30B5\u30A4\u30BA',
   'settings.language': '\u8A00\u8A9E',
   'settings.theme': '\u30C6\u30FC\u30DE',
   'settings.dark': '\u30C0\u30FC\u30AF',

@@ -12,6 +12,9 @@ const en: Record<string, string> = {
   'player.noVideo': 'Open a folder or drag a video or audio file to start',
   'player.audioMode': 'Audio playback',
   'player.fullscreen': 'Fullscreen',
+  'player.subtitles': 'Subtitles',
+  'player.keepAspectRatio': 'Keep aspect ratio',
+  'player.fillScreen': 'Fill screen',
 
   'eroscripts.search': 'Search EroScripts...',
   'eroscripts.autoSearch': 'Auto-search for current video',
@@ -45,6 +48,7 @@ const en: Record<string, string> = {
   'settings.title': 'Settings',
   'settings.general': 'General',
   'settings.appearance': 'Appearance',
+  'settings.subtitleSize': 'Subtitle Size',
   'settings.language': 'Language',
   'settings.theme': 'Theme',
   'settings.dark': 'Dark',

@@ -3,10 +3,11 @@ import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import VideoPlayer from './components/VideoPlayer'
 import Settings from './components/Settings'
-import { VideoFile, Funscript, FunscriptAction, MediaType } from './types'
+import { VideoFile, Funscript, FunscriptAction, MediaType, SubtitleCue, SubtitleFile } from './types'
 import { parseFunscript } from './services/funscript'
 import { handyService, HandyUploadStatus } from './services/handy'
 import { AppSettings, loadSettings, saveSettings } from './services/settings'
+import { parseSubtitleFile } from './services/subtitles'
 import { useTranslation } from './i18n'
 
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
@@ -27,6 +28,7 @@ export default function App() {
   const [currentFileType, setCurrentFileType] = useState<MediaType | null>(null)
   const [artworkUrl, setArtworkUrl] = useState<string | null>(null)
   const [funscript, setFunscript] = useState<Funscript | null>(null)
+  const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([])
   const [handyConnected, setHandyConnected] = useState(false)
   const [scriptUploadUrl, setScriptUploadUrl] = useState<string | null>(null)
   const [handyUploadStatus, setHandyUploadStatus] = useState<HandyUploadStatus>('idle')
@@ -70,6 +72,9 @@ export default function App() {
 
     setCurrentFile(filePath)
     setCurrentFileType(resolvedType)
+    setFunscript(null)
+    setSubtitleCues([])
+    setScriptUploadUrl(null)
 
     const url = await window.electronAPI.getVideoUrl(filePath)
     setVideoUrl(url)
@@ -83,10 +88,12 @@ export default function App() {
       }
     }
 
+    const subtitleFiles = await window.electronAPI.readSubtitles(filePath)
+    setSubtitleCues(selectSubtitleCues(subtitleFiles))
+
     const script = await window.electronAPI.readFunscript(filePath, settings.scriptFolder)
     const parsed = script ? parseFunscript(script) : null
     setFunscript(parsed)
-    setScriptUploadUrl(null)
 
     if (parsed && handyService.isConnected) {
       uploadToHandy(parsed.actions)
@@ -224,6 +231,7 @@ export default function App() {
           currentFileName={currentFile ? getFileName(currentFile) : null}
           artworkUrl={artworkUrl}
           actions={actions}
+          subtitleCues={subtitleCues}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
           onPause={handlePause}
@@ -235,6 +243,7 @@ export default function App() {
           timelineHeight={settings.timelineHeight}
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}
+          subtitleFontSize={settings.subtitleFontSize}
         />
       </div>
 
@@ -250,4 +259,15 @@ export default function App() {
 
 function getFileName(filePath: string): string {
   return filePath.split(/[\\/]/).pop() || ''
+}
+
+function selectSubtitleCues(subtitleFiles: SubtitleFile[]): SubtitleCue[] {
+  for (const subtitleFile of subtitleFiles) {
+    const cues = parseSubtitleFile(subtitleFile.content, subtitleFile.path)
+    if (cues.length > 0) {
+      return cues
+    }
+  }
+
+  return []
 }

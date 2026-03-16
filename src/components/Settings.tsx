@@ -9,6 +9,7 @@ import {
   X,
   FolderOpen,
 } from 'lucide-react'
+import { APP_VERSION } from '../constants/app'
 import { AppSettings } from '../services/settings'
 import { useTranslation } from '../i18n'
 
@@ -167,8 +168,16 @@ function GeneralSection({
   )
 }
 
-function AppearanceSection() {
+function AppearanceSection({
+  settings,
+  onChange,
+}: {
+  settings: AppSettings
+  onChange: (s: AppSettings) => void
+}) {
   const { t } = useTranslation()
+  const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
+    onChange({ ...settings, [key]: val })
   return (
     <div>
       <SectionHeading>{t('settings.appearance')}</SectionHeading>
@@ -180,6 +189,23 @@ function AppearanceSection() {
         >
           <option value="dark">{t('settings.dark')}</option>
         </select>
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.subtitleSize')}
+        description={`${settings.subtitleFontSize}px`}
+      >
+        <input
+          type="range"
+          min={14}
+          max={32}
+          step={1}
+          value={settings.subtitleFontSize}
+          onChange={(e) => update('subtitleFontSize', Number(e.target.value))}
+          className="w-36"
+        />
       </FieldRow>
     </div>
   )
@@ -429,7 +455,7 @@ function AboutSection() {
               {t('app.name')}
             </div>
             <div className="inline-flex items-center rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold leading-none text-accent/90">
-              v0.1.2
+              v{APP_VERSION}
             </div>
           </div>
         </div>
@@ -511,7 +537,7 @@ export default function Settings({
       case 'general':
         return <GeneralSection settings={settings} onChange={handleChange} />
       case 'appearance':
-        return <AppearanceSection />
+        return <AppearanceSection settings={settings} onChange={handleChange} />
       case 'timeline':
         return <TimelineSection settings={settings} onChange={handleChange} />
       case 'device':

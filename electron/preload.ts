@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   openScriptFile: () => ipcRenderer.invoke('dialog:openScriptFile'),
   openSubtitleFile: () => ipcRenderer.invoke('dialog:openSubtitleFile'),
+  getDroppedFilePath: (file: File) => webUtils.getPathForFile(file),
 
   // File system
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),

@@ -107,22 +107,25 @@ export default function App() {
     setSubtitleCues([])
     setScriptUploadUrl(null)
 
-    const url = await window.electronAPI.getVideoUrl(filePath)
-    setVideoUrl(url)
     setArtworkUrl(null)
 
-    if (resolvedType === 'audio') {
-      const artworkPath = await window.electronAPI.findArtwork(filePath)
-      if (artworkPath) {
-        const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
-        setArtworkUrl(nextArtworkUrl)
-      }
-    }
+    const [url, nextSubtitleCues, parsed, artworkPath] = await Promise.all([
+      window.electronAPI.getVideoUrl(filePath),
+      loadSubtitleCues(filePath, resolvedType),
+      loadScript(filePath),
+      resolvedType === 'audio'
+        ? window.electronAPI.findArtwork(filePath)
+        : Promise.resolve<string | null>(null),
+    ])
 
-    setSubtitleCues(await loadSubtitleCues(filePath, resolvedType))
-
-    const parsed = await loadScript(filePath)
+    setVideoUrl(url)
+    setSubtitleCues(nextSubtitleCues)
     setFunscript(parsed)
+
+    if (artworkPath) {
+      const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
+      setArtworkUrl(nextArtworkUrl)
+    }
 
     if (parsed && handyService.isConnected) {
       uploadToHandy(parsed.actions)
@@ -282,7 +285,7 @@ export default function App() {
       const file = files[0]
       const mediaType = getMediaTypeFromPath(file.name)
       if (mediaType) {
-        const path = (file as any).path as string
+        const path = window.electronAPI.getDroppedFilePath(file) || (file as any).path as string
         if (path) {
           await openMediaFile(path, mediaType)
         }

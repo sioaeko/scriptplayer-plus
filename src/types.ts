@@ -69,6 +69,7 @@ declare global {
       openFolder: () => Promise<string | null>
       openScriptFile: () => Promise<string | null>
       openSubtitleFile: () => Promise<string | null>
+      getDroppedFilePath: (file: File) => string
       readDir: (path: string) => Promise<VideoFile[]>
       readFunscript: (videoPath: string, scriptFolder?: string) => Promise<Funscript | null>
       readFunscriptFile: (filePath: string) => Promise<Funscript | null>

@@ -38,8 +38,12 @@ const SUBTITLE_DIR_KEYWORDS = [
   '歌词',
 ]
 const MAX_SUBTITLE_SEARCH_DEPTH = 2
+const MAX_SCAN_SUBTITLE_VALIDATION_CANDIDATES = 3
+const SCAN_YIELD_INTERVAL = 25
 
 let mainWindow: BrowserWindow | null = null
+const subtitleCandidateCache = new Map<string, string[]>()
+const subtitleAnalysisCache = new Map<string, { content: string; hasCues: boolean } | null>()
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -142,24 +146,35 @@ ipcMain.handle('dialog:openSubtitleFile', async () => {
 ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
   try {
     const files: Array<{ name: string; path: string; type: 'video' | 'audio'; hasScript: boolean; hasSubtitles: boolean; relativePath: string }> = []
+    let scannedEntries = 0
 
-    function scanDir(dir: string, prefix: string) {
+    const maybeYieldDuringScan = async () => {
+      scannedEntries += 1
+      if (scannedEntries % SCAN_YIELD_INTERVAL === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+    }
+
+    const scanDir = async (dir: string, prefix: string): Promise<void> => {
       let entries: fs.Dirent[]
       try {
-        entries = fs.readdirSync(dir, { withFileTypes: true })
+        entries = await fs.promises.readdir(dir, { withFileTypes: true })
       } catch {
         return
       }
+
       for (const entry of entries) {
+        await maybeYieldDuringScan()
+
         const fullPath = path.join(dir, entry.name)
         if (entry.isDirectory()) {
-          scanDir(fullPath, prefix ? prefix + '/' + entry.name : entry.name)
+          await scanDir(fullPath, prefix ? prefix + '/' + entry.name : entry.name)
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase()
           if (MEDIA_EXTS.includes(ext)) {
             const baseName = path.basename(entry.name, ext)
             const scriptPath = path.join(dir, baseName + '.funscript')
-            const hasSubtitles = findSubtitleFilesForMedia(fullPath).length > 0
+            const hasSubtitles = hasSubtitlesForMediaScan(fullPath)
             files.push({
               name: entry.name,
               path: fullPath,
@@ -173,7 +188,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
       }
     }
 
-    scanDir(dirPath, '')
+    await scanDir(dirPath, '')
     return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
   } catch {
     return []
@@ -319,37 +334,63 @@ function findArtworkForMedia(mediaPath: string): string | null {
 }
 
 function findSubtitleFilesForMedia(mediaPath: string): string[] {
+  return findSubtitleMatches(mediaPath, 'full')
+}
+
+function hasSubtitlesForMediaScan(mediaPath: string): boolean {
+  return findSubtitleMatches(mediaPath, 'scan').length > 0
+}
+
+function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[] {
   const mediaDir = path.dirname(mediaPath)
   const ext = path.extname(mediaPath)
   const baseName = path.basename(mediaPath, ext).toLowerCase()
   const mediaType = VIDEO_EXTS.includes(ext.toLowerCase()) ? 'video' : 'audio'
 
-  return collectSubtitleCandidates(mediaDir)
+  const rankedCandidates = collectSubtitleCandidates(mediaDir)
     .map((filePath) => {
-      const content = readSubtitleContent(filePath)
-      const cues = parseSubtitleFile(content, filePath)
-      if (cues.length === 0) return null
-
-      const fileScore = scoreSubtitleCandidate(filePath, mediaDir, baseName)
-      const videoScore = mediaType === 'video'
-        ? getVideoSubtitleMatchScore(mediaPath, { path: filePath, content })
-        : 0
-
-      if (mediaType === 'video' && videoScore < 0) {
-        return null
-      }
-
       return {
         filePath,
-        score: fileScore + videoScore,
+        score: scoreSubtitleCandidate(filePath, mediaDir, baseName),
       }
     })
-    .filter((entry): entry is { filePath: string; score: number } => entry !== null)
+    .sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath))
+  const candidatesToValidate = mode === 'scan'
+    ? rankedCandidates.slice(0, MAX_SCAN_SUBTITLE_VALIDATION_CANDIDATES)
+    : rankedCandidates
+  const matches: Array<{ filePath: string; score: number }> = []
+
+  for (const candidate of candidatesToValidate) {
+    const analysis = readSubtitleAnalysis(candidate.filePath)
+    if (!analysis?.hasCues) continue
+
+    let score = candidate.score
+    if (mediaType === 'video') {
+      const videoScore = getVideoSubtitleMatchScore(mediaPath, {
+        path: candidate.filePath,
+        content: analysis.content,
+      })
+      if (videoScore < 0) continue
+      score += videoScore
+    }
+
+    matches.push({
+      filePath: candidate.filePath,
+      score,
+    })
+  }
+
+  return matches
     .sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath))
     .map(({ filePath }) => filePath)
 }
 
 function collectSubtitleCandidates(rootDir: string): string[] {
+  const cached = subtitleCandidateCache.get(rootDir)
+  if (cached) {
+    return cached
+  }
+
   const results = new Set<string>()
   const visited = new Set<string>()
 
@@ -384,7 +425,9 @@ function collectSubtitleCandidates(rootDir: string): string[] {
   }
 
   walk(rootDir, 0, false)
-  return Array.from(results)
+  const collected = Array.from(results)
+  subtitleCandidateCache.set(rootDir, collected)
+  return collected
 }
 
 function directoryLooksLikeSubtitle(name: string): boolean {
@@ -484,6 +527,23 @@ function readSubtitleContent(filePath: string): string {
   } catch {}
 
   return utf8
+}
+
+function readSubtitleAnalysis(filePath: string): { content: string; hasCues: boolean } | null {
+  if (subtitleAnalysisCache.has(filePath)) {
+    return subtitleAnalysisCache.get(filePath) ?? null
+  }
+
+  try {
+    const content = readSubtitleContent(filePath)
+    const hasCues = parseSubtitleFile(content, filePath).length > 0
+    const analysis = { content, hasCues }
+    subtitleAnalysisCache.set(filePath, analysis)
+    return analysis
+  } catch {
+    subtitleAnalysisCache.set(filePath, null)
+    return null
+  }
 }
 
 function countReplacementChars(value: string): number {

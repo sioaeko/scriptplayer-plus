@@ -106,6 +106,7 @@ export default function VideoPlayer({
   const [showControls, setShowControls] = useState(true)
   const [showSubtitles, setShowSubtitles] = useState(subtitleCues.length > 0)
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const playbackFrameRef = useRef<number | null>(null)
   const handledAutoPlayRequest = useRef(0)
   const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, currentTime) : ''
   const isPortraitVideo = videoAspectRatio !== null && videoAspectRatio < 1
@@ -121,27 +122,27 @@ export default function VideoPlayer({
     isPortraitVideo,
   })
 
-  const handleTimeUpdate = useCallback(() => {
+  const syncCurrentTimeFromMedia = useCallback(() => {
     const media = mediaRef.current
     if (!media) return
-    const t = media.currentTime
-    setCurrentTime(t)
-    onTimeUpdate(t)
+    const nextTime = media.currentTime
+    setCurrentTime((prevTime) => (Math.abs(prevTime - nextTime) >= 1 / 240 ? nextTime : prevTime))
+    onTimeUpdate(nextTime)
   }, [mediaRef, onTimeUpdate])
+
+  const handleTimeUpdate = useCallback(() => {
+    syncCurrentTimeFromMedia()
+  }, [syncCurrentTimeFromMedia])
 
   const togglePlay = useCallback(() => {
     const media = mediaRef.current
     if (!media) return
     if (media.paused) {
       void media.play()
-      setPlaying(true)
-      void onPlay()
     } else {
       media.pause()
-      setPlaying(false)
-      void onPause()
     }
-  }, [mediaRef, onPause, onPlay])
+  }, [mediaRef])
 
   const handleSeek = useCallback(
     (time: number) => {
@@ -256,6 +257,9 @@ export default function VideoPlayer({
 
   useEffect(() => {
     return () => {
+      if (playbackFrameRef.current !== null) {
+        cancelAnimationFrame(playbackFrameRef.current)
+      }
       clearHideControlsTimer()
       if (deviceOverlayTimer.current) clearTimeout(deviceOverlayTimer.current)
     }
@@ -314,6 +318,47 @@ export default function VideoPlayer({
     media.defaultPlaybackRate = playbackRate
     media.playbackRate = playbackRate
   }, [mediaRef, playbackRate, videoUrl])
+
+  useEffect(() => {
+    const cancelFrame = () => {
+      if (playbackFrameRef.current !== null) {
+        cancelAnimationFrame(playbackFrameRef.current)
+        playbackFrameRef.current = null
+      }
+    }
+
+    const tick = () => {
+      const media = mediaRef.current
+      if (!media) {
+        cancelFrame()
+        return
+      }
+
+      syncCurrentTimeFromMedia()
+
+      if (media.paused && !media.seeking) {
+        playbackFrameRef.current = null
+        return
+      }
+
+      playbackFrameRef.current = requestAnimationFrame(tick)
+    }
+
+    cancelFrame()
+
+    const media = mediaRef.current
+    if (!media || !videoUrl) {
+      return cancelFrame
+    }
+
+    if (!media.paused || media.seeking) {
+      playbackFrameRef.current = requestAnimationFrame(tick)
+    } else {
+      syncCurrentTimeFromMedia()
+    }
+
+    return cancelFrame
+  }, [mediaRef, playing, syncCurrentTimeFromMedia, videoUrl])
 
   useEffect(() => {
     setCurrentTime(0)

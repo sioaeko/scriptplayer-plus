@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![Settings](docs/screenshots/setting.png) | ![macOS](docs/screenshots/macos.png) |
 
-## Experimental v0.1.5-exp.3
+## Experimental v0.1.5-exp.4
 
-The `v0.1.5-exp.3` prerelease adds an experimental `Direct Serial (COM)` provider for TCode-compatible multi-axis devices. It sends OSR / FUNSR-style `L0/L1/L2/R0/R1/R2` commands as a single-line TCode payload and keeps the existing `Intiface / Buttplug` path as an alternative.
+The `v0.1.5-exp.4` prerelease focuses on TCode-compatible multi-axis devices with `Direct Serial (COM)` support, one-line `L0/L1/L2/R0/R1/R2` output, smoother timeline and heatmap playback updates, and improved Handy re-sync after timeline seeks.
 
 | Experimental v0.1.5 Preview |
 |:-:|
 | ![Experimental v0.1.5 Preview](docs/screenshots/preview_v015_exp1.png) |
 
-- Download the prerelease: [ScriptPlayer+ v0.1.5-exp.3](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.3)
+- Download the prerelease: [ScriptPlayer+ v0.1.5-exp.4](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.4)
 
 ## What's New In v0.1.4
 
@@ -83,7 +83,7 @@ The `v0.1.5-exp.3` prerelease adds an experimental `Direct Serial (COM)` provide
 
 1. Download the latest `ScriptPlayerPlus-0.1.4-Windows-x64.zip` from [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)
 2. Extract and run `ScriptPlayerPlus.exe` — no installation required
-3. For the experimental Direct Serial / Intiface build, download `ScriptPlayerPlus-0.1.5-exp.3-Windows-x64.zip` from [the v0.1.5-exp.3 prerelease](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.3)
+3. For the experimental Direct Serial / Intiface build, download `ScriptPlayerPlus-0.1.5-exp.4-Windows-x64.zip` from [the v0.1.5-exp.4 prerelease](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.4)
 
 ### macOS
 

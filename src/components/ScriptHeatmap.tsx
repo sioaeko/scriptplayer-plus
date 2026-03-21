@@ -40,43 +40,47 @@ export default function ScriptHeatmap({
 }: ScriptHeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current
+  const renderBaseCanvas = useCallback(() => {
     const container = containerRef.current
-    if (!canvas || !container || actions.length < 2 || duration <= 0) return
+    if (!container) return null
 
     const rect = container.getBoundingClientRect()
     const dpr = window.devicePixelRatio || 1
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
-
-    const ctx = canvas.getContext('2d')!
-    ctx.scale(dpr, dpr)
-
-    const w = rect.width
-    const h = rect.height
+    const widthPx = Math.max(1, Math.round(rect.width * dpr))
+    const heightPx = Math.max(1, Math.round(rect.height * dpr))
     const durationMs = duration * 1000
 
-    // Background
+    const baseCanvas = baseCanvasRef.current ?? document.createElement('canvas')
+    baseCanvas.width = widthPx
+    baseCanvas.height = heightPx
+    baseCanvasRef.current = baseCanvas
+
+    const ctx = baseCanvas.getContext('2d')
+    if (!ctx) return null
+
+    ctx.clearRect(0, 0, widthPx, heightPx)
     ctx.fillStyle = '#11111b'
-    ctx.fillRect(0, 0, w, h)
+    ctx.fillRect(0, 0, widthPx, heightPx)
 
-    // Draw heatmap bars
-    const barWidth = Math.max(1, w / 200) // ~200 segments across
-    const segmentMs = durationMs / Math.floor(w / barWidth)
+    if (actions.length < 2 || duration <= 0) {
+      return { baseCanvas, rect, dpr }
+    }
 
-    for (let i = 0; i < Math.floor(w / barWidth); i++) {
+    const barWidthPx = Math.max(1, Math.round(widthPx / 200))
+    const segmentCount = Math.max(1, Math.floor(widthPx / barWidthPx))
+    const segmentMs = durationMs / segmentCount
+
+    for (let i = 0; i < segmentCount; i++) {
       const segStart = i * segmentMs
       const segEnd = segStart + segmentMs
 
-      // Find actions in this segment and calculate average speed
       let totalSpeed = 0
       let count = 0
       for (let j = 0; j < actions.length - 1; j++) {
         const a = actions[j]
         const b = actions[j + 1]
-        // Check if this action pair overlaps with segment
         if (b.at < segStart || a.at > segEnd) continue
         totalSpeed += getSpeed(a, b)
         count++
@@ -89,23 +93,43 @@ export default function ScriptHeatmap({
         ctx.fillStyle = '#1e1e2e'
       }
 
-      const x = i * barWidth
-      ctx.fillRect(x, 0, barWidth, h)
+      const x = i * barWidthPx
+      ctx.fillRect(x, 0, Math.max(1, barWidthPx), heightPx)
     }
+    return { baseCanvas, rect, dpr }
+  }, [actions, duration])
 
-    // Draw position indicator
-    const posX = (currentTime / duration) * w
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current
+    const prepared = renderBaseCanvas()
+    if (!canvas || !prepared) return
+
+    const { baseCanvas, rect, dpr } = prepared
+    const widthPx = baseCanvas.width
+    const heightPx = baseCanvas.height
+    canvas.width = widthPx
+    canvas.height = heightPx
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.clearRect(0, 0, widthPx, heightPx)
+    ctx.drawImage(baseCanvas, 0, 0)
+
+    if (duration <= 0) return
+
+    const posX = (currentTime / duration) * widthPx
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
-    ctx.fillRect(posX - 1, 0, 2, h)
+    ctx.fillRect(posX - dpr, 0, Math.max(2, dpr * 2), heightPx)
 
-    // Glow around position
-    const glow = ctx.createLinearGradient(posX - 8, 0, posX + 8, 0)
+    const glowRadius = Math.max(8, dpr * 8)
+    const glow = ctx.createLinearGradient(posX - glowRadius, 0, posX + glowRadius, 0)
     glow.addColorStop(0, 'transparent')
     glow.addColorStop(0.5, 'rgba(255, 255, 255, 0.15)')
     glow.addColorStop(1, 'transparent')
     ctx.fillStyle = glow
-    ctx.fillRect(posX - 8, 0, 16, h)
-  }, [actions, duration, currentTime])
+    ctx.fillRect(posX - glowRadius, 0, glowRadius * 2, heightPx)
+  }, [currentTime, duration, renderBaseCanvas])
 
   useEffect(() => {
     const frame = requestAnimationFrame(draw)

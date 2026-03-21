@@ -192,6 +192,10 @@ export default function Sidebar({
     () => osrSerialPorts.find((port) => port.path === selectedOsrSerialPortPath) ?? null,
     [osrSerialPorts, selectedOsrSerialPortPath]
   )
+  const selectedOsrSerialPortValue = useMemo(
+    () => (osrSerialPorts.some((port) => port.path === selectedOsrSerialPortPath) ? selectedOsrSerialPortPath : ''),
+    [osrSerialPorts, selectedOsrSerialPortPath]
+  )
   const availableAxisOptions = useMemo(
     () => buttplugAvailableAxes.map((axisId) => ({
       id: axisId,
@@ -528,7 +532,7 @@ export default function Sidebar({
                       {t('device.serialPort')}
                     </label>
                     <select
-                      value={selectedOsrSerialPortPath}
+                      value={selectedOsrSerialPortValue}
                       onChange={(event) => onOsrSerialPortSelect(event.target.value)}
                       className="w-full bg-surface-300 text-text-primary text-xs px-3 py-2 rounded border border-surface-100/30 focus:border-accent/50 outline-none"
                     >
@@ -601,8 +605,8 @@ export default function Sidebar({
                   </button>
                 ) : (
                   <button
-                    onClick={() => onOsrSerialConnect(selectedOsrSerialPortPath)}
-                    disabled={osrSerialConnecting || !selectedOsrSerialPortPath}
+                    onClick={() => onOsrSerialConnect(selectedOsrSerialPortValue)}
+                    disabled={osrSerialConnecting || !selectedOsrSerialPortValue}
                     className="w-full py-2 text-xs bg-accent/10 text-accent hover:bg-accent/20 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {osrSerialConnecting ? (

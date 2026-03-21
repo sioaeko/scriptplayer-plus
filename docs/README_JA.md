@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![設定](screenshots/setting.png) | ![macOS](screenshots/macos.png) |
 
-## 実験版 v0.1.5-exp.3
+## 実験版 v0.1.5-exp.4
 
-`v0.1.5-exp.3` のプレリリースでは、TCode 対応のマルチアクシス機器向けに実験的な `Direct Serial (COM)` provider を追加しています。OSR / FUNSR 系の `L0/L1/L2/R0/R1/R2` コマンドを 1 行の TCode として送信し、既存の `Intiface / Buttplug` 経路も代替手段として維持しています。
+`v0.1.5-exp.4` のプレリリースでは、TCode 対応のマルチアクシス機器向け `Direct Serial (COM)`、`L0/L1/L2/R0/R1/R2` の 1 行 TCode 出力、より滑らかなタイムライン / ヒートマップ追従、そしてタイムライン seek 後の Handy 再同期改善を含みます。
 
-| v0.1.5-exp.3 プレビュー |
+| v0.1.5-exp.4 プレビュー |
 |:-:|
-| ![v0.1.5-exp.3 プレビュー](screenshots/preview_v015_exp1.png) |
+| ![v0.1.5-exp.4 プレビュー](screenshots/preview_v015_exp1.png) |
 
-- プレリリースのダウンロード: [ScriptPlayer+ v0.1.5-exp.3](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.3)
+- プレリリースのダウンロード: [ScriptPlayer+ v0.1.5-exp.4](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.4)
 
 ## v0.1.4 の追加内容
 
@@ -83,7 +83,7 @@
 
 1. [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)から最新の `ScriptPlayerPlus-0.1.4-Windows-x64.zip` をダウンロード
 2. 解凍して`ScriptPlayerPlus.exe`を実行 — インストール不要
-3. Direct Serial / Intiface 実験ビルドは [v0.1.5-exp.3 プレリリース](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.3) から `ScriptPlayerPlus-0.1.5-exp.3-Windows-x64.zip` をダウンロード
+3. Direct Serial / Intiface 実験ビルドは [v0.1.5-exp.4 プレリリース](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.4) から `ScriptPlayerPlus-0.1.5-exp.4-Windows-x64.zip` をダウンロード
 
 ### macOS
 

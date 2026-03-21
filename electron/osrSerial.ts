@@ -1,12 +1,15 @@
 import { app } from 'electron'
+import { execFile } from 'child_process'
 import { SerialPortStream } from '@serialport/stream'
 import type { AutoDetectTypes } from '@serialport/bindings-cpp'
 import { createRequire } from 'module'
 import path from 'path'
+import { promisify } from 'util'
 import { OsrSerialPortInfo, OsrSerialState } from '../src/types'
 
 const DEFAULT_BAUD_RATE = 115200
 const runtimeRequire = createRequire(import.meta.url)
+const execFileAsync = promisify(execFile)
 
 type SerialPortBinding = AutoDetectTypes
 type RuntimeSerialPort = SerialPortStream<SerialPortBinding>
@@ -49,7 +52,7 @@ export class OsrSerialManager {
   }
 
   async listPorts(): Promise<OsrSerialPortInfo[]> {
-    const ports = await getSerialPortBinding().list()
+    const ports = await listAvailablePorts()
     return ports
       .map((port) => ({
         path: port.path,
@@ -241,6 +244,62 @@ function getSerialPortBinding(): SerialPortBinding {
 
   cachedBinding = (bindingsModule as { autoDetect: () => SerialPortBinding }).autoDetect()
   return cachedBinding
+}
+
+async function listAvailablePorts(): Promise<RawSerialPortInfo[]> {
+  const portMap = new Map<string, RawSerialPortInfo>()
+
+  try {
+    const ports = await getSerialPortBinding().list()
+    for (const port of ports) {
+      portMap.set(port.path, {
+        path: port.path,
+        manufacturer: port.manufacturer,
+        serialNumber: port.serialNumber,
+        vendorId: port.vendorId,
+        productId: port.productId,
+        pnpId: port.pnpId,
+      })
+    }
+  } catch {
+    // Keep going and try platform-specific fallbacks below.
+  }
+
+  if (process.platform === 'win32') {
+    for (const port of await listWindowsRegistryPorts()) {
+      const existing = portMap.get(port.path)
+      portMap.set(port.path, {
+        path: port.path,
+        manufacturer: existing?.manufacturer ?? port.manufacturer,
+        serialNumber: existing?.serialNumber ?? port.serialNumber,
+        vendorId: existing?.vendorId ?? port.vendorId,
+        productId: existing?.productId ?? port.productId,
+        pnpId: existing?.pnpId ?? port.pnpId,
+      })
+    }
+  }
+
+  return Array.from(portMap.values())
+}
+
+async function listWindowsRegistryPorts(): Promise<RawSerialPortInfo[]> {
+  try {
+    const { stdout } = await execFileAsync('reg', ['query', 'HKLM\\HARDWARE\\DEVICEMAP\\SERIALCOMM'])
+    return stdout
+      .split(/\r?\n/)
+      .map(parseWindowsRegistryPortLine)
+      .filter((port): port is RawSerialPortInfo => port !== null)
+  } catch {
+    return []
+  }
+}
+
+function parseWindowsRegistryPortLine(line: string): RawSerialPortInfo | null {
+  const match = line.match(/\bREG_SZ\b\s+(COM\d+)\s*$/i)
+  if (!match) return null
+  return {
+    path: match[1].toUpperCase(),
+  }
 }
 
 function buildPortDisplayName(path: string, manufacturer: string | null, serialNumber: string | null): string {

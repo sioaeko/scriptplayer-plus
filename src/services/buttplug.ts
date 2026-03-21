@@ -34,6 +34,10 @@ export interface ButtplugDeviceFrame {
   scalar?: ButtplugScalar[]
 }
 
+export interface ButtplugSendOptions {
+  rawTCode?: string | null
+}
+
 export interface ButtplugDevice {
   index: number
   name: string
@@ -42,6 +46,9 @@ export interface ButtplugDevice {
   linearFeatures: ButtplugFeature[]
   rotateFeatures: ButtplugFeature[]
   scalarFeatures: ButtplugFeature[]
+  rawWriteEndpoints: string[]
+  rawReadEndpoints: string[]
+  rawSubscribeEndpoints: string[]
   features: ButtplugFeature[]
 }
 
@@ -214,8 +221,17 @@ export class ButtplugService {
     }
   }
 
-  async sendDeviceFrame(deviceIndex: number, frame: ButtplugDeviceFrame): Promise<boolean> {
+  async sendDeviceFrame(deviceIndex: number, frame: ButtplugDeviceFrame, options?: ButtplugSendOptions): Promise<boolean> {
     if (!this.isConnected) return false
+
+    const rawTCode = options?.rawTCode?.trim()
+    const rawAttempted = Boolean(rawTCode)
+    if (rawTCode) {
+      const rawSuccess = await this.sendRawTCode(deviceIndex, rawTCode)
+      if (rawSuccess) {
+        return true
+      }
+    }
 
     const tasks: Promise<any>[] = []
 
@@ -253,7 +269,7 @@ export class ButtplugService {
     }
 
     if (tasks.length === 0) {
-      return true
+      return !rawAttempted
     }
 
     try {
@@ -438,8 +454,34 @@ export class ButtplugService {
 
   private getSortedDevices(): ButtplugDevice[] {
     return Array.from(this.devices.values())
-      .filter((device) => device.linearFeatures.length > 0 || device.rotateFeatures.length > 0)
+      .filter((device) => device.features.length > 0 || device.rawWriteEndpoints.length > 0)
       .sort((left, right) => left.displayName.localeCompare(right.displayName))
+  }
+
+  private async sendRawTCode(deviceIndex: number, command: string): Promise<boolean> {
+    const endpoint = this.getPreferredRawWriteEndpoint(deviceIndex)
+    if (!endpoint) return false
+
+    try {
+      const payload = Array.from(new TextEncoder().encode(command.endsWith('\n') ? command : `${command}\n`))
+      await this.request('RawWriteCmd', {
+        DeviceIndex: deviceIndex,
+        Endpoint: endpoint,
+        Data: payload,
+        WriteWithResponse: false,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private getPreferredRawWriteEndpoint(deviceIndex: number): string | null {
+    const endpoints = this.devices.get(deviceIndex)?.rawWriteEndpoints ?? []
+    if (endpoints.length === 0) return null
+
+    const preferred = endpoints.find((endpoint) => endpoint.toLowerCase() === 'tx')
+    return preferred ?? endpoints[0] ?? null
   }
 
   private setConnectionState(state: ButtplugConnectionState, error: string | null = null) {
@@ -481,12 +523,16 @@ function parseDeviceListPayload(devices: unknown): ButtplugDevice[] {
 function parseDeviceInfo(raw: any): ButtplugDevice | null {
   if (!raw || typeof raw !== 'object') return null
 
-  const linearFeatures = parseFeatureArray('linear', raw.DeviceMessages?.LinearCmd)
-  const rotateFeatures = parseFeatureArray('rotate', raw.DeviceMessages?.RotateCmd)
-  const scalarFeatures = parseFeatureArray('scalar', raw.DeviceMessages?.ScalarCmd)
+  const deviceMessages = raw.DeviceMessages
+  const linearFeatures = parseFeatureArray('linear', deviceMessages?.LinearCmd)
+  const rotateFeatures = parseFeatureArray('rotate', deviceMessages?.RotateCmd)
+  const scalarFeatures = parseFeatureArray('scalar', deviceMessages?.ScalarCmd)
+  const rawWriteEndpoints = parseRawEndpointArray(deviceMessages?.RawWriteCmd)
+  const rawReadEndpoints = parseRawEndpointArray(deviceMessages?.RawReadCmd)
+  const rawSubscribeEndpoints = parseRawEndpointArray(deviceMessages?.RawSubscribeCmd)
   const features = [...linearFeatures, ...rotateFeatures, ...scalarFeatures]
 
-  if (features.length === 0) return null
+  if (features.length === 0 && rawWriteEndpoints.length === 0) return null
 
   return {
     index: Number(raw.DeviceIndex),
@@ -496,6 +542,9 @@ function parseDeviceInfo(raw: any): ButtplugDevice | null {
     linearFeatures,
     rotateFeatures,
     scalarFeatures,
+    rawWriteEndpoints,
+    rawReadEndpoints,
+    rawSubscribeEndpoints,
     features,
   }
 }
@@ -522,6 +571,29 @@ function createFeature(featureType: ButtplugFeatureType, index: number, rawFeatu
     actuatorType: typeof rawFeature?.ActuatorType === 'string' ? rawFeature.ActuatorType : defaultActuatorType(featureType),
     stepCount: parseOptionalPositiveInteger(rawFeature?.StepCount),
   }
+}
+
+function parseRawEndpointArray(rawMessage: unknown): string[] {
+  const endpoints = new Set<string>()
+
+  if (Array.isArray(rawMessage)) {
+    for (const entry of rawMessage) {
+      for (const endpoint of parseRawEndpoints(entry?.Endpoints)) {
+        endpoints.add(endpoint)
+      }
+    }
+  } else if (rawMessage && typeof rawMessage === 'object') {
+    for (const endpoint of parseRawEndpoints((rawMessage as any).Endpoints)) {
+      endpoints.add(endpoint)
+    }
+  }
+
+  return Array.from(endpoints)
+}
+
+function parseRawEndpoints(rawEndpoints: unknown): string[] {
+  if (!Array.isArray(rawEndpoints)) return []
+  return rawEndpoints.filter((endpoint): endpoint is string => typeof endpoint === 'string' && endpoint.length > 0)
 }
 
 function defaultActuatorType(featureType: ButtplugFeatureType): string | null {

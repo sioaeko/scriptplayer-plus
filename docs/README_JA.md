@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![設定](screenshots/setting.png) | ![macOS](screenshots/macos.png) |
 
-## 実験版 v0.1.5-exp.1
+## 実験版 v0.1.5-exp.2
 
-`v0.1.5-exp.1` のプレリリースでは、Intiface が認識した互換デバイス向けに実験的な `Intiface / Buttplug` マルチアクシス制御を追加しています。FUNSR 系の SR1 / SR6 / PRO も、Intiface で正しく検出されればこの経路でテストできます。
+`v0.1.5-exp.2` のプレリリースでは、Intiface が認識した互換デバイス向けに実験的な `Intiface / Buttplug` マルチアクシス制御を追加しています。FUNSR 系の SR1 / SR6 / PRO も、Intiface で正しく検出されればこの経路でテストできます。
 
-| v0.1.5-exp.1 プレビュー |
+| v0.1.5-exp.2 プレビュー |
 |:-:|
-| ![v0.1.5-exp.1 プレビュー](screenshots/preview_v015_exp1.png) |
+| ![v0.1.5-exp.2 プレビュー](screenshots/preview_v015_exp1.png) |
 
-- プレリリースのダウンロード: [ScriptPlayer+ v0.1.5-exp.1](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.1)
+- プレリリースのダウンロード: [ScriptPlayer+ v0.1.5-exp.2](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.2)
 
 ## v0.1.4 の追加内容
 
@@ -83,7 +83,7 @@
 
 1. [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)から最新の `ScriptPlayerPlus-0.1.4-Windows-x64.zip` をダウンロード
 2. 解凍して`ScriptPlayerPlus.exe`を実行 — インストール不要
-3. Intiface 実験ビルドは [v0.1.5-exp.1 プレリリース](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.1) から `ScriptPlayerPlus-0.1.5-exp.1-Windows-x64.zip` をダウンロード
+3. Intiface 実験ビルドは [v0.1.5-exp.2 プレリリース](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.2) から `ScriptPlayerPlus-0.1.5-exp.2-Windows-x64.zip` をダウンロード
 
 ### macOS
 

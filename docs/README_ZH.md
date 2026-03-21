@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![设置](screenshots/setting.png) | ![macOS](screenshots/macos.png) |
 
-## 实验版 v0.1.5-exp.1
+## 实验版 v0.1.5-exp.2
 
-`v0.1.5-exp.1` 预发布为 Intiface 已识别的兼容设备加入了实验性的 `Intiface / Buttplug` 多轴控制。FUNSR 系列 SR1 / SR6 / PRO 只要能被 Intiface 正确识别，也可以通过这一路径进行测试。
+`v0.1.5-exp.2` 预发布为 Intiface 已识别的兼容设备加入了实验性的 `Intiface / Buttplug` 多轴控制。FUNSR 系列 SR1 / SR6 / PRO 只要能被 Intiface 正确识别，也可以通过这一路径进行测试。
 
-| v0.1.5-exp.1 预览 |
+| v0.1.5-exp.2 预览 |
 |:-:|
-| ![v0.1.5-exp.1 预览](screenshots/preview_v015_exp1.png) |
+| ![v0.1.5-exp.2 预览](screenshots/preview_v015_exp1.png) |
 
-- 下载预发布版本: [ScriptPlayer+ v0.1.5-exp.1](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.1)
+- 下载预发布版本: [ScriptPlayer+ v0.1.5-exp.2](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.2)
 
 ## v0.1.4 新增内容
 
@@ -83,7 +83,7 @@
 
 1. 从 [Releases](https://github.com/sioaeko/scriptplayer-plus/releases) 下载最新的 `ScriptPlayerPlus-0.1.4-Windows-x64.zip`
 2. 解压后运行 `ScriptPlayerPlus.exe` — 无需安装
-3. Intiface 实验构建可从 [v0.1.5-exp.1 预发布](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.1) 下载 `ScriptPlayerPlus-0.1.5-exp.1-Windows-x64.zip`
+3. Intiface 实验构建可从 [v0.1.5-exp.2 预发布](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.2) 下载 `ScriptPlayerPlus-0.1.5-exp.2-Windows-x64.zip`
 
 ### macOS
 

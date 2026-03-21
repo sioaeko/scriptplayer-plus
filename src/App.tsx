@@ -14,17 +14,22 @@ import {
   SubtitleFile,
   VideoFile,
 } from './types'
-import { getPositionAtTime, parseFunscript, transformFunscriptActions } from './services/funscript'
+import { parseFunscript, transformFunscriptActions } from './services/funscript'
 import { handyService, HandyUploadStatus } from './services/handy'
 import {
   ButtplugConnectionState,
   ButtplugDevice,
-  ButtplugDeviceFrame,
-  ButtplugFeature,
   buttplugService,
 } from './services/buttplug'
 import {
-  getDefaultAxisValue,
+  AxisActionMap,
+  buildButtplugDeviceSignature,
+  buildButtplugTransportCommand,
+  buildFeatureMappingsForDevice,
+  ButtplugFeatureMapping,
+  getButtplugFeatureStorageKey,
+} from './services/buttplugDeviceControl'
+import {
   normalizeScriptBundle,
   SCRIPT_AXIS_IDS,
 } from './services/multiaxis'
@@ -43,11 +48,7 @@ const BUTTPLUG_FEATURE_MAPPINGS_STORAGE_KEY = 'scriptplayer-buttplug-feature-map
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
 
 type DeviceProvider = 'handy' | 'buttplug'
-type AxisActionMap = Partial<Record<ScriptAxisId, FunscriptAction[]>>
-type StoredButtplugFeatureMapping = {
-  axisId: ScriptAxisId | ''
-  invert: boolean
-}
+type StoredButtplugFeatureMapping = ButtplugFeatureMapping
 
 function getMediaTypeFromPath(filePath: string): MediaType | null {
   const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
@@ -211,152 +212,6 @@ function getPrimaryAxis(bundle: FunscriptBundle | null): ScriptAxisId | null {
   if (bundle.primaryAxis && bundle.scripts[bundle.primaryAxis]) return bundle.primaryAxis
   if (bundle.scripts.L0) return 'L0'
   return (Object.keys(bundle.scripts)[0] as ScriptAxisId | undefined) ?? null
-}
-
-function buildButtplugDeviceSignature(device: ButtplugDevice): string {
-  const featureSignature = device.features
-    .map((feature) => `${feature.type}:${feature.index}:${feature.descriptor}:${feature.actuatorType || ''}`)
-    .join('|')
-
-  return `${device.name}|${device.displayName}|${featureSignature}`
-}
-
-function getButtplugFeatureStorageKey(deviceSignature: string, featureId: string): string {
-  return `${deviceSignature}::${featureId}`
-}
-
-function guessScriptAxisForFeature(feature: ButtplugFeature): ScriptAxisId | '' {
-  const text = `${feature.descriptor} ${feature.actuatorType || ''}`.toLowerCase()
-
-  if (feature.type === 'linear') {
-    if (text.includes('stroke') || text.includes('stroker') || text.includes('thrust')) return 'L0'
-    if (text.includes('surge') || text.includes('forward') || text.includes('back')) return 'L1'
-    if (text.includes('sway') || text.includes('left') || text.includes('right')) return 'L2'
-    if (feature.index === 0) return 'L0'
-    if (feature.index === 1) return 'L1'
-    if (feature.index === 2) return 'L2'
-  }
-
-  if (feature.type === 'rotate') {
-    if (text.includes('twist')) return 'R0'
-    if (text.includes('roll')) return 'R1'
-    if (text.includes('pitch')) return 'R2'
-    if (feature.index === 0) return 'R0'
-    if (feature.index === 1) return 'R1'
-    if (feature.index === 2) return 'R2'
-  }
-
-  if (feature.type === 'scalar') {
-    if (text.includes('vibe') || text.includes('vibrate')) return feature.index === 0 ? 'V0' : 'V1'
-    if (text.includes('pump')) return 'V1'
-    if (text.includes('valve')) return 'A0'
-    if (text.includes('suck') || text.includes('suction')) return 'A1'
-    if (text.includes('lube')) return 'A2'
-  }
-
-  return ''
-}
-
-function buildFeatureMappingsForDevice(
-  device: ButtplugDevice | null,
-  mappingStore: Record<string, StoredButtplugFeatureMapping>
-): Record<string, StoredButtplugFeatureMapping> {
-  if (!device) return {}
-
-  const deviceSignature = buildButtplugDeviceSignature(device)
-  const next: Record<string, StoredButtplugFeatureMapping> = {}
-
-  for (const feature of device.features) {
-    const key = getButtplugFeatureStorageKey(deviceSignature, feature.id)
-    const stored = mappingStore[key]
-    next[feature.id] = {
-      axisId: stored?.axisId ?? guessScriptAxisForFeature(feature),
-      invert: stored?.invert ?? false,
-    }
-  }
-
-  return next
-}
-
-function getAxisValueAtTime(axisId: ScriptAxisId, actionMap: AxisActionMap, timeMs: number): number {
-  const actions = actionMap[axisId]
-  if (!actions || actions.length === 0) {
-    return getDefaultAxisValue(axisId)
-  }
-
-  return getPositionAtTime(actions, timeMs) / 100
-}
-
-function applyAxisMappingValue(axisId: ScriptAxisId, value: number, invert: boolean): number {
-  const safeValue = Number.isFinite(value) ? value : getDefaultAxisValue(axisId)
-  return invert ? 1 - safeValue : safeValue
-}
-
-function buildButtplugFrame(
-  device: ButtplugDevice,
-  mappings: Record<string, StoredButtplugFeatureMapping>,
-  actionMap: AxisActionMap,
-  currentTimeMs: number,
-  targetTimeMs: number,
-  intervalMs: number
-): ButtplugDeviceFrame {
-  const frame: ButtplugDeviceFrame = {
-    linear: [],
-    rotate: [],
-    scalar: [],
-  }
-
-  for (const feature of device.features) {
-    const mapping = mappings[feature.id]
-    const mappedAxisId = mapping?.axisId
-
-    if (!mappedAxisId) {
-      if (feature.type === 'linear') {
-        frame.linear?.push({ index: feature.index, position: 0.5, duration: intervalMs })
-      } else if (feature.type === 'rotate') {
-        frame.rotate?.push({ index: feature.index, speed: 0, clockwise: true })
-      } else if (feature.type === 'scalar' && feature.actuatorType) {
-        frame.scalar?.push({ index: feature.index, scalar: 0, actuatorType: feature.actuatorType })
-      }
-      continue
-    }
-
-    const currentValue = applyAxisMappingValue(
-      mappedAxisId,
-      getAxisValueAtTime(mappedAxisId, actionMap, currentTimeMs),
-      mapping?.invert ?? false
-    )
-    const targetValue = applyAxisMappingValue(
-      mappedAxisId,
-      getAxisValueAtTime(mappedAxisId, actionMap, targetTimeMs),
-      mapping?.invert ?? false
-    )
-
-    if (feature.type === 'linear') {
-      frame.linear?.push({ index: feature.index, position: targetValue, duration: intervalMs })
-      continue
-    }
-
-    if (feature.type === 'rotate') {
-      const delta = targetValue - currentValue
-      frame.rotate?.push({
-        index: feature.index,
-        speed: Math.min(1, Math.abs(delta) * 1000 / Math.max(intervalMs, 1)),
-        clockwise: delta >= 0,
-      })
-      continue
-    }
-
-    if (feature.type === 'scalar' && feature.actuatorType) {
-      frame.scalar?.push({ index: feature.index, scalar: targetValue, actuatorType: feature.actuatorType })
-    }
-  }
-
-  return {
-    linear: frame.linear && frame.linear.length > 0 ? frame.linear : undefined,
-    rotate: frame.rotate && frame.rotate.length > 0 ? frame.rotate : undefined,
-    scalar: frame.scalar && frame.scalar.length > 0 ? frame.scalar : undefined,
-  }
 }
 
 export default function App() {
@@ -595,7 +450,7 @@ export default function App() {
       const effectivePlaybackRate = currentMedia.playbackRate > 0 ? currentMedia.playbackRate : playbackRate
       const currentTimeMs = currentMedia.currentTime * 1000 + (settings.timeOffset || 0)
       const targetTimeMs = currentTimeMs + intervalMs * effectivePlaybackRate
-      const frame = buildButtplugFrame(
+      const command = buildButtplugTransportCommand(
         selectedButtplugDevice,
         selectedButtplugFeatureMappings,
         runtimeAxisActions,
@@ -604,7 +459,7 @@ export default function App() {
         intervalMs
       )
 
-      await buttplugService.sendDeviceFrame(selectedButtplugDevice.index, frame)
+      await buttplugService.sendDeviceFrame(selectedButtplugDevice.index, command.frame, { rawTCode: command.rawTCode })
 
       if (runId !== buttplugStreamRunId.current) return
       buttplugStreamTimer.current = setTimeout(() => {

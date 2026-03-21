@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![Settings](docs/screenshots/setting.png) | ![macOS](docs/screenshots/macos.png) |
 
-## Experimental v0.1.5-exp.1
+## Experimental v0.1.5-exp.2
 
-The `v0.1.5-exp.1` prerelease adds experimental `Intiface / Buttplug` multi-axis support for compatible devices exposed by Intiface. This includes FUNSR-style SR1 / SR6 / PRO setups when they are detected correctly by Intiface.
+The `v0.1.5-exp.2` prerelease adds experimental `Intiface / Buttplug` multi-axis support for compatible devices exposed by Intiface. This includes FUNSR-style SR1 / SR6 / PRO setups when they are detected correctly by Intiface.
 
 | Experimental v0.1.5 Preview |
 |:-:|
 | ![Experimental v0.1.5 Preview](docs/screenshots/preview_v015_exp1.png) |
 
-- Download the prerelease: [ScriptPlayer+ v0.1.5-exp.1](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.1)
+- Download the prerelease: [ScriptPlayer+ v0.1.5-exp.2](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.2)
 
 ## What's New In v0.1.4
 
@@ -83,7 +83,7 @@ The `v0.1.5-exp.1` prerelease adds experimental `Intiface / Buttplug` multi-axis
 
 1. Download the latest `ScriptPlayerPlus-0.1.4-Windows-x64.zip` from [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)
 2. Extract and run `ScriptPlayerPlus.exe` — no installation required
-3. For the experimental Intiface build, download `ScriptPlayerPlus-0.1.5-exp.1-Windows-x64.zip` from [the v0.1.5-exp.1 prerelease](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.1)
+3. For the experimental Intiface build, download `ScriptPlayerPlus-0.1.5-exp.2-Windows-x64.zip` from [the v0.1.5-exp.2 prerelease](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5-exp.2)
 
 ### macOS
 

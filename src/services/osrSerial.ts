@@ -71,10 +71,25 @@ export class OsrSerialService {
     }
     this.onStateChange?.(this.state)
 
-    const nextState = await window.electronAPI.osrSerialConnect(portPath, baudRate)
-    this.state = nextState
-    this.onStateChange?.(nextState)
-    return nextState.connectionState === 'connected'
+    try {
+      const nextState = await window.electronAPI.osrSerialConnect(portPath, baudRate)
+      this.state = nextState
+      this.onStateChange?.(nextState)
+      return nextState.connectionState === 'connected'
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Failed to open serial port.'
+      const nextState: OsrSerialState = {
+        connectionState: 'error',
+        connectedPortPath: null,
+        baudRate,
+        error: message,
+      }
+      this.state = nextState
+      this.onStateChange?.(nextState)
+      return false
+    }
   }
 
   async disconnect(): Promise<boolean> {

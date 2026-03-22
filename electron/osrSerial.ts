@@ -93,14 +93,14 @@ export class OsrSerialManager {
     }
     this.emitState()
 
-    const port = new SerialPortStream({
-      binding: getSerialPortBinding(),
-      path: targetPath,
-      baudRate,
-      autoOpen: false,
-    })
-
+    let port: RuntimeSerialPort
     try {
+      port = new SerialPortStream({
+        binding: getSerialPortBinding(),
+        path: targetPath,
+        baudRate,
+        autoOpen: false,
+      })
       await openPort(port)
     } catch (error) {
       this.state = {
@@ -207,12 +207,13 @@ export class OsrSerialManager {
 
     port.on('close', () => {
       if (port !== this.port) return
+      const wasActive = this.state.connectionState === 'connected' || this.state.connectionState === 'connecting'
       this.port = null
       this.state = {
         connectionState: 'disconnected',
         connectedPortPath: null,
         baudRate,
-        error: null,
+        error: wasActive ? 'Serial port closed unexpectedly.' : null,
       }
       this.emitState()
     })

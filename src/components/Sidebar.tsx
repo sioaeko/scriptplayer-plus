@@ -102,6 +102,8 @@ interface FolderGroup {
   files: VideoFile[]
 }
 
+const NATURAL_SORTER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
 function groupByFolder(files: VideoFile[]): FolderGroup[] {
   const map = new Map<string, VideoFile[]>()
   for (const file of files) {
@@ -115,7 +117,7 @@ function groupByFolder(files: VideoFile[]): FolderGroup[] {
   for (const [folder, folderFiles] of map) {
     groups.push({ folder, files: folderFiles })
   }
-  groups.sort((a, b) => a.folder.localeCompare(b.folder))
+  groups.sort((a, b) => NATURAL_SORTER.compare(a.folder, b.folder))
   return groups
 }
 

@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import http from 'http'
 import https from 'https'
-import { URL } from 'url'
+import { URL, pathToFileURL } from 'url'
 import { OsrSerialManager } from './osrSerial'
 import { SCRIPT_AXIS_DEFINITIONS, inferAxisIdFromStem, stripKnownAxisSuffix } from '../src/services/multiaxis'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from '../src/services/subtitles'
@@ -43,6 +43,7 @@ const SUBTITLE_DIR_KEYWORDS = [
 const MAX_SUBTITLE_SEARCH_DEPTH = 2
 const MAX_SCAN_SUBTITLE_VALIDATION_CANDIDATES = 3
 const SCAN_YIELD_INTERVAL = 25
+const NATURAL_SORTER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 let mainWindow: BrowserWindow | null = null
 const subtitleCandidateCache = new Map<string, string[]>()
@@ -198,7 +199,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
     }
 
     await scanDir(dirPath, '')
-    return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+    return files.sort((a, b) => NATURAL_SORTER.compare(a.relativePath, b.relativePath))
   } catch {
     return []
   }
@@ -226,8 +227,8 @@ ipcMain.handle('fs:saveFunscript', async (_event, videoPath: string, data: strin
 })
 
 ipcMain.handle('fs:getVideoUrl', async (_event, filePath: string) => {
-  // Return a file:// URL that the renderer can use
-  return `file:///${filePath.replace(/\\/g, '/')}`
+  // Encode reserved URL characters such as "#" in Windows file names.
+  return pathToFileURL(filePath).toString()
 })
 
 ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {

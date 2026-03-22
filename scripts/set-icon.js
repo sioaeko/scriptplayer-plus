@@ -4,7 +4,8 @@ const ResEdit = require('resedit')
 
 const pkg = require('../package.json')
 
-const exe = path.join(__dirname, '..', 'release', 'win-unpacked', 'ScriptPlayerPlus.exe')
+const outputDir = process.argv[2] || process.env.BUILD_OUTPUT_DIR || 'release'
+const exe = path.join(__dirname, '..', outputDir, 'win-unpacked', 'ScriptPlayerPlus.exe')
 const ico = path.join(__dirname, '..', 'public', 'icon.ico')
 
 if (!fs.existsSync(exe)) {

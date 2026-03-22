@@ -1,6 +1,6 @@
 {
   "name": "scriptplayer-plus",
-  "version": "0.1.5-exp.4",
+  "version": "0.1.5-exp.6",
   "description": "ScriptPlayer+ - Funscript video player with Handy and Intiface support",
   "license": "PolyForm-Noncommercial-1.0.0",
   "main": "dist-electron/main.js",

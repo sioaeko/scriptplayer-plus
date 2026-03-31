@@ -1061,8 +1061,8 @@ export default function App() {
   const handleTimeUpdate = useCallback((_time: number) => {}, [])
 
   const handleEnded = useCallback(async () => {
-    if (playlist.length > 0) {
-      if (playlistIndex < 0 || playlistIndex >= playlist.length - 1) return
+    if (playlistIndex >= 0 && playlist.length > 0) {
+      if (playlistIndex >= playlist.length - 1) return
       const nextIndex = playlistIndex + 1
       setPlaylistIndex(nextIndex)
       await openMediaFile(playlist[nextIndex].path, playlist[nextIndex].type, { autoplay: true })

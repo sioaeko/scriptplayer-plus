@@ -164,6 +164,21 @@ function GeneralSection({
         </button>
       </FieldRow>
 
+      <Divider />
+
+      <FieldRow
+        label="Default script variant"
+        description="Keyword or regex matched against variant labels to auto-select on load. Leave empty to use the base variant."
+      >
+        <input
+          type="text"
+          value={settings.defaultVariantPattern}
+          onChange={(e) => update('defaultVariantPattern', e.target.value)}
+          placeholder="e.g. hard or /hard/i"
+          className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 focus:border-accent/50 outline-none w-44 font-mono"
+        />
+      </FieldRow>
+
     </div>
   )
 }

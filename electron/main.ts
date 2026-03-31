@@ -280,6 +280,10 @@ ipcMain.handle('fs:readFunscriptBundle', async (_event, videoPath: string, scrip
   return readFunscriptBundle(videoPath, scriptFolder, preferredScriptPath)
 })
 
+ipcMain.handle('fs:findFunscriptVariants', async (_event, mediaPath: string, scriptFolder?: string) => {
+  return findFunscriptVariants(mediaPath, scriptFolder)
+})
+
 ipcMain.handle('fs:saveFunscript', async (_event, videoPath: string, data: string) => {
   const ext = path.extname(videoPath)
   const scriptPath = videoPath.replace(ext, '.funscript')
@@ -367,6 +371,72 @@ ipcMain.handle('osrSerial:write', async (_event, command: string) => {
 // ============================================================
 
 const NAS_EXTS = [...MEDIA_EXTS, '.funscript']
+
+function findFunscriptVariants(
+  mediaPath: string,
+  scriptFolder?: string
+): Array<{ label: string; path: string; isBase: boolean }> {
+  const mediaDir = path.dirname(mediaPath)
+  const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
+  const mediaBaseNameLower = mediaBaseName.toLowerCase()
+
+  const variantMap = new Map<string, { label: string; primaryPath: string; hasPrimary: boolean }>()
+
+  const processDir = (dir: string) => {
+    if (!fs.existsSync(dir)) return
+    let entries: string[]
+    try {
+      entries = fs.readdirSync(dir)
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      const entryLower = entry.toLowerCase()
+      if (!entryLower.endsWith('.funscript')) continue
+      if (!entryLower.startsWith(mediaBaseNameLower)) continue
+
+      const stem = entry.slice(0, -'.funscript'.length)
+      const remainder = stem.slice(mediaBaseName.length)
+      const variantKey = stripKnownAxisSuffix(remainder).trim()
+
+      const remainderLower = remainder.trim().toLowerCase()
+      const isPrimary = remainderLower === variantKey
+
+      const filePath = path.join(dir, entry)
+
+      if (!variantMap.has(variantKey)) {
+        const label = variantKey.replace(/^[\s._-]+|[\s._-]+$/g, '') || 'Default'
+        variantMap.set(variantKey, { label, primaryPath: filePath, hasPrimary: isPrimary })
+      } else if (isPrimary && !variantMap.get(variantKey)!.hasPrimary) {
+        const existing = variantMap.get(variantKey)!
+        existing.primaryPath = filePath
+        existing.hasPrimary = true
+      }
+    }
+  }
+
+  processDir(mediaDir)
+  if (scriptFolder && path.resolve(scriptFolder) !== path.resolve(mediaDir)) {
+    processDir(scriptFolder)
+  }
+
+  if (variantMap.size <= 1) return []
+
+  const variants = Array.from(variantMap.entries()).map(([key, { label, primaryPath }]) => ({
+    label,
+    path: primaryPath,
+    isBase: key === '',
+  }))
+
+  variants.sort((a, b) => {
+    if (a.isBase && !b.isBase) return -1
+    if (!a.isBase && b.isBase) return 1
+    return a.label.localeCompare(b.label)
+  })
+
+  return variants
+}
 
 function hasBundledFunscriptsForMediaScan(mediaPath: string): boolean {
   const mediaDir = path.dirname(mediaPath)

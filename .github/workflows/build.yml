@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: 24
       - run: npm install
-      - run: npm ci
+#      - run: npm ci
       - run: npx vite build
       - run: npx electron-builder --win --publish never
       - uses: actions/upload-artifact@v6

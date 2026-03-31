@@ -183,7 +183,7 @@ ipcMain.handle('playlist:save', async (
       lines.push(`#EXTINF:-1,${entry.name}`)
       lines.push(entry.path)
     }
-    fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf-8')
+    await fs.promises.writeFile(filePath, lines.join('\n') + '\n', 'utf-8')
     return true
   } catch {
     return false
@@ -195,7 +195,7 @@ ipcMain.handle('playlist:load', async (
   filePath: string
 ): Promise<Array<{ path: string; name: string }>> => {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const content = await fs.promises.readFile(filePath, 'utf-8')
     const lines = content.split(/\r?\n/)
     const entries: Array<{ path: string; name: string }> = []
     let pendingName: string | null = null
@@ -249,12 +249,15 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase()
           if (MEDIA_EXTS.includes(ext)) {
-            const hasSubtitles = hasSubtitlesForMediaScan(fullPath)
+            const [hasScript, hasSubtitles] = await Promise.all([
+              hasBundledFunscriptsForMediaScan(fullPath),
+              hasSubtitlesForMediaScan(fullPath),
+            ])
             files.push({
               name: entry.name,
               path: fullPath,
               type: VIDEO_EXTS.includes(ext) ? 'video' : 'audio',
-              hasScript: hasBundledFunscriptsForMediaScan(fullPath),
+              hasScript,
               hasSubtitles,
               relativePath: prefix ? prefix + '/' + entry.name : entry.name,
             })
@@ -271,7 +274,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
 })
 
 ipcMain.handle('fs:readFunscript', async (_event, videoPath: string, scriptFolder?: string) => {
-  const bundle = readFunscriptBundle(videoPath, scriptFolder)
+  const bundle = await readFunscriptBundle(videoPath, scriptFolder)
   if (!bundle?.primaryAxis) return null
   return bundle.scripts[bundle.primaryAxis] ?? null
 })
@@ -288,7 +291,7 @@ ipcMain.handle('fs:saveFunscript', async (_event, videoPath: string, data: strin
   const ext = path.extname(videoPath)
   const scriptPath = videoPath.replace(ext, '.funscript')
   try {
-    fs.writeFileSync(scriptPath, data, 'utf-8')
+    await fs.promises.writeFile(scriptPath, data, 'utf-8')
     return true
   } catch {
     return false
@@ -302,7 +305,7 @@ ipcMain.handle('fs:getVideoUrl', async (_event, filePath: string) => {
 
 ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {
   try {
-    return findArtworkForMedia(mediaPath)
+    return await findArtworkForMedia(mediaPath)
   } catch {
     return null
   }
@@ -310,18 +313,16 @@ ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {
 
 ipcMain.handle('fs:readSubtitles', async (_event, mediaPath: string) => {
   try {
-    return findSubtitleFilesForMedia(mediaPath)
-      .map((subtitlePath) => {
+    const subtitlePaths = await findSubtitleFilesForMedia(mediaPath)
+    return (await Promise.all(
+      subtitlePaths.map(async (subtitlePath) => {
         try {
-          return {
-            path: subtitlePath,
-            content: readSubtitleContent(subtitlePath),
-          }
+          return { path: subtitlePath, content: await readSubtitleContent(subtitlePath) }
         } catch {
           return null
         }
       })
-      .filter((entry): entry is { path: string; content: string } => entry !== null)
+    )).filter((entry): entry is { path: string; content: string } => entry !== null)
   } catch {
     return []
   }
@@ -335,7 +336,7 @@ ipcMain.handle('fs:readSubtitleFile', async (_event, filePath: string) => {
   try {
     return {
       path: filePath,
-      content: readSubtitleContent(filePath),
+      content: await readSubtitleContent(filePath),
     }
   } catch {
     return null
@@ -372,21 +373,20 @@ ipcMain.handle('osrSerial:write', async (_event, command: string) => {
 
 const NAS_EXTS = [...MEDIA_EXTS, '.funscript']
 
-function findFunscriptVariants(
+async function findFunscriptVariants(
   mediaPath: string,
   scriptFolder?: string
-): Array<{ label: string; path: string; isBase: boolean }> {
+): Promise<Array<{ label: string; path: string; isBase: boolean }>> {
   const mediaDir = path.dirname(mediaPath)
   const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
   const mediaBaseNameLower = mediaBaseName.toLowerCase()
 
   const variantMap = new Map<string, { label: string; primaryPath: string; hasPrimary: boolean }>()
 
-  const processDir = (dir: string) => {
-    if (!fs.existsSync(dir)) return
+  const processDir = async (dir: string) => {
     let entries: string[]
     try {
-      entries = fs.readdirSync(dir)
+      entries = await fs.promises.readdir(dir)
     } catch {
       return
     }
@@ -416,9 +416,9 @@ function findFunscriptVariants(
     }
   }
 
-  processDir(mediaDir)
+  await processDir(mediaDir)
   if (scriptFolder && path.resolve(scriptFolder) !== path.resolve(mediaDir)) {
-    processDir(scriptFolder)
+    await processDir(scriptFolder)
   }
 
   if (variantMap.size <= 1) return []
@@ -438,7 +438,7 @@ function findFunscriptVariants(
   return variants
 }
 
-function hasBundledFunscriptsForMediaScan(mediaPath: string): boolean {
+async function hasBundledFunscriptsForMediaScan(mediaPath: string): Promise<boolean> {
   const mediaDir = path.dirname(mediaPath)
   const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
 
@@ -447,20 +447,21 @@ function hasBundledFunscriptsForMediaScan(mediaPath: string): boolean {
       const fileName = suffix
         ? `${mediaBaseName}.${suffix}.funscript`
         : `${mediaBaseName}.funscript`
-      if (fs.existsSync(path.join(mediaDir, fileName))) {
+      try {
+        await fs.promises.access(path.join(mediaDir, fileName))
         return true
-      }
+      } catch {}
     }
   }
 
   return false
 }
 
-function readFunscriptBundle(
+async function readFunscriptBundle(
   mediaPath: string,
   scriptFolder?: string,
   preferredScriptPath?: string
-): { primaryAxis: ScriptAxisId | null; scripts: Partial<Record<ScriptAxisId, unknown>>; sources: Partial<Record<ScriptAxisId, string>> } | null {
+): Promise<{ primaryAxis: ScriptAxisId | null; scripts: Partial<Record<ScriptAxisId, unknown>>; sources: Partial<Record<ScriptAxisId, string>> } | null> {
   const bundle: {
     primaryAxis: ScriptAxisId | null
     scripts: Partial<Record<ScriptAxisId, unknown>>
@@ -474,7 +475,7 @@ function readFunscriptBundle(
   const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
 
   if (preferredScriptPath) {
-    addFunscriptToBundle(bundle, loadedPaths, preferredScriptPath, inferAxisIdFromFilePath(preferredScriptPath))
+    await addFunscriptToBundle(bundle, loadedPaths, preferredScriptPath, inferAxisIdFromFilePath(preferredScriptPath))
   }
 
   const contexts = [
@@ -495,7 +496,7 @@ function readFunscriptBundle(
 
   for (const context of contexts) {
     for (const baseName of context.baseNames) {
-      addBundleCandidates(bundle, loadedPaths, context.dir, baseName)
+      await addBundleCandidates(bundle, loadedPaths, context.dir, baseName)
     }
   }
 
@@ -506,7 +507,7 @@ function readFunscriptBundle(
   return Object.keys(bundle.scripts).length > 0 ? bundle : null
 }
 
-function addBundleCandidates(
+async function addBundleCandidates(
   bundle: { primaryAxis: ScriptAxisId | null; scripts: Partial<Record<ScriptAxisId, unknown>>; sources: Partial<Record<ScriptAxisId, string>> },
   loadedPaths: Set<string>,
   dirPath: string,
@@ -520,15 +521,15 @@ function addBundleCandidates(
         ? `${baseName}.${suffix}.funscript`
         : `${baseName}.funscript`
       const filePath = path.join(dirPath, fileName)
-      if (!fs.existsSync(filePath)) continue
+      try { await fs.promises.access(filePath) } catch { continue }
 
-      addFunscriptToBundle(bundle, loadedPaths, filePath, definition.id)
+      await addFunscriptToBundle(bundle, loadedPaths, filePath, definition.id)
       break
     }
   }
 }
 
-function addFunscriptToBundle(
+async function addFunscriptToBundle(
   bundle: { primaryAxis: ScriptAxisId | null; scripts: Partial<Record<ScriptAxisId, unknown>>; sources: Partial<Record<ScriptAxisId, string>> },
   loadedPaths: Set<string>,
   filePath: string,
@@ -536,7 +537,7 @@ function addFunscriptToBundle(
 ) {
   if (loadedPaths.has(filePath)) return
 
-  const parsed = readFunscriptJson(filePath)
+  const parsed = await readFunscriptJson(filePath)
   if (!parsed) return
 
   const axisId = preferredAxis ?? inferAxisIdFromFilePath(filePath) ?? 'L0'
@@ -553,25 +554,25 @@ function inferAxisIdFromFilePath(filePath: string): ScriptAxisId | null {
   return inferAxisIdFromStem(stem)
 }
 
-function readFunscriptJson(filePath: string): unknown | null {
+async function readFunscriptJson(filePath: string): Promise<unknown | null> {
   try {
     const ext = path.extname(filePath).toLowerCase()
     if (!FUNSCRIPT_EXTS.includes(ext)) return null
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const content = await fs.promises.readFile(filePath, 'utf-8')
     return JSON.parse(content)
   } catch {
     return null
   }
 }
 
-function findArtworkForMedia(mediaPath: string): string | null {
+async function findArtworkForMedia(mediaPath: string): Promise<string | null> {
   const dir = path.dirname(mediaPath)
   const ext = path.extname(mediaPath)
   const baseName = path.basename(mediaPath, ext).toLowerCase()
 
   let entries: string[]
   try {
-    entries = fs.readdirSync(dir)
+    entries = await fs.promises.readdir(dir)
   } catch {
     return null
   }
@@ -609,21 +610,21 @@ function findArtworkForMedia(mediaPath: string): string | null {
   return path.join(dir, images[0])
 }
 
-function findSubtitleFilesForMedia(mediaPath: string): string[] {
+async function findSubtitleFilesForMedia(mediaPath: string): Promise<string[]> {
   return findSubtitleMatches(mediaPath, 'full')
 }
 
-function hasSubtitlesForMediaScan(mediaPath: string): boolean {
-  return findSubtitleMatches(mediaPath, 'scan').length > 0
+async function hasSubtitlesForMediaScan(mediaPath: string): Promise<boolean> {
+  return (await findSubtitleMatches(mediaPath, 'scan')).length > 0
 }
 
-function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[] {
+async function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): Promise<string[]> {
   const mediaDir = path.dirname(mediaPath)
   const ext = path.extname(mediaPath)
   const baseName = path.basename(mediaPath, ext).toLowerCase()
   const mediaType = VIDEO_EXTS.includes(ext.toLowerCase()) ? 'video' : 'audio'
 
-  const rankedCandidates = collectSubtitleCandidates(mediaDir)
+  const rankedCandidates = (await collectSubtitleCandidates(mediaDir))
     .map((filePath) => {
       return {
         filePath,
@@ -637,7 +638,7 @@ function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[]
   const matches: Array<{ filePath: string; score: number }> = []
 
   for (const candidate of candidatesToValidate) {
-    const analysis = readSubtitleAnalysis(candidate.filePath)
+    const analysis = await readSubtitleAnalysis(candidate.filePath)
     if (!analysis?.hasCues) continue
 
     let score = candidate.score
@@ -661,7 +662,7 @@ function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[]
     .map(({ filePath }) => filePath)
 }
 
-function collectSubtitleCandidates(rootDir: string): string[] {
+async function collectSubtitleCandidates(rootDir: string): Promise<string[]> {
   const cached = subtitleCandidateCache.get(rootDir)
   if (cached) {
     return cached
@@ -670,13 +671,13 @@ function collectSubtitleCandidates(rootDir: string): string[] {
   const results = new Set<string>()
   const visited = new Set<string>()
 
-  const walk = (currentDir: string, depth: number, matchedKeyword: boolean) => {
+  const walk = async (currentDir: string, depth: number, matchedKeyword: boolean) => {
     if (visited.has(currentDir)) return
     visited.add(currentDir)
 
     let entries: fs.Dirent[]
     try {
-      entries = fs.readdirSync(currentDir, { withFileTypes: true })
+      entries = await fs.promises.readdir(currentDir, { withFileTypes: true })
     } catch {
       return
     }
@@ -696,11 +697,11 @@ function collectSubtitleCandidates(rootDir: string): string[] {
       const nextMatchedKeyword = matchedKeyword || directoryLooksLikeSubtitle(entry.name)
       const shouldDescend = depth === 0 || nextMatchedKeyword
       if (!shouldDescend) continue
-      walk(path.join(currentDir, entry.name), depth + 1, nextMatchedKeyword)
+      await walk(path.join(currentDir, entry.name), depth + 1, nextMatchedKeyword)
     }
   }
 
-  walk(rootDir, 0, false)
+  await walk(rootDir, 0, false)
   const collected = Array.from(results)
   subtitleCandidateCache.set(rootDir, collected)
   return collected
@@ -786,8 +787,8 @@ function countSharedTokens(left: string[], right: string[]): number {
   return left.filter((token, index) => token.length > 1 && left.indexOf(token) === index && rightSet.has(token)).length
 }
 
-function readSubtitleContent(filePath: string): string {
-  const buffer = fs.readFileSync(filePath)
+async function readSubtitleContent(filePath: string): Promise<string> {
+  const buffer = await fs.promises.readFile(filePath)
   const utf8 = buffer.toString('utf-8')
   const utf8ReplacementCount = countReplacementChars(utf8)
 
@@ -805,13 +806,13 @@ function readSubtitleContent(filePath: string): string {
   return utf8
 }
 
-function readSubtitleAnalysis(filePath: string): { content: string; hasCues: boolean } | null {
+async function readSubtitleAnalysis(filePath: string): Promise<{ content: string; hasCues: boolean } | null> {
   if (subtitleAnalysisCache.has(filePath)) {
     return subtitleAnalysisCache.get(filePath) ?? null
   }
 
   try {
-    const content = readSubtitleContent(filePath)
+    const content = await readSubtitleContent(filePath)
     const hasCues = parseSubtitleFile(content, filePath).length > 0
     const analysis = { content, hasCues }
     subtitleAnalysisCache.set(filePath, analysis)
@@ -1019,7 +1020,7 @@ ipcMain.handle('nas:webdav:download', async (_event, url: string, remotePath: st
     const fullUrl = joinWebdavUrl(url, remotePath)
     const fileName = path.basename(remotePath)
     const tempDir = path.join(app.getPath('temp'), 'scriptplayerplus-nas')
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+    await fs.promises.mkdir(tempDir, { recursive: true })
     const localPath = path.join(tempDir, fileName)
 
     const res = await webdavRequestRaw(fullUrl, 'GET', username, password)
@@ -1179,7 +1180,7 @@ ipcMain.handle('nas:ftp:download', async (_event, host: string, port: number, us
     await client.access({ host, port, user: username, password, secure: false })
     const fileName = path.basename(remotePath)
     const tempDir = path.join(app.getPath('temp'), 'scriptplayerplus-nas')
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+    await fs.promises.mkdir(tempDir, { recursive: true })
     const localPath = path.join(tempDir, fileName)
 
     await client.downloadTo(localPath, remotePath)
@@ -1200,26 +1201,28 @@ let eroScriptsCookies: string = ''
 
 const eroCookiePath = path.join(app.getPath('userData'), 'ero-session.json')
 
-function saveEroCookies(cookies: string, username: string) {
-  try { fs.writeFileSync(eroCookiePath, JSON.stringify({ cookies, username })) } catch {}
+async function saveEroCookies(cookies: string, username: string) {
+  try { await fs.promises.writeFile(eroCookiePath, JSON.stringify({ cookies, username })) } catch {}
 }
 
-function loadEroCookies(): { cookies: string; username: string } | null {
+async function loadEroCookies(): Promise<{ cookies: string; username: string } | null> {
   try {
-    if (fs.existsSync(eroCookiePath)) {
-      return JSON.parse(fs.readFileSync(eroCookiePath, 'utf-8'))
-    }
-  } catch {}
-  return null
+    const content = await fs.promises.readFile(eroCookiePath, 'utf-8')
+    return JSON.parse(content)
+  } catch {
+    return null
+  }
 }
 
-function clearEroCookies() {
-  try { if (fs.existsSync(eroCookiePath)) fs.unlinkSync(eroCookiePath) } catch {}
+async function clearEroCookies() {
+  try { await fs.promises.unlink(eroCookiePath) } catch {}
 }
 
 // Restore saved session on startup
-const savedEro = loadEroCookies()
-if (savedEro) eroScriptsCookies = savedEro.cookies
+;(async () => {
+  const savedEro = await loadEroCookies()
+  if (savedEro) eroScriptsCookies = savedEro.cookies
+})()
 
 ipcMain.handle('eroscripts:checkSession', async () => {
   if (!eroScriptsCookies) return { loggedIn: false, username: '' }
@@ -1232,7 +1235,7 @@ ipcMain.handle('eroscripts:checkSession', async () => {
   } catch {}
   // Session expired
   eroScriptsCookies = ''
-  clearEroCookies()
+  await clearEroCookies()
   return { loggedIn: false, username: '' }
 })
 
@@ -1270,10 +1273,10 @@ ipcMain.handle('eroscripts:login', async () => {
           const resp = await makeEroRequest(`https://${EROSCRIPTS_DOMAIN}/session/current.json`, cookieStr)
           const data = JSON.parse(resp)
           const username = data.current_user?.username || ''
-          saveEroCookies(cookieStr, username)
+          await saveEroCookies(cookieStr, username)
           resolve({ success: true, username, cookies: cookieStr })
         } catch {
-          saveEroCookies(cookieStr, '')
+          await saveEroCookies(cookieStr, '')
           resolve({ success: true, username: '', cookies: cookieStr })
         }
 
@@ -1292,7 +1295,7 @@ ipcMain.handle('eroscripts:login', async () => {
 
 ipcMain.handle('eroscripts:logout', async () => {
   eroScriptsCookies = ''
-  clearEroCookies()
+  await clearEroCookies()
   const ses = session.defaultSession
   const cookies = await ses.cookies.get({ domain: EROSCRIPTS_DOMAIN })
   for (const cookie of cookies) {
@@ -1314,7 +1317,7 @@ ipcMain.handle('eroscripts:download', async (_event, url: string, scriptFolder?:
   try {
     // Use script folder if set, otherwise temp
     const saveDir = scriptFolder || path.join(app.getPath('temp'), 'scriptplayerplus-ero')
-    if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true })
+    await fs.promises.mkdir(saveDir, { recursive: true })
 
     const fileName = saveName || decodeURIComponent(url.split('/').pop() || 'script.funscript')
     const localPath = path.join(saveDir, fileName)
@@ -1360,7 +1363,7 @@ ipcMain.handle('eroscripts:download', async (_event, url: string, scriptFolder?:
 
     // If it's a funscript, read and return content
     if (localPath.endsWith('.funscript')) {
-      const content = fs.readFileSync(localPath, 'utf-8')
+      const content = await fs.promises.readFile(localPath, 'utf-8')
       return { ok: true, path: localPath, content }
     }
 

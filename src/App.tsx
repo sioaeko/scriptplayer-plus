@@ -311,6 +311,8 @@ export default function App() {
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(loadPlaybackMode)
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
+  const [playlist, setPlaylist] = useState<VideoFile[]>([])
+  const [playlistIndex, setPlaylistIndex] = useState<number>(-1)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const handyUploadRequestId = useRef(0)
   const handySyncRunId = useRef(0)
@@ -789,6 +791,74 @@ export default function App() {
     await openMediaFile(file.path, file.type)
   }, [openMediaFile])
 
+  const handlePlaylistItemSelect = useCallback(async (file: VideoFile, index: number) => {
+    setPlaylistIndex(index)
+    await openMediaFile(file.path, file.type)
+  }, [openMediaFile])
+
+  const handleAddToPlaylist = useCallback((file: VideoFile) => {
+    setPlaylist((prev) => [...prev, file])
+  }, [])
+
+  const handleAddFolderToPlaylist = useCallback(() => {
+    if (files.length === 0) return
+    setPlaylist((prev) => [...prev, ...files])
+  }, [files])
+
+  const handleRemoveFromPlaylist = useCallback((index: number) => {
+    setPlaylist((prev) => prev.filter((_, i) => i !== index))
+    setPlaylistIndex((prev) => {
+      if (prev < 0) return prev
+      if (prev === index) return -1
+      if (prev > index) return prev - 1
+      return prev
+    })
+  }, [])
+
+  const handleClearPlaylist = useCallback(() => {
+    setPlaylist([])
+    setPlaylistIndex(-1)
+  }, [])
+
+  const handleMovePlaylistItem = useCallback((fromIndex: number, direction: 'up' | 'down') => {
+    setPlaylist((prev) => {
+      const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1
+      if (toIndex < 0 || toIndex >= prev.length) return prev
+      const next = [...prev]
+      ;[next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]]
+      return next
+    })
+    setPlaylistIndex((prev) => {
+      const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1
+      if (prev === fromIndex) return toIndex
+      if (prev === toIndex) return fromIndex
+      return prev
+    })
+  }, [])
+
+  const handleSavePlaylist = useCallback(async () => {
+    if (playlist.length === 0) return
+    const filePath = await window.electronAPI.dialogSavePlaylist()
+    if (!filePath) return
+    await window.electronAPI.playlistSave(filePath, playlist.map((f) => ({ path: f.path, name: f.name })))
+  }, [playlist])
+
+  const handleLoadPlaylist = useCallback(async () => {
+    const filePath = await window.electronAPI.dialogOpenPlaylist()
+    if (!filePath) return
+    const raw = await window.electronAPI.playlistLoad(filePath)
+    if (raw.length === 0) return
+    const loaded: VideoFile[] = raw.map((entry) => ({
+      name: entry.name,
+      path: entry.path,
+      type: getMediaTypeFromPath(entry.path) ?? 'video',
+      hasScript: false,
+      hasSubtitles: false,
+    }))
+    setPlaylist(loaded)
+    setPlaylistIndex(-1)
+  }, [])
+
   const handleManualScriptSelect = useCallback(async (file: VideoFile) => {
     const scriptPath = await window.electronAPI.openScriptFile()
     if (!scriptPath) return
@@ -959,10 +1029,17 @@ export default function App() {
   const handleTimeUpdate = useCallback((_time: number) => {}, [])
 
   const handleEnded = useCallback(async () => {
+    if (playlist.length > 0) {
+      if (playlistIndex < 0 || playlistIndex >= playlist.length - 1) return
+      const nextIndex = playlistIndex + 1
+      setPlaylistIndex(nextIndex)
+      await openMediaFile(playlist[nextIndex].path, playlist[nextIndex].type, { autoplay: true })
+      return
+    }
     const nextFile = getNextPlaybackFile(files, currentFile, playbackMode)
     if (!nextFile) return
     await openMediaFile(nextFile.path, nextFile.type, { autoplay: true })
-  }, [currentFile, files, openMediaFile, playbackMode])
+  }, [currentFile, files, openMediaFile, playbackMode, playlist, playlistIndex])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1294,6 +1371,16 @@ export default function App() {
           onButtplugFeatureMappingChange={setSelectedButtplugFeatureMapping}
           buttplugAvailableAxes={availableScriptAxes}
           scriptFolder={settings.scriptFolder}
+          playlist={playlist}
+          playlistIndex={playlistIndex}
+          onPlaylistItemSelect={handlePlaylistItemSelect}
+          onAddToPlaylist={handleAddToPlaylist}
+          onAddFolderToPlaylist={handleAddFolderToPlaylist}
+          onRemoveFromPlaylist={handleRemoveFromPlaylist}
+          onClearPlaylist={handleClearPlaylist}
+          onMovePlaylistItem={handleMovePlaylistItem}
+          onSavePlaylist={handleSavePlaylist}
+          onLoadPlaylist={handleLoadPlaylist}
         />
         <VideoPlayer
           videoUrl={videoUrl}

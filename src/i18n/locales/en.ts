@@ -12,6 +12,14 @@ const en: Record<string, string> = {
   'sidebar.selectSubtitle': 'Select Subtitle...',
   'sidebar.clearManualScript': 'Clear Manual Script',
   'sidebar.clearManualSubtitle': 'Clear Manual Subtitle',
+  'sidebar.playlist': 'Playlist',
+  'sidebar.addToPlaylist': 'Add to Playlist',
+
+  'playlist.empty': 'No items. Right-click a file to add it, or use "Add Folder".',
+  'playlist.addFolder': 'Add Folder',
+  'playlist.save': 'Save',
+  'playlist.load': 'Load',
+  'playlist.clear': 'Clear',
 
   'player.noVideo': 'Open a folder or drag a video or audio file to start',
   'player.audioMode': 'Audio playback',

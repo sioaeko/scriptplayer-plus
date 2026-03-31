@@ -43,6 +43,11 @@ export interface VideoFile {
   relativePath?: string
 }
 
+export interface M3UEntry {
+  path: string
+  name: string
+}
+
 export interface HandyStatus {
   connected: boolean
   firmware: string
@@ -123,6 +128,12 @@ declare global {
       eroscriptsFetch: (url: string) => Promise<{ ok: boolean; data: any; error?: string }>
       eroscriptsDownload: (url: string, scriptFolder?: string, saveName?: string) => Promise<{ ok: boolean; path?: string; content?: string; error?: string }>
       eroscriptsGetCookies: () => Promise<string>
+
+      // Playlist
+      dialogSavePlaylist: () => Promise<string | null>
+      dialogOpenPlaylist: () => Promise<string | null>
+      playlistSave: (filePath: string, entries: M3UEntry[]) => Promise<boolean>
+      playlistLoad: (filePath: string) => Promise<M3UEntry[]>
     }
   }
 }

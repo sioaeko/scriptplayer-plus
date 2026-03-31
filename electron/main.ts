@@ -154,6 +154,71 @@ ipcMain.handle('dialog:openSubtitleFile', async () => {
   return result.filePaths[0]
 })
 
+ipcMain.handle('dialog:savePlaylist', async () => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    filters: [{ name: 'M3U Playlist', extensions: ['m3u8', 'm3u'] }],
+    defaultPath: 'playlist.m3u8',
+  })
+  if (result.canceled || !result.filePath) return null
+  return result.filePath
+})
+
+ipcMain.handle('dialog:openPlaylist', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile'],
+    filters: [{ name: 'M3U Playlist', extensions: ['m3u8', 'm3u'] }],
+  })
+  if (result.canceled) return null
+  return result.filePaths[0]
+})
+
+ipcMain.handle('playlist:save', async (
+  _event,
+  filePath: string,
+  entries: Array<{ path: string; name: string }>
+): Promise<boolean> => {
+  try {
+    const lines = ['#EXTM3U']
+    for (const entry of entries) {
+      lines.push(`#EXTINF:-1,${entry.name}`)
+      lines.push(entry.path)
+    }
+    fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+})
+
+ipcMain.handle('playlist:load', async (
+  _event,
+  filePath: string
+): Promise<Array<{ path: string; name: string }>> => {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const lines = content.split(/\r?\n/)
+    const entries: Array<{ path: string; name: string }> = []
+    let pendingName: string | null = null
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed === '#EXTM3U') continue
+      if (trimmed.startsWith('#EXTINF:')) {
+        const commaIndex = trimmed.indexOf(',')
+        pendingName = commaIndex >= 0 ? trimmed.slice(commaIndex + 1).trim() : null
+      } else if (!trimmed.startsWith('#')) {
+        const resolvedPath = path.isAbsolute(trimmed)
+          ? trimmed
+          : path.resolve(path.dirname(filePath), trimmed)
+        entries.push({ path: resolvedPath, name: pendingName || path.basename(resolvedPath) })
+        pendingName = null
+      }
+    }
+    return entries
+  } catch {
+    return []
+  }
+})
+
 // File system operations
 ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
   try {

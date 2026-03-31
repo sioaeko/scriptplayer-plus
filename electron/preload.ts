@@ -57,6 +57,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   nasFtpDownload: (host: string, port: number, username: string, password: string, remotePath: string) =>
     ipcRenderer.invoke('nas:ftp:download', host, port, username, password, remotePath),
 
+  // Playlist
+  dialogSavePlaylist: () => ipcRenderer.invoke('dialog:savePlaylist'),
+  dialogOpenPlaylist: () => ipcRenderer.invoke('dialog:openPlaylist'),
+  playlistSave: (filePath: string, entries: Array<{ path: string; name: string }>) =>
+    ipcRenderer.invoke('playlist:save', filePath, entries),
+  playlistLoad: (filePath: string) => ipcRenderer.invoke('playlist:load', filePath),
+
   // EroScripts
   eroscriptsCheckSession: () => ipcRenderer.invoke('eroscripts:checkSession'),
   eroscriptsLogin: () => ipcRenderer.invoke('eroscripts:login'),

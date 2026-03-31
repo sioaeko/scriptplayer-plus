@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions } from 'lucide-react'
+import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions, ListVideo } from 'lucide-react'
 import { OsrSerialPortInfo, ScriptAxisId, VideoFile } from '../types'
 import { ButtplugDevice, ButtplugFeature } from '../services/buttplug'
 import { getScriptAxisDefinition } from '../services/multiaxis'
 import { useTranslation } from '../i18n'
 import EroScriptsPanel from './EroScriptsPanel'
+import PlaylistPanel from './PlaylistPanel'
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
 
@@ -89,6 +90,16 @@ interface SidebarProps {
   onButtplugFeatureMappingChange: (featureId: string, next: { axisId: ScriptAxisId | ''; invert: boolean }) => void
   buttplugAvailableAxes: ScriptAxisId[]
   scriptFolder?: string
+  playlist: VideoFile[]
+  playlistIndex: number
+  onPlaylistItemSelect: (file: VideoFile, index: number) => void
+  onAddToPlaylist: (file: VideoFile) => void
+  onAddFolderToPlaylist: () => void
+  onRemoveFromPlaylist: (index: number) => void
+  onClearPlaylist: () => void
+  onMovePlaylistItem: (index: number, direction: 'up' | 'down') => void
+  onSavePlaylist: () => void | Promise<void>
+  onLoadPlaylist: () => void | Promise<void>
 }
 
 interface FileContextMenuState {
@@ -165,9 +176,19 @@ export default function Sidebar({
   onButtplugFeatureMappingChange,
   buttplugAvailableAxes,
   scriptFolder,
+  playlist,
+  playlistIndex,
+  onPlaylistItemSelect,
+  onAddToPlaylist,
+  onAddFolderToPlaylist,
+  onRemoveFromPlaylist,
+  onClearPlaylist,
+  onMovePlaylistItem,
+  onSavePlaylist,
+  onLoadPlaylist,
 }: SidebarProps) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<'files' | 'search' | 'device'>('files')
+  const [tab, setTab] = useState<'files' | 'search' | 'playlist' | 'device'>('files')
   const [filter, setFilter] = useState('')
   const [handyKey, setHandyKey] = useState(() => localStorage.getItem('handyKey') || '')
   const [connecting, setConnecting] = useState(false)
@@ -279,9 +300,10 @@ export default function Sidebar({
   }, [contextMenu])
 
   const tabs = [
-    { id: 'files' as const, icon: Film, label: t('sidebar.files') },
-    { id: 'search' as const, icon: Search, label: t('sidebar.scripts') },
-    { id: 'device' as const, icon: activeDeviceConnected ? Wifi : WifiOff, label: t('sidebar.device') },
+    { id: 'files' as const, icon: Film, label: t('sidebar.files'), badge: null },
+    { id: 'search' as const, icon: Search, label: t('sidebar.scripts'), badge: null },
+    { id: 'playlist' as const, icon: ListVideo, label: t('sidebar.playlist'), badge: playlist.length || null },
+    { id: 'device' as const, icon: activeDeviceConnected ? Wifi : WifiOff, label: t('sidebar.device'), badge: null },
   ]
 
   const handleFileContextMenu = (event: React.MouseEvent<HTMLButtonElement>, file: VideoFile) => {
@@ -320,7 +342,7 @@ export default function Sidebar({
     <div className="w-72 flex-shrink-0 bg-surface-200 border-r border-surface-100/30 flex flex-col h-full">
       {/* Tab bar */}
       <div className="flex border-b border-surface-100/30">
-        {tabs.map(({ id, icon: Icon, label }) => (
+        {tabs.map(({ id, icon: Icon, label, badge }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -330,7 +352,14 @@ export default function Sidebar({
                 : 'text-text-muted hover:text-text-secondary'
             }`}
           >
-            <Icon size={16} />
+            <div className="relative">
+              <Icon size={16} />
+              {badge != null && (
+                <span className="absolute -top-1.5 -right-2.5 bg-accent text-white text-[8px] font-bold rounded-full min-w-[14px] h-3.5 flex items-center justify-center px-0.5 leading-none">
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              )}
+            </div>
             {label}
           </button>
         ))}
@@ -391,6 +420,20 @@ export default function Sidebar({
               )}
             </div>
           </>
+        )}
+
+        {tab === 'playlist' && (
+          <PlaylistPanel
+            playlist={playlist}
+            playlistIndex={playlistIndex}
+            onItemSelect={onPlaylistItemSelect}
+            onRemove={onRemoveFromPlaylist}
+            onClear={onClearPlaylist}
+            onMove={onMovePlaylistItem}
+            onAddFolder={onAddFolderToPlaylist}
+            onSave={onSavePlaylist}
+            onLoad={onLoadPlaylist}
+          />
         )}
 
         {tab === 'search' && (
@@ -837,6 +880,16 @@ export default function Sidebar({
               {t('sidebar.clearManualSubtitle')}
             </button>
           )}
+          <div className="border-t border-surface-100/30 my-1" />
+          <button
+            onClick={() => {
+              setContextMenu(null)
+              onAddToPlaylist(contextMenu.file)
+            }}
+            className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-surface-100/30 hover:text-text-primary transition-colors"
+          >
+            {t('sidebar.addToPlaylist')}
+          </button>
         </div>
       )}
     </div>

@@ -6,7 +6,7 @@ import { promisify } from 'util'
 import { OsrSerialPortInfo, OsrSerialState } from '../src/types'
 
 const DEFAULT_BAUD_RATE = 115200
-const runtimeRequire = createRequire(import.meta.url)
+const runtimeRequire = createRequire(__dirname)
 const execFileAsync = promisify(execFile)
 const PORT_SORTER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 

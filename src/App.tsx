@@ -282,9 +282,10 @@ function pickDefaultVariant(variants: FunscriptVariant[], pattern: string): stri
     if (regexLiteral) {
       try { regex = new RegExp(regexLiteral[1], regexLiteral[2]) } catch { /* invalid, fall through */ }
     }
-    const match = variants.find((v) =>
-      regex ? regex.test(v.label) : v.label.toLowerCase().includes(pattern.toLowerCase())
-    )
+    const match = variants.find((v) => {
+      const filename = v.path.replace(/\\/g, '/').split('/').pop() ?? ''
+      return regex ? regex.test(filename) : filename.toLowerCase().includes(pattern.toLowerCase())
+    })
     if (match) return match.path
   }
   return variants.find((v) => v.isBase)?.path ?? variants[0]?.path ?? null

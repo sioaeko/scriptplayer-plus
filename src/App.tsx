@@ -7,6 +7,7 @@ import {
   Funscript,
   FunscriptAction,
   FunscriptBundle,
+  FunscriptVariant,
   MediaType,
   OsrSerialConnectionState,
   OsrSerialPortInfo,
@@ -313,6 +314,8 @@ export default function App() {
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
   const [playlist, setPlaylist] = useState<VideoFile[]>([])
   const [playlistIndex, setPlaylistIndex] = useState<number>(-1)
+  const [scriptVariants, setScriptVariants] = useState<FunscriptVariant[]>([])
+  const [activeVariantPath, setActiveVariantPath] = useState<string | null>(null)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const handyUploadRequestId = useRef(0)
   const handySyncRunId = useRef(0)
@@ -767,25 +770,30 @@ export default function App() {
     setSubtitleCues([])
     setScriptUploadUrl(null)
     setArtworkUrl(null)
+    setScriptVariants([])
+    setActiveVariantPath(null)
 
-    const [url, nextSubtitleCues, parsedBundle, artworkPath] = await Promise.all([
+    const [url, nextSubtitleCues, parsedBundle, artworkPath, variants] = await Promise.all([
       window.electronAPI.getVideoUrl(filePath),
       loadSubtitleCues(filePath, resolvedType),
       loadScriptBundle(filePath),
       resolvedType === 'audio'
         ? window.electronAPI.findArtwork(filePath)
         : Promise.resolve<string | null>(null),
+      window.electronAPI.findFunscriptVariants(filePath, settings.scriptFolder || undefined),
     ])
 
     setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
+    setScriptVariants(variants)
+    setActiveVariantPath(variants.find((v) => v.isBase)?.path ?? variants[0]?.path ?? null)
 
     if (artworkPath) {
       const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
       setArtworkUrl(nextArtworkUrl)
     }
-  }, [cancelPendingHandySync, loadScriptBundle, loadSubtitleCues, osrSerialConnected, stopButtplugPlayback, stopOsrSerialPlayback])
+  }, [cancelPendingHandySync, loadScriptBundle, loadSubtitleCues, osrSerialConnected, settings.scriptFolder, stopButtplugPlayback, stopOsrSerialPlayback])
 
   const handleFileSelect = useCallback(async (file: VideoFile) => {
     await openMediaFile(file.path, file.type)
@@ -898,6 +906,13 @@ export default function App() {
       const rawBundle = await window.electronAPI.readFunscriptBundle(file.path, settings.scriptFolder)
       setFunscriptBundle(parseFunscriptBundleData(rawBundle))
     }
+  }, [currentFile, settings.scriptFolder])
+
+  const handleVariantSelect = useCallback(async (variant: FunscriptVariant) => {
+    if (!currentFile) return
+    setActiveVariantPath(variant.path)
+    const rawBundle = await window.electronAPI.readFunscriptBundle(currentFile, settings.scriptFolder || undefined, variant.path)
+    setFunscriptBundle(parseFunscriptBundleData(rawBundle))
   }, [currentFile, settings.scriptFolder])
 
   const handleClearManualSubtitle = useCallback(async (file: VideoFile) => {
@@ -1407,6 +1422,9 @@ export default function App() {
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}
           subtitleFontSize={settings.subtitleFontSize}
+          scriptVariants={scriptVariants}
+          activeVariantPath={activeVariantPath}
+          onVariantSelect={handleVariantSelect}
         />
       </div>
 

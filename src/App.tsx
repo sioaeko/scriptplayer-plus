@@ -273,6 +273,23 @@ function buildAxisActionMap(
   return next
 }
 
+function pickDefaultVariant(variants: FunscriptVariant[], pattern: string): string | null {
+  if (variants.length === 0) return null
+  if (pattern) {
+    // Try to parse as /pattern/flags regex literal, otherwise treat as plain substring
+    let regex: RegExp | null = null
+    const regexLiteral = pattern.match(/^\/(.+)\/([gimsuy]*)$/)
+    if (regexLiteral) {
+      try { regex = new RegExp(regexLiteral[1], regexLiteral[2]) } catch { /* invalid, fall through */ }
+    }
+    const match = variants.find((v) =>
+      regex ? regex.test(v.label) : v.label.toLowerCase().includes(pattern.toLowerCase())
+    )
+    if (match) return match.path
+  }
+  return variants.find((v) => v.isBase)?.path ?? variants[0]?.path ?? null
+}
+
 function getPrimaryAxis(bundle: FunscriptBundle | null): ScriptAxisId | null {
   if (!bundle) return null
   if (bundle.primaryAxis && bundle.scripts[bundle.primaryAxis]) return bundle.primaryAxis
@@ -787,7 +804,7 @@ export default function App() {
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
     setScriptVariants(variants)
-    setActiveVariantPath(variants.find((v) => v.isBase)?.path ?? variants[0]?.path ?? null)
+    setActiveVariantPath(pickDefaultVariant(variants, settings.defaultVariantPattern))
 
     if (artworkPath) {
       const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)

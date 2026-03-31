@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, session } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, session, net } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -84,9 +84,9 @@ function createWindow() {
 
 app.whenReady().then(() => {
   // Register protocol for local video files
-  protocol.registerFileProtocol('local-video', (request, callback) => {
+  protocol.handle('local-video', (request) => {
     const filePath = decodeURIComponent(request.url.replace('local-video://', ''))
-    callback({ path: filePath })
+    return net.fetch(pathToFileURL(filePath).toString())
   })
 
   createWindow()

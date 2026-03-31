@@ -48,6 +48,12 @@ export interface M3UEntry {
   name: string
 }
 
+export interface FunscriptVariant {
+  label: string
+  path: string
+  isBase: boolean
+}
+
 export interface HandyStatus {
   connected: boolean
   firmware: string
@@ -112,6 +118,7 @@ declare global {
       findArtwork: (mediaPath: string) => Promise<string | null>
       readSubtitles: (mediaPath: string) => Promise<SubtitleFile[]>
       readSubtitleFile: (filePath: string) => Promise<SubtitleFile | null>
+      findFunscriptVariants: (mediaPath: string, scriptFolder?: string) => Promise<FunscriptVariant[]>
 
       // Direct serial / COM port
       osrSerialListPorts: () => Promise<OsrSerialPortInfo[]>

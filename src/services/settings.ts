@@ -3,6 +3,7 @@ export interface AppSettings {
   language: string // 'en' | 'ko' | 'ja' | 'zh'
   defaultVideoFolder: string
   scriptFolder: string
+  defaultVariantPattern: string // keyword or regex to auto-select a variant
 
   // Appearance
   theme: 'dark' // only dark for now
@@ -26,6 +27,7 @@ export const defaultSettings: AppSettings = {
   language: 'en',
   defaultVideoFolder: '',
   scriptFolder: '',
+  defaultVariantPattern: '',
   theme: 'dark',
   subtitleFontSize: 20,
   showHeatmapByDefault: false,

@@ -17,7 +17,7 @@ import {
   Loader2,
   Music4,
 } from 'lucide-react'
-import { FunscriptAction, MediaType, PlaybackMode, SubtitleCue } from '../types'
+import { FunscriptAction, FunscriptVariant, MediaType, PlaybackMode, SubtitleCue } from '../types'
 import { useTranslation } from '../i18n'
 import { getActiveSubtitleText } from '../services/subtitles'
 import ScriptTimeline from './ScriptTimeline'
@@ -56,6 +56,9 @@ interface VideoPlayerProps {
   timelineWindow?: number
   speedColors?: boolean
   subtitleFontSize?: number
+  scriptVariants?: FunscriptVariant[]
+  activeVariantPath?: string | null
+  onVariantSelect?: (variant: FunscriptVariant) => void
 }
 
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -85,6 +88,9 @@ export default function VideoPlayer({
   timelineWindow = 10,
   speedColors = true,
   subtitleFontSize = 20,
+  scriptVariants = [],
+  activeVariantPath = null,
+  onVariantSelect,
 }: VideoPlayerProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -671,6 +677,25 @@ export default function VideoPlayer({
                 </option>
               ))}
             </select>
+            {scriptVariants.length > 1 && onVariantSelect && (
+              <select
+                value={activeVariantPath ?? ''}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  const variant = scriptVariants.find((v) => v.path === e.target.value)
+                  if (variant) onVariantSelect(variant)
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-surface-300/80 text-text-secondary text-[10px] px-2 py-1 rounded border border-surface-100/30 outline-none hover:text-text-primary"
+                title="Script variant"
+              >
+                {scriptVariants.map((variant) => (
+                  <option key={variant.path} value={variant.path}>
+                    {variant.label}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); toggleSequentialPlayback() }}
               className={`p-1.5 rounded transition-colors ${playbackMode === 'sequential' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}

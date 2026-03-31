@@ -273,22 +273,17 @@ function buildAxisActionMap(
   return next
 }
 
-function pickDefaultVariant(variants: FunscriptVariant[], pattern: string): string | null {
+function pickDefaultVariant(variants: FunscriptVariant[], keyword: string): FunscriptVariant | null {
   if (variants.length === 0) return null
-  if (pattern) {
-    // Try to parse as /pattern/flags regex literal, otherwise treat as plain substring
-    let regex: RegExp | null = null
-    const regexLiteral = pattern.match(/^\/(.+)\/([gimsuy]*)$/)
-    if (regexLiteral) {
-      try { regex = new RegExp(regexLiteral[1], regexLiteral[2]) } catch { /* invalid, fall through */ }
-    }
+  if (keyword.trim()) {
+    const lower = keyword.trim().toLowerCase()
     const match = variants.find((v) => {
       const filename = v.path.replace(/\\/g, '/').split('/').pop() ?? ''
-      return regex ? regex.test(filename) : filename.toLowerCase().includes(pattern.toLowerCase())
+      return filename.toLowerCase().includes(lower)
     })
-    if (match) return match.path
+    if (match) return match
   }
-  return variants.find((v) => v.isBase)?.path ?? variants[0]?.path ?? null
+  return variants.find((v) => v.isBase) ?? variants[0] ?? null
 }
 
 function getPrimaryAxis(bundle: FunscriptBundle | null): ScriptAxisId | null {
@@ -791,21 +786,25 @@ export default function App() {
     setScriptVariants([])
     setActiveVariantPath(null)
 
-    const [url, nextSubtitleCues, parsedBundle, artworkPath, variants] = await Promise.all([
+    const [url, nextSubtitleCues, artworkPath, variants] = await Promise.all([
       window.electronAPI.getVideoUrl(filePath),
       loadSubtitleCues(filePath, resolvedType),
-      loadScriptBundle(filePath),
       resolvedType === 'audio'
         ? window.electronAPI.findArtwork(filePath)
         : Promise.resolve<string | null>(null),
       window.electronAPI.findFunscriptVariants(filePath, settings.scriptFolder || undefined),
     ])
 
+    const defaultVariant = pickDefaultVariant(variants, settings.defaultVariantPattern)
+    const parsedBundle = defaultVariant && !defaultVariant.isBase
+      ? parseFunscriptBundleData(await window.electronAPI.readFunscriptBundle(filePath, settings.scriptFolder || undefined, defaultVariant.path))
+      : await loadScriptBundle(filePath)
+
     setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
     setScriptVariants(variants)
-    setActiveVariantPath(pickDefaultVariant(variants, settings.defaultVariantPattern))
+    setActiveVariantPath(defaultVariant?.path ?? null)
 
     if (artworkPath) {
       const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)

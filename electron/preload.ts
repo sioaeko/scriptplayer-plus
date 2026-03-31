@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   findArtwork: (mediaPath: string) => ipcRenderer.invoke('fs:findArtwork', mediaPath),
   readSubtitles: (mediaPath: string) => ipcRenderer.invoke('fs:readSubtitles', mediaPath),
   readSubtitleFile: (filePath: string) => ipcRenderer.invoke('fs:readSubtitleFile', filePath),
+  findFunscriptVariants: (mediaPath: string, scriptFolder?: string) => ipcRenderer.invoke('fs:findFunscriptVariants', mediaPath, scriptFolder),
 
   // Direct serial / COM port
   osrSerialListPorts: () => ipcRenderer.invoke('osrSerial:listPorts'),

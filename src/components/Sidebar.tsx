@@ -355,7 +355,7 @@ export default function Sidebar({
             <div className="relative">
               <Icon size={16} />
               {badge != null && (
-                <span className="absolute -top-1.5 -right-2.5 bg-accent text-white text-[8px] font-bold rounded-full min-w-[14px] h-3.5 flex items-center justify-center px-0.5 leading-none">
+                <span className="absolute -bottom-1.5 -right-2.5 bg-accent text-white text-[8px] font-bold rounded-full min-w-[14px] h-3.5 flex items-center justify-center px-0.5 leading-none">
                   {badge > 99 ? '99+' : badge}
                 </span>
               )}

@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![设置](screenshots/setting.png) | ![macOS](screenshots/macos.png) |
 
-## v0.1.5 新增内容
+## v0.1.6 新增内容
 
-`v0.1.5` 正式版整合了实验阶段的多轴功能，包含官方 `FunOSR (Direct Serial / COM)` 支持、`Intiface / Buttplug` 原始 TCode 传输、可调节的 `L0/L1/L2/R0/R1/R2` 单行输出、更顺滑的时间线 / 热力图跟随、seek 后更稳定的 Handy 重新同步，以及 `exp.7` / `exp.8` 的 Windows 打包修复。
+`v0.1.6` 增加了可在播放栏直接调整的 `STR` 行程范围控制、针对空白较长脚本区段的自动跳过、更稳定的媒体时长识别、更顺滑的 seek / 拖动体验，以及对大型文件夹扫描和目录遍历稳定性的改进。
 
-| v0.1.5 预览 |
+| v0.1.6 预览 |
 |:-:|
-| ![v0.1.5 预览](screenshots/preview_v015_exp1.png) |
+| ![v0.1.6 预览](screenshots/preview_v015_exp1.png) |
 
-- 下载正式版本: [ScriptPlayer+ v0.1.5](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5)
+- 下载正式版本: [ScriptPlayer+ v0.1.6](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.6)
 
 ## 主要功能
 

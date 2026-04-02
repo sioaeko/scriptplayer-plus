@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![設定](screenshots/setting.png) | ![macOS](screenshots/macos.png) |
 
-## v0.1.5 の新機能
+## v0.1.6 の新機能
 
-`v0.1.5` では実験版で進めていたマルチアクシス対応を正式版へ取り込み、公式 `FunOSR (Direct Serial / COM)` サポート、`Intiface / Buttplug` の raw TCode 転送、調整可能な `L0/L1/L2/R0/R1/R2` の 1 行出力、より滑らかなタイムライン / ヒートマップ追従、seek 後の Handy 再同期改善、そして `exp.7` / `exp.8` で入った Windows パッケージ版の修正を含みます。
+`v0.1.6` では再生バーから直接調整できる `STR` ストローク範囲コントロール、空白の長いスクリプト区間の自動スキップ、より安定したメディア長の認識、より滑らかな seek / スクラブ動作、そして大きなフォルダのスキャンとディレクトリ走査の安定化を追加しました。
 
-| v0.1.5 プレビュー |
+| v0.1.6 プレビュー |
 |:-:|
-| ![v0.1.5 プレビュー](screenshots/preview_v015_exp1.png) |
+| ![v0.1.6 プレビュー](screenshots/preview_v015_exp1.png) |
 
-- 正式リリースのダウンロード: [ScriptPlayer+ v0.1.5](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5)
+- 正式リリースのダウンロード: [ScriptPlayer+ v0.1.6](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.6)
 
 ## 主な機能
 

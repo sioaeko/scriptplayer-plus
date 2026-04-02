@@ -3,6 +3,7 @@ import {
   Settings as SettingsIcon,
   Monitor,
   Activity,
+  Play,
   Wifi,
   Keyboard,
   Info,
@@ -18,10 +19,12 @@ interface SettingsProps {
   onClose: () => void
   settings: AppSettings
   onSettingsChange: (settings: AppSettings) => void
+  initialSection?: SettingsSection
 }
 
-type Section =
+export type SettingsSection =
   | 'general'
+  | 'playback'
   | 'appearance'
   | 'timeline'
   | 'device'
@@ -88,6 +91,13 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 function Divider() {
   return <div className="border-t border-surface-100/30 my-3" />
+}
+
+function formatSecondsLabel(value: number): string {
+  const formatted = Number.isInteger(value)
+    ? value.toFixed(0)
+    : value.toFixed(1).replace(/\.0$/, '')
+  return `${formatted}s`
 }
 
 // ── Section components ───────────────────────────────────────────────
@@ -205,6 +215,71 @@ function AppearanceSection({
           value={settings.subtitleFontSize}
           onChange={(e) => update('subtitleFontSize', Number(e.target.value))}
           className="w-36"
+        />
+      </FieldRow>
+    </div>
+  )
+}
+
+function PlaybackSection({
+  settings,
+  onChange,
+}: {
+  settings: AppSettings
+  onChange: (s: AppSettings) => void
+}) {
+  const { t } = useTranslation()
+  const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
+    onChange({ ...settings, [key]: val })
+  const controlsDisabled = !settings.autoSkipScriptGaps
+
+  return (
+    <div>
+      <SectionHeading>{t('settings.playback')}</SectionHeading>
+
+      <FieldRow
+        label={t('settings.autoSkipScriptGaps')}
+        description={t('settings.autoSkipScriptGapsDesc')}
+      >
+        <Toggle
+          checked={settings.autoSkipScriptGaps}
+          onChange={(v) => update('autoSkipScriptGaps', v)}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.autoSkipGapMinDuration')}
+        description={`${formatSecondsLabel(settings.autoSkipGapMinDuration)} • ${t('settings.autoSkipGapMinDurationDesc')}`}
+      >
+        <input
+          type="range"
+          min={3}
+          max={60}
+          step={1}
+          disabled={controlsDisabled}
+          value={settings.autoSkipGapMinDuration}
+          onChange={(e) => update('autoSkipGapMinDuration', Number(e.target.value))}
+          className={`w-36 ${controlsDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.autoSkipGapLeadIn')}
+        description={`${formatSecondsLabel(settings.autoSkipGapLeadIn)} • ${t('settings.autoSkipGapLeadInDesc')}`}
+      >
+        <input
+          type="range"
+          min={0}
+          max={5}
+          step={0.5}
+          disabled={controlsDisabled}
+          value={settings.autoSkipGapLeadIn}
+          onChange={(e) => update('autoSkipGapLeadIn', Number(e.target.value))}
+          className={`w-36 ${controlsDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
         />
       </FieldRow>
     </div>
@@ -513,12 +588,14 @@ export default function Settings({
   onClose,
   settings,
   onSettingsChange,
+  initialSection = 'general',
 }: SettingsProps) {
   const { t } = useTranslation()
-  const [activeSection, setActiveSection] = useState<Section>('general')
+  const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection)
 
-  const sectionItems: { id: Section; label: string; icon: typeof SettingsIcon }[] = [
+  const sectionItems: { id: SettingsSection; label: string; icon: typeof SettingsIcon }[] = [
     { id: 'general', label: t('settings.general'), icon: SettingsIcon },
+    { id: 'playback', label: t('settings.playback'), icon: Play },
     { id: 'appearance', label: t('settings.appearance'), icon: Monitor },
     { id: 'timeline', label: t('settings.timeline'), icon: Activity },
     { id: 'device', label: t('settings.device'), icon: Wifi },
@@ -535,6 +612,11 @@ export default function Settings({
     return () => window.removeEventListener('keydown', handler)
   }, [open, onClose])
 
+  useEffect(() => {
+    if (!open) return
+    setActiveSection(initialSection)
+  }, [initialSection, open])
+
   const handleChange = useCallback(
     (next: AppSettings) => {
       onSettingsChange(next)
@@ -548,6 +630,8 @@ export default function Settings({
     switch (activeSection) {
       case 'general':
         return <GeneralSection settings={settings} onChange={handleChange} />
+      case 'playback':
+        return <PlaybackSection settings={settings} onChange={handleChange} />
       case 'appearance':
         return <AppearanceSection settings={settings} onChange={handleChange} />
       case 'timeline':

@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import VideoPlayer from './components/VideoPlayer'
-import Settings from './components/Settings'
+import Settings, { type SettingsSection } from './components/Settings'
 import {
   Funscript,
   FunscriptAction,
@@ -59,6 +59,9 @@ const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
 const DEFAULT_OSR_SERIAL_BAUD_RATE = 115200
 const DEFAULT_OSR_SERIAL_UPDATE_RATE = 50
 const HANDY_SEEK_SETTLE_TIMEOUT_MS = 500
+const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
+const AUTO_SKIP_COOLDOWN_MS = 1000
+const AUTO_SKIP_TARGET_EPSILON_MS = 250
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
 type StoredButtplugFeatureMapping = ButtplugFeatureMapping
@@ -279,6 +282,63 @@ function getPrimaryAxis(bundle: FunscriptBundle | null): ScriptAxisId | null {
   return (Object.keys(bundle.scripts)[0] as ScriptAxisId | undefined) ?? null
 }
 
+function collectSortedActionTimes(actionMap: AxisActionMap): number[] {
+  const uniqueTimes = new Set<number>()
+
+  for (const axisId of SCRIPT_AXIS_IDS) {
+    const actions = actionMap[axisId]
+    if (!actions) continue
+
+    for (const action of actions) {
+      if (Number.isFinite(action.at) && action.at >= 0) {
+        uniqueTimes.add(action.at)
+      }
+    }
+  }
+
+  return Array.from(uniqueTimes).sort((a, b) => a - b)
+}
+
+function findAutoSkipTargetMs(
+  actionTimes: number[],
+  currentTimeMs: number,
+  minimumGapMs: number,
+  leadInMs: number
+): number | null {
+  if (actionTimes.length === 0 || minimumGapMs <= 0) {
+    return null
+  }
+
+  let low = 0
+  let high = actionTimes.length
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    if (actionTimes[mid] <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
+      low = mid + 1
+    } else {
+      high = mid
+    }
+  }
+
+  const nextActionTime = actionTimes[low]
+  if (!Number.isFinite(nextActionTime)) {
+    return null
+  }
+
+  const gapStartTime = low > 0 ? actionTimes[low - 1] : 0
+  const gapDuration = nextActionTime - gapStartTime
+  if (gapDuration < minimumGapMs) {
+    return null
+  }
+
+  const targetTime = Math.max(gapStartTime, nextActionTime - Math.max(0, leadInMs))
+  if (targetTime <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
+    return null
+  }
+
+  return targetTime
+}
+
 export default function App() {
   const { locale, setLocale } = useTranslation()
   const [files, setFiles] = useState<VideoFile[]>([])
@@ -305,6 +365,7 @@ export default function App() {
   const [selectedOsrSerialPortPath, setSelectedOsrSerialPortPathState] = useState<string>(loadOsrSerialPortPath)
   const [osrSerialUpdateRate, setOsrSerialUpdateRateState] = useState<number>(loadOsrSerialUpdateRate)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
   const [settings, setSettings] = useState<AppSettings>(loadSettings)
   const [manualScriptPaths, setManualScriptPaths] = useState<Record<string, string>>({})
   const [manualSubtitleFiles, setManualSubtitleFiles] = useState<Record<string, SubtitleFile>>({})
@@ -314,10 +375,13 @@ export default function App() {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const handyUploadRequestId = useRef(0)
   const handySyncRunId = useRef(0)
+  const openMediaRequestId = useRef(0)
   const buttplugStreamTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buttplugStreamRunId = useRef(0)
   const osrSerialStreamTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const osrSerialStreamRunId = useRef(0)
+  const autoSkipSuppressedUntilRef = useRef(0)
+  const autoSkipCooldownUntilRef = useRef(0)
 
   const primaryAxis = useMemo(() => getPrimaryAxis(funscriptBundle), [funscriptBundle])
   const displayAxisActions = useMemo(
@@ -351,6 +415,10 @@ export default function App() {
   }, [primaryAxis, runtimeAxisActions])
   const availableScriptAxes = useMemo(
     () => SCRIPT_AXIS_IDS.filter((axisId) => Boolean(displayAxisActions[axisId]?.length)),
+    [displayAxisActions]
+  )
+  const allScriptActionTimes = useMemo(
+    () => collectSortedActionTimes(displayAxisActions),
     [displayAxisActions]
   )
   const displayFiles = useMemo(
@@ -477,6 +545,30 @@ export default function App() {
     setSettings(newSettings)
     saveSettings(newSettings)
   }, [])
+
+  const patchSettings = useCallback((patch: Partial<AppSettings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...patch }
+      saveSettings(next)
+      return next
+    })
+  }, [])
+
+  const openSettingsSection = useCallback((section: SettingsSection) => {
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }, [])
+
+  const handleQuickStrokeRangeChange = useCallback((min: number, max: number) => {
+    patchSettings({
+      strokeRangeMin: Math.min(min, max),
+      strokeRangeMax: Math.max(min, max),
+    })
+  }, [patchSettings])
+
+  const handleQuickInvertStrokeChange = useCallback((invert: boolean) => {
+    patchSettings({ invertStroke: invert })
+  }, [patchSettings])
 
   const setButtplugServerUrl = useCallback((url: string) => {
     setButtplugServerUrlState(url)
@@ -734,6 +826,7 @@ export default function App() {
     fileType?: MediaType,
     options?: { autoplay?: boolean }
   ) => {
+    const requestId = ++openMediaRequestId.current
     const resolvedType = fileType ?? getMediaTypeFromPath(filePath)
     if (!resolvedType) return
 
@@ -759,6 +852,8 @@ export default function App() {
       setAutoPlayRequestId((prev) => prev + 1)
     }
 
+    autoSkipSuppressedUntilRef.current = 0
+    autoSkipCooldownUntilRef.current = 0
     setCurrentFile(filePath)
     setCurrentFileType(resolvedType)
     setFunscriptBundle(null)
@@ -775,12 +870,19 @@ export default function App() {
         : Promise.resolve<string | null>(null),
     ])
 
+    if (requestId !== openMediaRequestId.current) {
+      return
+    }
+
     setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
 
     if (artworkPath) {
       const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
+      if (requestId !== openMediaRequestId.current) {
+        return
+      }
       setArtworkUrl(nextArtworkUrl)
     }
   }, [cancelPendingHandySync, loadScriptBundle, loadSubtitleCues, osrSerialConnected, stopButtplugPlayback, stopOsrSerialPlayback])
@@ -928,35 +1030,87 @@ export default function App() {
     }
   }, [cancelPendingHandySync, deviceProvider, osrSerialConnected, stopButtplugPlayback, stopOsrSerialPlayback])
 
+  const syncDevicesAfterSeek = useCallback(async () => {
+    if (deviceProvider === 'handy' && handyService.isConnected && scriptUploadUrl) {
+      const media = mediaRef.current
+      if (media && !media.paused) {
+        await syncHandyPlaybackToCurrentMedia({ stopFirst: true })
+      }
+      return
+    }
+
+    if (deviceProvider === 'buttplug' && buttplugService.isConnected) {
+      const media = mediaRef.current
+      if (media && !media.paused) {
+        await startButtplugPlayback()
+      }
+      return
+    }
+
+    if (deviceProvider === 'serial' && osrSerialConnected) {
+      const media = mediaRef.current
+      if (media && !media.paused) {
+        await startOsrSerialPlayback()
+      }
+    }
+  }, [deviceProvider, osrSerialConnected, scriptUploadUrl, startButtplugPlayback, startOsrSerialPlayback, syncHandyPlaybackToCurrentMedia])
+
+  const performAutoSkip = useCallback(async (targetTimeSeconds: number) => {
+    const media = mediaRef.current
+    if (!media || media.paused) return
+
+    autoSkipCooldownUntilRef.current = Date.now() + AUTO_SKIP_COOLDOWN_MS
+    media.currentTime = targetTimeSeconds
+    await syncDevicesAfterSeek()
+  }, [syncDevicesAfterSeek])
+
   const handleSeek = useCallback(
     async (_time: number) => {
-      if (deviceProvider === 'handy' && handyService.isConnected && scriptUploadUrl) {
-        const media = mediaRef.current
-        if (media && !media.paused) {
-          await syncHandyPlaybackToCurrentMedia({ stopFirst: true })
-        }
-        return
-      }
-
-      if (deviceProvider === 'buttplug' && buttplugService.isConnected) {
-        const media = mediaRef.current
-        if (media && !media.paused) {
-          await startButtplugPlayback()
-        }
-        return
-      }
-
-      if (deviceProvider === 'serial' && osrSerialConnected) {
-        const media = mediaRef.current
-        if (media && !media.paused) {
-          await startOsrSerialPlayback()
-        }
-      }
+      autoSkipSuppressedUntilRef.current = Date.now() + AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS
+      await syncDevicesAfterSeek()
     },
-    [deviceProvider, osrSerialConnected, scriptUploadUrl, startButtplugPlayback, startOsrSerialPlayback, syncHandyPlaybackToCurrentMedia]
+    [syncDevicesAfterSeek]
   )
 
-  const handleTimeUpdate = useCallback((_time: number) => {}, [])
+  const handleTimeUpdate = useCallback((time: number) => {
+    const media = mediaRef.current
+    if (
+      !media
+      || media.paused
+      || media.seeking
+      || !settings.autoSkipScriptGaps
+      || allScriptActionTimes.length === 0
+    ) {
+      return
+    }
+
+    const now = Date.now()
+    if (now < autoSkipSuppressedUntilRef.current || now < autoSkipCooldownUntilRef.current) {
+      return
+    }
+
+    const targetTimeMs = findAutoSkipTargetMs(
+      allScriptActionTimes,
+      time * 1000,
+      settings.autoSkipGapMinDuration * 1000,
+      settings.autoSkipGapLeadIn * 1000
+    )
+    if (targetTimeMs === null) {
+      return
+    }
+
+    if (Number.isFinite(media.duration) && targetTimeMs >= media.duration * 1000 - AUTO_SKIP_TARGET_EPSILON_MS) {
+      return
+    }
+
+    void performAutoSkip(targetTimeMs / 1000)
+  }, [
+    allScriptActionTimes,
+    performAutoSkip,
+    settings.autoSkipGapLeadIn,
+    settings.autoSkipGapMinDuration,
+    settings.autoSkipScriptGaps,
+  ])
 
   const handleEnded = useCallback(async () => {
     const nextFile = getNextPlaybackFile(files, currentFile, playbackMode)
@@ -968,12 +1122,17 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === ',') {
         e.preventDefault()
-        setSettingsOpen((value) => !value)
+        if (settingsOpen) {
+          setSettingsOpen(false)
+          return
+        }
+
+        openSettingsSection('general')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [openSettingsSection, settingsOpen])
 
   useEffect(() => {
     const handleDrop = async (e: DragEvent) => {
@@ -1248,7 +1407,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-surface-300">
-      <TitleBar onOpenSettings={() => setSettingsOpen(true)} />
+      <TitleBar onOpenSettings={() => openSettingsSection('general')} />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
           files={displayFiles}
@@ -1314,6 +1473,12 @@ export default function App() {
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
           deviceInfo={deviceInfo}
+          strokeRangeMin={settings.strokeRangeMin}
+          strokeRangeMax={settings.strokeRangeMax}
+          invertStroke={settings.invertStroke}
+          onStrokeRangeChange={handleQuickStrokeRangeChange}
+          onInvertStrokeChange={handleQuickInvertStrokeChange}
+          onOpenDeviceSettings={() => openSettingsSection('device')}
           defaultShowHeatmap={settings.showHeatmapByDefault}
           defaultShowTimeline={settings.showTimelineByDefault}
           timelineHeight={settings.timelineHeight}
@@ -1328,6 +1493,7 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
+        initialSection={settingsSection}
       />
     </div>
   )

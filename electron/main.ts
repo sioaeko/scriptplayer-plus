@@ -42,16 +42,57 @@ const SUBTITLE_DIR_KEYWORDS = [
 ]
 const MAX_SUBTITLE_SEARCH_DEPTH = 2
 const MAX_SCAN_SUBTITLE_VALIDATION_CANDIDATES = 3
+const MIN_SCAN_SUBTITLE_SCORE = 900
 const SCAN_YIELD_INTERVAL = 25
 const NATURAL_SORTER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 let mainWindow: BrowserWindow | null = null
 const subtitleCandidateCache = new Map<string, string[]>()
 const subtitleAnalysisCache = new Map<string, { content: string; hasCues: boolean } | null>()
+const directoryEntryNameCache = new Map<string, Set<string>>()
 const FUNSCRIPT_EXTS = ['.funscript', '.json']
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
+
+function normalizePathKey(targetPath: string): string {
+  return process.platform === 'win32' ? targetPath.toLowerCase() : targetPath
+}
+
+async function getDirectoryRealPathKey(dirPath: string): Promise<string> {
+  try {
+    return normalizePathKey(await fs.promises.realpath(dirPath))
+  } catch {
+    return normalizePathKey(dirPath)
+  }
+}
+
+function getDirectoryRealPathKeySync(dirPath: string): string {
+  try {
+    return normalizePathKey(fs.realpathSync.native(dirPath))
+  } catch {
+    return normalizePathKey(dirPath)
+  }
+}
+
+function getDirectoryEntryNameSet(dirPath: string): Set<string> {
+  const cacheKey = normalizePathKey(dirPath)
+  const cached = directoryEntryNameCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  let names: string[]
+  try {
+    names = fs.readdirSync(dirPath)
+  } catch {
+    names = []
+  }
+
+  const collected = new Set(names.map((name) => name.toLowerCase()))
+  directoryEntryNameCache.set(cacheKey, collected)
+  return collected
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -159,6 +200,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
   try {
     const files: Array<{ name: string; path: string; type: 'video' | 'audio'; hasScript: boolean; hasSubtitles: boolean; relativePath: string }> = []
     let scannedEntries = 0
+    const visitedDirectories = new Set<string>()
 
     const maybeYieldDuringScan = async () => {
       scannedEntries += 1
@@ -168,6 +210,12 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
     }
 
     const scanDir = async (dir: string, prefix: string): Promise<void> => {
+      const visitKey = await getDirectoryRealPathKey(dir)
+      if (visitedDirectories.has(visitKey)) {
+        return
+      }
+      visitedDirectories.add(visitKey)
+
       let entries: fs.Dirent[]
       try {
         entries = await fs.promises.readdir(dir, { withFileTypes: true })
@@ -179,6 +227,10 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
         await maybeYieldDuringScan()
 
         const fullPath = path.join(dir, entry.name)
+        if (entry.isSymbolicLink()) {
+          continue
+        }
+
         if (entry.isDirectory()) {
           await scanDir(fullPath, prefix ? prefix + '/' + entry.name : entry.name)
         } else if (entry.isFile()) {
@@ -306,13 +358,14 @@ const NAS_EXTS = [...MEDIA_EXTS, '.funscript']
 function hasBundledFunscriptsForMediaScan(mediaPath: string): boolean {
   const mediaDir = path.dirname(mediaPath)
   const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
+  const entryNames = getDirectoryEntryNameSet(mediaDir)
 
   for (const definition of SCRIPT_AXIS_DEFINITIONS) {
     for (const suffix of definition.suffixes) {
       const fileName = suffix
         ? `${mediaBaseName}.${suffix}.funscript`
         : `${mediaBaseName}.funscript`
-      if (fs.existsSync(path.join(mediaDir, fileName))) {
+      if (entryNames.has(fileName.toLowerCase())) {
         return true
       }
     }
@@ -501,6 +554,12 @@ function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[]
     : rankedCandidates
   const matches: Array<{ filePath: string; score: number }> = []
 
+  if (mode === 'scan') {
+    return rankedCandidates
+      .filter((candidate) => candidate.score >= MIN_SCAN_SUBTITLE_SCORE)
+      .map(({ filePath }) => filePath)
+  }
+
   for (const candidate of candidatesToValidate) {
     const analysis = readSubtitleAnalysis(candidate.filePath)
     if (!analysis?.hasCues) continue
@@ -527,7 +586,8 @@ function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[]
 }
 
 function collectSubtitleCandidates(rootDir: string): string[] {
-  const cached = subtitleCandidateCache.get(rootDir)
+  const cacheKey = normalizePathKey(rootDir)
+  const cached = subtitleCandidateCache.get(cacheKey)
   if (cached) {
     return cached
   }
@@ -536,8 +596,9 @@ function collectSubtitleCandidates(rootDir: string): string[] {
   const visited = new Set<string>()
 
   const walk = (currentDir: string, depth: number, matchedKeyword: boolean) => {
-    if (visited.has(currentDir)) return
-    visited.add(currentDir)
+    const visitKey = getDirectoryRealPathKeySync(currentDir)
+    if (visited.has(visitKey)) return
+    visited.add(visitKey)
 
     let entries: fs.Dirent[]
     try {
@@ -557,7 +618,7 @@ function collectSubtitleCandidates(rootDir: string): string[] {
     if (depth >= MAX_SUBTITLE_SEARCH_DEPTH) return
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue
       const nextMatchedKeyword = matchedKeyword || directoryLooksLikeSubtitle(entry.name)
       const shouldDescend = depth === 0 || nextMatchedKeyword
       if (!shouldDescend) continue
@@ -567,7 +628,7 @@ function collectSubtitleCandidates(rootDir: string): string[] {
 
   walk(rootDir, 0, false)
   const collected = Array.from(results)
-  subtitleCandidateCache.set(rootDir, collected)
+  subtitleCandidateCache.set(cacheKey, collected)
   return collected
 }
 

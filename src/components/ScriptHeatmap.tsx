@@ -41,6 +41,12 @@ export default function ScriptHeatmap({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const baseCanvasStateRef = useRef<{
+    widthPx: number
+    heightPx: number
+    duration: number
+    actionsRef: FunscriptAction[]
+  } | null>(null)
 
   const renderBaseCanvas = useCallback(() => {
     const container = containerRef.current
@@ -53,50 +59,67 @@ export default function ScriptHeatmap({
     const durationMs = duration * 1000
 
     const baseCanvas = baseCanvasRef.current ?? document.createElement('canvas')
-    baseCanvas.width = widthPx
-    baseCanvas.height = heightPx
     baseCanvasRef.current = baseCanvas
+    const shouldRedrawBase = (() => {
+      const previousState = baseCanvasStateRef.current
+      if (!previousState) return true
+      return previousState.widthPx !== widthPx
+        || previousState.heightPx !== heightPx
+        || previousState.duration !== duration
+        || previousState.actionsRef !== actions
+    })()
 
-    const ctx = baseCanvas.getContext('2d')
-    if (!ctx) return null
+    if (shouldRedrawBase) {
+      baseCanvas.width = widthPx
+      baseCanvas.height = heightPx
 
-    ctx.clearRect(0, 0, widthPx, heightPx)
-    ctx.fillStyle = '#11111b'
-    ctx.fillRect(0, 0, widthPx, heightPx)
+      const ctx = baseCanvas.getContext('2d')
+      if (!ctx) return null
 
-    if (actions.length < 2 || duration <= 0) {
-      return { baseCanvas, rect, dpr }
-    }
+      ctx.clearRect(0, 0, widthPx, heightPx)
+      ctx.fillStyle = '#11111b'
+      ctx.fillRect(0, 0, widthPx, heightPx)
 
-    const barWidthPx = Math.max(1, Math.round(widthPx / 200))
-    const segmentCount = Math.max(1, Math.floor(widthPx / barWidthPx))
-    const segmentMs = durationMs / segmentCount
+      if (actions.length >= 2 && duration > 0) {
+        const barWidthPx = Math.max(1, Math.round(widthPx / 200))
+        const segmentCount = Math.max(1, Math.floor(widthPx / barWidthPx))
+        const segmentMs = durationMs / segmentCount
 
-    for (let i = 0; i < segmentCount; i++) {
-      const segStart = i * segmentMs
-      const segEnd = segStart + segmentMs
+        for (let i = 0; i < segmentCount; i++) {
+          const segStart = i * segmentMs
+          const segEnd = segStart + segmentMs
 
-      let totalSpeed = 0
-      let count = 0
-      for (let j = 0; j < actions.length - 1; j++) {
-        const a = actions[j]
-        const b = actions[j + 1]
-        if (b.at < segStart || a.at > segEnd) continue
-        totalSpeed += getSpeed(a, b)
-        count++
+          let totalSpeed = 0
+          let count = 0
+          for (let j = 0; j < actions.length - 1; j++) {
+            const a = actions[j]
+            const b = actions[j + 1]
+            if (b.at < segStart || a.at > segEnd) continue
+            totalSpeed += getSpeed(a, b)
+            count++
+          }
+
+          if (count > 0) {
+            const avgSpeed = totalSpeed / count
+            ctx.fillStyle = speedToColor(avgSpeed)
+          } else {
+            ctx.fillStyle = '#1e1e2e'
+          }
+
+          const x = i * barWidthPx
+          ctx.fillRect(x, 0, Math.max(1, barWidthPx), heightPx)
+        }
       }
 
-      if (count > 0) {
-        const avgSpeed = totalSpeed / count
-        ctx.fillStyle = speedToColor(avgSpeed)
-      } else {
-        ctx.fillStyle = '#1e1e2e'
+      baseCanvasStateRef.current = {
+        widthPx,
+        heightPx,
+        duration,
+        actionsRef: actions,
       }
-
-      const x = i * barWidthPx
-      ctx.fillRect(x, 0, Math.max(1, barWidthPx), heightPx)
     }
-    return { baseCanvas, rect, dpr }
+
+    return { baseCanvas, dpr }
   }, [actions, duration])
 
   const draw = useCallback(() => {
@@ -104,7 +127,7 @@ export default function ScriptHeatmap({
     const prepared = renderBaseCanvas()
     if (!canvas || !prepared) return
 
-    const { baseCanvas, rect, dpr } = prepared
+    const { baseCanvas, dpr } = prepared
     const widthPx = baseCanvas.width
     const heightPx = baseCanvas.height
     canvas.width = widthPx

@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![설정](screenshots/setting_kor.png) | ![macOS](screenshots/macos.png) |
 
-## v0.1.5에서 추가된 내용
+## v0.1.6에서 추가된 내용
 
-`v0.1.5`는 실험판에서 검증한 다축 기능을 정식 릴리스에 통합해 공식 `FunOSR (Direct Serial / COM)` 지원, `Intiface / Buttplug` raw TCode 전송, 조절 가능한 `L0/L1/L2/R0/R1/R2` 한 줄 출력, 더 부드러운 타임라인/히트맵 추적, seek 후 Handy 재동기화 개선, 그리고 `exp.7` / `exp.8`에서 들어간 Windows 패키징 안정화까지 포함합니다.
+`v0.1.6`은 재생바에서 바로 조절하는 `STR` 스트로크 범위 컨트롤, 비어 있는 스크립트 구간 자동 스킵, 더 안정적인 미디어 길이 인식, 더 부드러운 seek / 스크럽 동작, 그리고 대형 폴더 스캔 및 디렉터리 순회 안정화까지 포함합니다.
 
-| v0.1.5 미리보기 |
+| v0.1.6 미리보기 |
 |:-:|
-| ![v0.1.5 미리보기](screenshots/preview_v015_exp1.png) |
+| ![v0.1.6 미리보기](screenshots/preview_v015_exp1.png) |
 
-- 정식 릴리스 다운로드: [ScriptPlayer+ v0.1.5](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5)
+- 정식 릴리스 다운로드: [ScriptPlayer+ v0.1.6](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.6)
 
 ## 주요 기능
 
@@ -78,7 +78,7 @@
 
 1. [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)에서 최신 Windows x64 빌드 다운로드
 2. 압축 해제 후 `ScriptPlayerPlus.exe` 실행 — 설치 불필요
-3. 메인 `v0.1.5` 빌드에 The Handy, Intiface / Buttplug, 공식 FunOSR 지원이 모두 포함됩니다
+3. 메인 `v0.1.6` 빌드에 The Handy, Intiface / Buttplug, 공식 FunOSR 지원이 모두 포함됩니다
 
 ### macOS
 

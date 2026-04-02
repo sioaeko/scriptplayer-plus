@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Loader2,
   Music4,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { FunscriptAction, MediaType, PlaybackMode, SubtitleCue } from '../types'
 import { useTranslation } from '../i18n'
@@ -50,6 +51,12 @@ interface VideoPlayerProps {
   playbackRate: number
   onPlaybackRateChange: (rate: number) => void
   deviceInfo?: DeviceOverlayInfo | null
+  strokeRangeMin?: number
+  strokeRangeMax?: number
+  invertStroke?: boolean
+  onStrokeRangeChange?: (min: number, max: number) => void
+  onInvertStrokeChange?: (invert: boolean) => void
+  onOpenDeviceSettings?: () => void
   defaultShowHeatmap?: boolean
   defaultShowTimeline?: boolean
   timelineHeight?: number
@@ -79,6 +86,12 @@ export default function VideoPlayer({
   playbackRate,
   onPlaybackRateChange,
   deviceInfo,
+  strokeRangeMin = 0,
+  strokeRangeMax = 100,
+  invertStroke = false,
+  onStrokeRangeChange,
+  onInvertStrokeChange,
+  onOpenDeviceSettings,
   defaultShowHeatmap = false,
   defaultShowTimeline = false,
   timelineHeight = 64,
@@ -90,10 +103,15 @@ export default function VideoPlayer({
   const containerRef = useRef<HTMLDivElement>(null)
   const [playing, setPlaying] = useState(false)
   const [showDeviceOverlay, setShowDeviceOverlay] = useState(false)
+  const [showStrokeControls, setShowStrokeControls] = useState(false)
   const [showHeatmap, setShowHeatmap] = useState(defaultShowHeatmap)
   const [showTimeline, setShowTimeline] = useState(defaultShowTimeline)
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const strokeControlsRef = useRef<HTMLDivElement>(null)
+  const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
+  const [progressPreviewTime, setProgressPreviewTime] = useState<number | null>(null)
+  const [isProgressScrubbing, setIsProgressScrubbing] = useState(false)
   const [duration, setDuration] = useState(0)
   const [videoAspectRatio, setVideoAspectRatio] = useState<number | null>(null)
   const [volume, setVolume] = useState(() => {
@@ -105,10 +123,16 @@ export default function VideoPlayer({
   const [fullscreenFitEnabled, setFullscreenFitEnabled] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const [showSubtitles, setShowSubtitles] = useState(subtitleCues.length > 0)
+  const [strokeDraft, setStrokeDraft] = useState(() => ({
+    min: strokeRangeMin,
+    max: strokeRangeMax,
+  }))
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const playbackFrameRef = useRef<number | null>(null)
   const handledAutoPlayRequest = useRef(0)
-  const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, currentTime) : ''
+  const progressScrubbingRef = useRef(false)
+  const effectiveCurrentTime = isProgressScrubbing && progressPreviewTime !== null ? progressPreviewTime : currentTime
+  const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, effectiveCurrentTime) : ''
   const isPortraitVideo = videoAspectRatio !== null && videoAspectRatio < 1
   const controlsVisible = showControls || !playing
   const scriptOverlayHeight = actions.length > 0
@@ -125,10 +149,30 @@ export default function VideoPlayer({
   const syncCurrentTimeFromMedia = useCallback(() => {
     const media = mediaRef.current
     if (!media) return
+    if (progressScrubbingRef.current) return
     const nextTime = media.currentTime
     setCurrentTime((prevTime) => (Math.abs(prevTime - nextTime) >= 1 / 240 ? nextTime : prevTime))
     onTimeUpdate(nextTime)
   }, [mediaRef, onTimeUpdate])
+
+  const syncDurationFromMedia = useCallback(() => {
+    const media = mediaRef.current
+    if (!media) return
+
+    const rawDuration = media.duration
+    if (Number.isFinite(rawDuration) && rawDuration > 0) {
+      setDuration((prevDuration) => (Math.abs(prevDuration - rawDuration) >= 1 / 240 ? rawDuration : prevDuration))
+    }
+
+    if (media instanceof HTMLVideoElement && media.videoWidth > 0 && media.videoHeight > 0) {
+      const nextAspectRatio = media.videoWidth / media.videoHeight
+      setVideoAspectRatio((prevAspectRatio) => (
+        prevAspectRatio === null || Math.abs(prevAspectRatio - nextAspectRatio) >= 1 / 1000
+          ? nextAspectRatio
+          : prevAspectRatio
+      ))
+    }
+  }, [mediaRef])
 
   const handleTimeUpdate = useCallback(() => {
     syncCurrentTimeFromMedia()
@@ -154,6 +198,27 @@ export default function VideoPlayer({
     },
     [mediaRef, onSeek]
   )
+
+  const beginProgressScrub = useCallback(() => {
+    progressScrubbingRef.current = true
+    setIsProgressScrubbing(true)
+    setProgressPreviewTime(currentTime)
+  }, [currentTime])
+
+  const updateProgressPreview = useCallback((time: number) => {
+    const clampedTime = Math.max(0, Math.min(duration || 0, time))
+    setProgressPreviewTime(clampedTime)
+  }, [duration])
+
+  const commitProgressScrub = useCallback((overrideTime?: number) => {
+    if (!progressScrubbingRef.current) return
+
+    const targetTime = Math.max(0, Math.min(duration || 0, overrideTime ?? progressPreviewTime ?? currentTime))
+    progressScrubbingRef.current = false
+    setIsProgressScrubbing(false)
+    setProgressPreviewTime(null)
+    handleSeek(targetTime)
+  }, [currentTime, duration, handleSeek, progressPreviewTime])
 
   const handleVolumeChange = useCallback((v: number) => {
     const media = mediaRef.current
@@ -194,6 +259,52 @@ export default function VideoPlayer({
   const toggleShufflePlayback = useCallback(() => {
     onPlaybackModeChange(playbackMode === 'shuffle' ? 'none' : 'shuffle')
   }, [onPlaybackModeChange, playbackMode])
+
+  const clearStrokeCommitTimer = useCallback(() => {
+    if (!strokeCommitTimer.current) return
+    clearTimeout(strokeCommitTimer.current)
+    strokeCommitTimer.current = null
+  }, [])
+
+  const commitStrokeRange = useCallback((min: number, max: number) => {
+    clearStrokeCommitTimer()
+    if (!onStrokeRangeChange) return
+
+    const nextMin = clampPercent(Math.min(min, max))
+    const nextMax = clampPercent(Math.max(min, max))
+    onStrokeRangeChange(nextMin, nextMax)
+  }, [clearStrokeCommitTimer, onStrokeRangeChange])
+
+  const scheduleStrokeRangeCommit = useCallback((min: number, max: number) => {
+    if (!onStrokeRangeChange) return
+    clearStrokeCommitTimer()
+    strokeCommitTimer.current = setTimeout(() => {
+      strokeCommitTimer.current = null
+      onStrokeRangeChange(clampPercent(Math.min(min, max)), clampPercent(Math.max(min, max)))
+    }, 140)
+  }, [clearStrokeCommitTimer, onStrokeRangeChange])
+
+  const handleStrokeMinChange = useCallback((value: number) => {
+    setStrokeDraft((prev) => {
+      const next = {
+        min: Math.min(clampPercent(value), prev.max),
+        max: prev.max,
+      }
+      scheduleStrokeRangeCommit(next.min, next.max)
+      return next
+    })
+  }, [scheduleStrokeRangeCommit])
+
+  const handleStrokeMaxChange = useCallback((value: number) => {
+    setStrokeDraft((prev) => {
+      const next = {
+        min: prev.min,
+        max: Math.max(clampPercent(value), prev.min),
+      }
+      scheduleStrokeRangeCommit(next.min, next.max)
+      return next
+    })
+  }, [scheduleStrokeRangeCommit])
 
   const clearHideControlsTimer = useCallback(() => {
     if (hideControlsTimer.current) {
@@ -256,14 +367,45 @@ export default function VideoPlayer({
   }, [clearHideControlsTimer, isFullscreen, playing, resetHideTimer])
 
   useEffect(() => {
+    setStrokeDraft({
+      min: strokeRangeMin,
+      max: strokeRangeMax,
+    })
+  }, [strokeRangeMax, strokeRangeMin])
+
+  useEffect(() => {
+    if (showControls) return
+    setShowStrokeControls(false)
+  }, [showControls])
+
+  useEffect(() => {
+    if (actions.length > 0) return
+    setShowStrokeControls(false)
+  }, [actions.length])
+
+  useEffect(() => {
+    if (!showStrokeControls) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (strokeControlsRef.current?.contains(event.target as Node)) return
+      commitStrokeRange(strokeDraft.min, strokeDraft.max)
+      setShowStrokeControls(false)
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    return () => window.removeEventListener('mousedown', handlePointerDown)
+  }, [commitStrokeRange, showStrokeControls, strokeDraft.max, strokeDraft.min])
+
+  useEffect(() => {
     return () => {
       if (playbackFrameRef.current !== null) {
         cancelAnimationFrame(playbackFrameRef.current)
       }
       clearHideControlsTimer()
+      clearStrokeCommitTimer()
       if (deviceOverlayTimer.current) clearTimeout(deviceOverlayTimer.current)
     }
-  }, [clearHideControlsTimer])
+  }, [clearHideControlsTimer, clearStrokeCommitTimer])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -362,15 +504,37 @@ export default function VideoPlayer({
 
   useEffect(() => {
     setCurrentTime(0)
+    setProgressPreviewTime(null)
+    setIsProgressScrubbing(false)
+    progressScrubbingRef.current = false
     setDuration(0)
     setVideoAspectRatio(null)
     setPlaying(false)
     setFullscreenFitEnabled(false)
     setShowControls(true)
-    setShowSubtitles(subtitleCues.length > 0)
+    setShowStrokeControls(false)
     setShowHeatmap(defaultShowHeatmap)
     setShowTimeline(defaultShowTimeline)
-  }, [videoUrl, subtitleCues, defaultShowHeatmap, defaultShowTimeline])
+  }, [videoUrl, defaultShowHeatmap, defaultShowTimeline])
+
+  useEffect(() => {
+    setShowSubtitles(subtitleCues.length > 0)
+  }, [subtitleCues])
+
+  useEffect(() => {
+    if (!isProgressScrubbing) return
+
+    const handlePointerRelease = () => {
+      commitProgressScrub()
+    }
+
+    window.addEventListener('pointerup', handlePointerRelease)
+    window.addEventListener('pointercancel', handlePointerRelease)
+    return () => {
+      window.removeEventListener('pointerup', handlePointerRelease)
+      window.removeEventListener('pointercancel', handlePointerRelease)
+    }
+  }, [commitProgressScrub, isProgressScrubbing])
 
   useEffect(() => {
     if (!videoUrl) return
@@ -407,10 +571,8 @@ export default function VideoPlayer({
                 src={videoUrl}
                 className="hidden"
                 onTimeUpdate={handleTimeUpdate}
-                onLoadedMetadata={() => {
-                  const media = mediaRef.current
-                  if (media) setDuration(media.duration)
-                }}
+                onLoadedMetadata={syncDurationFromMedia}
+                onDurationChange={syncDurationFromMedia}
                 onPlay={() => { setPlaying(true); void onPlay() }}
                 onPause={() => { setPlaying(false); void onPause() }}
                 onEnded={() => {
@@ -450,15 +612,8 @@ export default function VideoPlayer({
               src={videoUrl}
               className={videoClassName}
               onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={() => {
-                const media = mediaRef.current
-                if (media) {
-                  setDuration(media.duration)
-                  if (media instanceof HTMLVideoElement && media.videoWidth > 0 && media.videoHeight > 0) {
-                    setVideoAspectRatio(media.videoWidth / media.videoHeight)
-                  }
-                }
-              }}
+              onLoadedMetadata={syncDurationFromMedia}
+              onDurationChange={syncDurationFromMedia}
               onPlay={() => { setPlaying(true); void onPlay() }}
               onPause={() => { setPlaying(false); void onPause() }}
               onEnded={() => {
@@ -504,7 +659,7 @@ export default function VideoPlayer({
                 <ScriptHeatmap
                   actions={actions}
                   duration={duration}
-                  currentTime={currentTime}
+                  currentTime={effectiveCurrentTime}
                   onSeek={handleSeek}
                 />
               </div>
@@ -513,7 +668,7 @@ export default function VideoPlayer({
               <div style={{ height: timelineHeight }}>
                 <ScriptTimeline
                   actions={actions}
-                  currentTime={currentTime}
+                  currentTime={effectiveCurrentTime}
                   duration={duration}
                   onSeek={handleSeek}
                   windowSize={timelineWindow}
@@ -573,7 +728,7 @@ export default function VideoPlayer({
               <ScriptHeatmap
                 actions={actions}
                 duration={duration}
-                currentTime={currentTime}
+                currentTime={effectiveCurrentTime}
                 onSeek={handleSeek}
               />
             </div>
@@ -582,7 +737,7 @@ export default function VideoPlayer({
             <div style={{ height: timelineHeight }}>
               <ScriptTimeline
                 actions={actions}
-                currentTime={currentTime}
+                currentTime={effectiveCurrentTime}
                 duration={duration}
                 onSeek={handleSeek}
                 windowSize={timelineWindow}
@@ -594,7 +749,7 @@ export default function VideoPlayer({
 
       {/* Controls overlay */}
       <div
-        className={`${isFullscreen ? 'absolute inset-x-0 bottom-0 z-10' : 'flex-shrink-0'} bg-gradient-to-t from-black/90 via-black/60 to-transparent px-4 pb-3 pt-8 transition-opacity duration-300 ${
+        className={`${isFullscreen ? 'absolute inset-x-0 bottom-0 z-10' : 'flex-shrink-0'} relative bg-gradient-to-t from-black/90 via-black/60 to-transparent px-4 pb-3 pt-8 transition-opacity duration-300 ${
           controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -605,8 +760,24 @@ export default function VideoPlayer({
             min={0}
             max={duration || 100}
             step={0.1}
-            value={currentTime}
-            onChange={(e) => handleSeek(parseFloat(e.target.value))}
+            value={effectiveCurrentTime}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              beginProgressScrub()
+            }}
+            onPointerUp={(e) => {
+              e.stopPropagation()
+              commitProgressScrub(parseFloat((e.target as HTMLInputElement).value))
+            }}
+            onChange={(e) => {
+              const nextTime = parseFloat(e.target.value)
+              if (progressScrubbingRef.current) {
+                updateProgressPreview(nextTime)
+                return
+              }
+              handleSeek(nextTime)
+            }}
+            onBlur={commitProgressScrub}
             className="w-full h-1"
             onClick={(e) => e.stopPropagation()}
           />
@@ -634,7 +805,7 @@ export default function VideoPlayer({
               <SkipForward size={18} />
             </button>
             <span className="text-xs text-text-secondary ml-2 font-mono tabular-nums">
-              {formatTime(currentTime)} / {formatTime(duration)}
+              {formatTime(effectiveCurrentTime)} / {formatTime(duration)}
             </span>
           </div>
 
@@ -671,6 +842,132 @@ export default function VideoPlayer({
                 </option>
               ))}
             </select>
+            {actions.length > 0 && onStrokeRangeChange && (
+              <div ref={strokeControlsRef} className="relative">
+                {showStrokeControls && (
+                  <div
+                    className="absolute bottom-full right-0 mb-3 w-80 rounded-2xl border border-surface-100/20 bg-surface-300/95 p-4 shadow-[0_28px_100px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                          {t('device.strokeRange')}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-text-primary">
+                          {strokeDraft.min}% - {strokeDraft.max}%
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          commitStrokeRange(strokeDraft.min, strokeDraft.max)
+                          setShowStrokeControls(false)
+                          onOpenDeviceSettings?.()
+                        }}
+                        className="rounded-lg border border-surface-100/20 bg-surface-200/70 px-2.5 py-1.5 text-[10px] font-medium text-text-secondary transition-colors hover:text-text-primary"
+                      >
+                        {t('settings.device')}
+                      </button>
+                    </div>
+
+                    <div className="mb-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl border border-surface-100/20 bg-surface-200/60 px-3 py-2">
+                        <div className="text-[10px] font-semibold text-text-muted">
+                          {t('settings.strokeRangeMin')}
+                        </div>
+                        <div className="mt-1 font-mono text-lg font-semibold text-text-primary">
+                          {strokeDraft.min}%
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-surface-100/20 bg-surface-200/60 px-3 py-2">
+                        <div className="text-[10px] font-semibold text-text-muted">
+                          {t('settings.strokeRangeMax')}
+                        </div>
+                        <div className="mt-1 font-mono text-lg font-semibold text-text-primary">
+                          {strokeDraft.max}%
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-surface-100/15 bg-black/20 px-3 py-2.5">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="text-xs font-medium text-text-secondary">{t('settings.strokeRangeMin')}</span>
+                          <span className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-xs text-text-primary">{strokeDraft.min}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={strokeDraft.min}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            handleStrokeMinChange(Number(e.target.value))
+                          }}
+                          onMouseUp={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                          onTouchEnd={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full h-1"
+                        />
+                      </div>
+
+                      <div className="rounded-xl border border-surface-100/15 bg-black/20 px-3 py-2.5">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <span className="text-xs font-medium text-text-secondary">{t('settings.strokeRangeMax')}</span>
+                          <span className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-xs text-text-primary">{strokeDraft.max}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={strokeDraft.max}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            handleStrokeMaxChange(Number(e.target.value))
+                          }}
+                          onMouseUp={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                          onTouchEnd={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full h-1"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onInvertStrokeChange?.(!invertStroke)
+                        }}
+                        className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-xs transition-colors ${
+                          invertStroke
+                            ? 'border-accent/30 bg-accent/10 text-accent'
+                            : 'border-surface-100/20 text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        <span>{t('settings.inverseStroke')}</span>
+                        <span className="font-mono text-[10px]">{invertStroke ? 'ON' : 'OFF'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setShowStrokeControls((value) => !value)
+                  }}
+                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showStrokeControls ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                  title={t('device.strokeRange')}
+                >
+                  <SlidersHorizontal size={16} />
+                  <span className="text-[10px] font-medium">STR</span>
+                </button>
+              </div>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); toggleSequentialPlayback() }}
               className={`p-1.5 rounded transition-colors ${playbackMode === 'sequential' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
@@ -746,6 +1043,10 @@ function formatTime(seconds: number): string {
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(Number.isFinite(value) ? value : 0)))
 }
 
 function formatPlaybackRate(rate: number): string {

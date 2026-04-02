@@ -20,6 +20,11 @@ export interface AppSettings {
   strokeRangeMax: number // 0-100
   invertStroke: boolean
   timeOffset: number // ms, -500 to 500
+
+  // Playback
+  autoSkipScriptGaps: boolean
+  autoSkipGapMinDuration: number // seconds, 3-60
+  autoSkipGapLeadIn: number // seconds, 0-5
 }
 
 export const defaultSettings: AppSettings = {
@@ -37,6 +42,9 @@ export const defaultSettings: AppSettings = {
   strokeRangeMax: 100,
   invertStroke: false,
   timeOffset: 0,
+  autoSkipScriptGaps: false,
+  autoSkipGapMinDuration: 10,
+  autoSkipGapLeadIn: 1.5,
 }
 
 const STORAGE_KEY = 'handycontrol-settings'

@@ -36,15 +36,15 @@
 |:-:|:-:|
 | ![Settings](docs/screenshots/setting.png) | ![macOS](docs/screenshots/macos.png) |
 
-## What's New In v0.1.5
+## What's New In v0.1.6
 
-`v0.1.5` rolls the experimental multi-axis work into the main release with official `FunOSR (Direct Serial / COM)` support, `Intiface / Buttplug` raw TCode transport, adjustable one-line `L0/L1/L2/R0/R1/R2` output, smoother timeline and heatmap playback updates, better Handy re-sync after timeline seeks, and the packaged Windows fixes from `exp.7` / `exp.8`.
+`v0.1.6` adds quick `STR` stroke controls in the playback bar, automatic skipping for long empty script gaps in sparse audio scripts, stronger media duration handling, smoother seek / scrub behavior, and faster large-folder scanning with safer directory traversal.
 
-| v0.1.5 Preview |
+| v0.1.6 Preview |
 |:-:|
-| ![v0.1.5 Preview](docs/screenshots/preview_v015_exp1.png) |
+| ![v0.1.6 Preview](docs/screenshots/preview_v015_exp1.png) |
 
-- Download the stable release: [ScriptPlayer+ v0.1.5](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.5)
+- Download the stable release: [ScriptPlayer+ v0.1.6](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.6)
 
 ## Features
 
@@ -78,7 +78,7 @@
 
 1. Download the latest Windows x64 build from [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)
 2. Extract and run `ScriptPlayerPlus.exe` — no installation required
-3. The main `v0.1.5` build includes The Handy, Intiface / Buttplug, and official FunOSR device support
+3. The main `v0.1.6` build includes The Handy, Intiface / Buttplug, and official FunOSR device support
 
 ### macOS
 

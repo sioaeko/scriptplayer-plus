@@ -123,6 +123,12 @@ const en: Record<string, string> = {
   'settings.inverseStroke': 'Inverse Stroke',
   'settings.inverseStrokeDesc': 'Flip funscript stroke positions before sending them to the device',
   'settings.timeOffset': 'Time Offset',
+  'settings.noScriptRandomStroke': 'Random Stroke Without Script',
+  'settings.noScriptRandomStrokeDesc': 'Generate a random L0 stroke track when the current media has no script',
+  'settings.noScriptRandomMinSpeed': 'Random Stroke Min Speed',
+  'settings.noScriptRandomMinSpeedDesc': 'Lower tempo bound for generated random strokes',
+  'settings.noScriptRandomMaxSpeed': 'Random Stroke Max Speed',
+  'settings.noScriptRandomMaxSpeedDesc': 'Upper tempo bound for generated random strokes',
   'settings.autoSkipScriptGaps': 'Skip Empty Script Gaps',
   'settings.autoSkipScriptGapsDesc': 'Automatically jump across long script-free sections while playback continues',
   'settings.autoSkipGapMinDuration': 'Minimum Gap Length',
@@ -143,6 +149,10 @@ const en: Record<string, string> = {
   'settings.exitFullscreen': 'Exit fullscreen / Close settings',
   'settings.openFolder': 'Open folder',
   'settings.openSettings': 'Open settings',
+  'settings.shortcutHint': 'Click a shortcut, then press the key combination you want to use.',
+  'settings.pressShortcut': 'Press shortcut',
+  'settings.unassigned': 'Unassigned',
+  'settings.clear': 'Clear',
   'settings.aboutDescription': 'A stable and beautiful funscript player with Handy integration and EroScripts support.',
 };
 

@@ -21,6 +21,12 @@ import {
 import { FunscriptAction, MediaType, PlaybackMode, SubtitleCue } from '../types'
 import { useTranslation } from '../i18n'
 import { getActiveSubtitleText } from '../services/subtitles'
+import {
+  findMatchingShortcutAction,
+  isEditableShortcutTarget,
+  ShortcutActionId,
+  ShortcutBindings,
+} from '../services/shortcuts'
 import ScriptTimeline from './ScriptTimeline'
 import ScriptHeatmap from './ScriptHeatmap'
 
@@ -31,6 +37,20 @@ interface DeviceOverlayInfo {
   statusText?: string | null
   statusTone?: 'busy' | 'error' | null
 }
+
+const PLAYER_SHORTCUT_ACTIONS: ShortcutActionId[] = [
+  'playPause',
+  'seekBackward',
+  'seekForward',
+  'seekBackwardLarge',
+  'seekForwardLarge',
+  'goToStart',
+  'goToEnd',
+  'volumeUp',
+  'volumeDown',
+  'toggleMute',
+  'toggleFullscreen',
+]
 
 interface VideoPlayerProps {
   videoUrl: string | null
@@ -50,6 +70,9 @@ interface VideoPlayerProps {
   onPlaybackModeChange: (mode: PlaybackMode) => void
   playbackRate: number
   onPlaybackRateChange: (rate: number) => void
+  onDurationChange?: (duration: number) => void
+  shortcutBindings: ShortcutBindings
+  shortcutsEnabled?: boolean
   deviceInfo?: DeviceOverlayInfo | null
   strokeRangeMin?: number
   strokeRangeMax?: number
@@ -85,6 +108,9 @@ export default function VideoPlayer({
   onPlaybackModeChange,
   playbackRate,
   onPlaybackRateChange,
+  onDurationChange,
+  shortcutBindings,
+  shortcutsEnabled = true,
   deviceInfo,
   strokeRangeMin = 0,
   strokeRangeMax = 100,
@@ -409,44 +435,59 @@ export default function VideoPlayer({
 
   // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+    if (!shortcutsEnabled) return
 
-      switch (e.key) {
-        case ' ':
-        case 'k':
-          e.preventDefault()
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isEditableShortcutTarget(e.target)) return
+
+      const action = findMatchingShortcutAction(e, shortcutBindings, PLAYER_SHORTCUT_ACTIONS)
+      if (!action) return
+
+      e.preventDefault()
+
+      switch (action) {
+        case 'playPause':
           togglePlay()
           break
-        case 'ArrowLeft':
-          e.preventDefault()
-          skip(e.shiftKey ? -10 : -5)
+        case 'seekBackward':
+          skip(-5)
           break
-        case 'ArrowRight':
-          e.preventDefault()
-          skip(e.shiftKey ? 10 : 5)
+        case 'seekForward':
+          skip(5)
           break
-        case 'ArrowUp':
-          e.preventDefault()
+        case 'seekBackwardLarge':
+          skip(-10)
+          break
+        case 'seekForwardLarge':
+          skip(10)
+          break
+        case 'goToStart':
+          handleSeek(0)
+          break
+        case 'goToEnd':
+          handleSeek(duration)
+          break
+        case 'volumeUp':
           handleVolumeChange(Math.min(1, volume + 0.05))
           break
-        case 'ArrowDown':
-          e.preventDefault()
+        case 'volumeDown':
           handleVolumeChange(Math.max(0, volume - 0.05))
           break
-        case 'f':
-          e.preventDefault()
-          toggleFullscreen()
-          break
-        case 'm':
-          e.preventDefault()
+        case 'toggleMute':
           toggleMute()
+          break
+        case 'toggleFullscreen':
+          toggleFullscreen()
           break
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleVolumeChange, skip, toggleFullscreen, toggleMute, togglePlay, volume])
+  }, [duration, handleSeek, handleVolumeChange, shortcutBindings, shortcutsEnabled, skip, toggleFullscreen, toggleMute, togglePlay, volume])
+
+  useEffect(() => {
+    onDurationChange?.(duration)
+  }, [duration, onDurationChange])
 
   useEffect(() => {
     const media = mediaRef.current
@@ -777,7 +818,7 @@ export default function VideoPlayer({
               }
               handleSeek(nextTime)
             }}
-            onBlur={commitProgressScrub}
+            onBlur={() => commitProgressScrub()}
             className="w-full h-1"
             onClick={(e) => e.stopPropagation()}
           />

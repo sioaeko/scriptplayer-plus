@@ -42,6 +42,12 @@ import {
   SCRIPT_AXIS_IDS,
 } from './services/multiaxis'
 import { AppSettings, loadSettings, saveSettings } from './services/settings'
+import { buildNoScriptRandomFunscript } from './services/noScriptStroke'
+import {
+  findMatchingShortcutAction,
+  ShortcutActionId,
+  isEditableShortcutTarget,
+} from './services/shortcuts'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from './services/subtitles'
 import { useTranslation } from './i18n'
 
@@ -62,6 +68,7 @@ const HANDY_SEEK_SETTLE_TIMEOUT_MS = 500
 const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
 const AUTO_SKIP_COOLDOWN_MS = 1000
 const AUTO_SKIP_TARGET_EPSILON_MS = 250
+const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
 type StoredButtplugFeatureMapping = ButtplugFeatureMapping
@@ -369,6 +376,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(loadSettings)
   const [manualScriptPaths, setManualScriptPaths] = useState<Record<string, string>>({})
   const [manualSubtitleFiles, setManualSubtitleFiles] = useState<Record<string, SubtitleFile>>({})
+  const [mediaDurationSeconds, setMediaDurationSeconds] = useState(0)
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(loadPlaybackMode)
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
@@ -383,10 +391,49 @@ export default function App() {
   const autoSkipSuppressedUntilRef = useRef(0)
   const autoSkipCooldownUntilRef = useRef(0)
 
-  const primaryAxis = useMemo(() => getPrimaryAxis(funscriptBundle), [funscriptBundle])
+  const effectiveFunscriptBundle = useMemo(() => {
+    if (funscriptBundle) {
+      return funscriptBundle
+    }
+
+    if (
+      !currentFile
+      || !settings.noScriptRandomStrokeEnabled
+      || !Number.isFinite(mediaDurationSeconds)
+      || mediaDurationSeconds <= 0
+    ) {
+      return null
+    }
+
+    const script = buildNoScriptRandomFunscript(
+      mediaDurationSeconds * 1000,
+      currentFile,
+      {
+        minStrokesPerMinute: settings.noScriptRandomMinSpeed,
+        maxStrokesPerMinute: settings.noScriptRandomMaxSpeed,
+      }
+    )
+    if (!script) {
+      return null
+    }
+
+    return {
+      primaryAxis: 'L0' as const,
+      scripts: { L0: script },
+      sources: { L0: 'generated://random-no-script' },
+    }
+  }, [
+    currentFile,
+    funscriptBundle,
+    mediaDurationSeconds,
+    settings.noScriptRandomMaxSpeed,
+    settings.noScriptRandomMinSpeed,
+    settings.noScriptRandomStrokeEnabled,
+  ])
+  const primaryAxis = useMemo(() => getPrimaryAxis(effectiveFunscriptBundle), [effectiveFunscriptBundle])
   const displayAxisActions = useMemo(
     () => buildAxisActionMap(
-      funscriptBundle?.scripts,
+      effectiveFunscriptBundle?.scripts,
       (axisId, actions) => transformFunscriptActions(actions, axisId === 'L0'
         ? {
             strokeMin: settings.strokeRangeMin,
@@ -395,7 +442,7 @@ export default function App() {
           }
         : {})
     ),
-    [funscriptBundle?.scripts, settings.invertStroke, settings.strokeRangeMax, settings.strokeRangeMin]
+    [effectiveFunscriptBundle?.scripts, settings.invertStroke, settings.strokeRangeMax, settings.strokeRangeMin]
   )
   const runtimeAxisActions = useMemo(
     () => buildAxisActionMap(displayAxisActions, (_axisId, actions) =>
@@ -856,6 +903,7 @@ export default function App() {
     autoSkipCooldownUntilRef.current = 0
     setCurrentFile(filePath)
     setCurrentFileType(resolvedType)
+    setMediaDurationSeconds(0)
     setFunscriptBundle(null)
     setSubtitleCues([])
     setScriptUploadUrl(null)
@@ -1120,19 +1168,34 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === ',') {
-        e.preventDefault()
+      if (isEditableShortcutTarget(e.target)) return
+
+      const action = findMatchingShortcutAction(e, settings.keyboardShortcuts, APP_SHORTCUT_ACTIONS)
+      if (!action) return
+
+      e.preventDefault()
+
+      if (action === 'openSettings') {
         if (settingsOpen) {
           setSettingsOpen(false)
           return
         }
 
         openSettingsSection('general')
+        return
+      }
+
+      if (settingsOpen) {
+        return
+      }
+
+      if (action === 'openFolder') {
+        void handleOpenFolder()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [openSettingsSection, settingsOpen])
+  }, [handleOpenFolder, openSettingsSection, settings.keyboardShortcuts, settingsOpen])
 
   useEffect(() => {
     const handleDrop = async (e: DragEvent) => {
@@ -1472,6 +1535,9 @@ export default function App() {
           onPlaybackModeChange={setPlaybackMode}
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
+          onDurationChange={setMediaDurationSeconds}
+          shortcutBindings={settings.keyboardShortcuts}
+          shortcutsEnabled={!settingsOpen}
           deviceInfo={deviceInfo}
           strokeRangeMin={settings.strokeRangeMin}
           strokeRangeMax={settings.strokeRangeMax}

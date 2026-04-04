@@ -119,6 +119,12 @@ const zh: Record<string, string> = {
   'settings.inverseStroke': '反转行程',
   'settings.inverseStrokeDesc': '在发送到设备之前反转 funscript 的行程位置',
   'settings.timeOffset': '\u65F6\u95F4\u504F\u79FB',
+  'settings.noScriptRandomStroke': '\u65E0\u811A\u672C\u968F\u673A\u884C\u7A0B',
+  'settings.noScriptRandomStrokeDesc': '\u5F53\u5F53\u524D\u5A92\u4F53\u6CA1\u6709\u811A\u672C\u65F6\uff0c\u751F\u6210\u968F\u673a L0 \u884C\u7A0B\u8F68\u9053',
+  'settings.noScriptRandomMinSpeed': '\u968F\u673A\u884C\u7A0B\u6700\u4F4E\u901F\u5EA6',
+  'settings.noScriptRandomMinSpeedDesc': '\u751F\u6210\u7684\u968F\u673A\u884C\u7A0B\u7684\u6700\u4F4E\u8282\u594F',
+  'settings.noScriptRandomMaxSpeed': '\u968F\u673A\u884C\u7A0B\u6700\u9AD8\u901F\u5EA6',
+  'settings.noScriptRandomMaxSpeedDesc': '\u751F\u6210\u7684\u968F\u673A\u884C\u7A0B\u7684\u6700\u9AD8\u8282\u594F',
   'settings.autoSkipScriptGaps': '自动跳过空白脚本区间',
   'settings.autoSkipScriptGapsDesc': '播放时自动跨过较长的无脚本区间并跳到下一次动作前',
   'settings.autoSkipGapMinDuration': '最小空白时长',
@@ -139,6 +145,10 @@ const zh: Record<string, string> = {
   'settings.exitFullscreen': '\u9000\u51FA\u5168\u5C4F / \u5173\u95ED\u8BBE\u7F6E',
   'settings.openFolder': '\u6253\u5F00\u6587\u4EF6\u5939',
   'settings.openSettings': '\u6253\u5F00\u8BBE\u7F6E',
+  'settings.shortcutHint': '\u70B9\u51FB\u5FEB\u6377\u952E\u9879\uff0c\u7136\u540E\u6309\u4E0B\u4F60\u60F3\u8981\u4F7F\u7528\u7684\u7EC4\u5408\u952E\u3002',
+  'settings.pressShortcut': '\u6309\u4E0B\u5FEB\u6377\u952E',
+  'settings.unassigned': '\u672A\u5206\u914D',
+  'settings.clear': '\u6E05\u9664',
   'settings.aboutDescription': '\u4E00\u4E2A\u7A33\u5B9A\u7CBE\u7F8E\u7684\u8D85\u7EA7\u811A\u672C\u64AD\u653E\u5668\uFF0C\u652F\u6301 Handy \u96C6\u6210\u548C EroScripts\u3002',
 };
 

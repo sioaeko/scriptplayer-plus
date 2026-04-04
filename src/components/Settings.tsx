@@ -12,6 +12,13 @@ import {
 } from 'lucide-react'
 import { APP_VERSION } from '../constants/app'
 import { AppSettings } from '../services/settings'
+import {
+  captureShortcutBinding,
+  DEFAULT_SHORTCUT_BINDINGS,
+  getShortcutDisplay,
+  setShortcutBinding,
+  ShortcutActionId,
+} from '../services/shortcuts'
 import { useTranslation } from '../i18n'
 
 interface SettingsProps {
@@ -98,6 +105,60 @@ function formatSecondsLabel(value: number): string {
     ? value.toFixed(0)
     : value.toFixed(1).replace(/\.0$/, '')
   return `${formatted}s`
+}
+
+function formatSpeedLabel(value: number): string {
+  return `${Math.round(value)} spm`
+}
+
+function ShortcutCaptureButton({
+  value,
+  onChange,
+}: {
+  value: AppSettings['keyboardShortcuts'][ShortcutActionId]
+  onChange: (value: AppSettings['keyboardShortcuts'][ShortcutActionId]) => void
+}) {
+  const { t } = useTranslation()
+  const [listening, setListening] = useState(false)
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!listening) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    if (event.key === 'Escape') {
+      setListening(false)
+      return
+    }
+
+    const nextBinding = captureShortcutBinding(event.nativeEvent)
+    if (!nextBinding) {
+      if (event.key === 'Tab') {
+        setListening(false)
+      }
+      return
+    }
+
+    onChange(nextBinding)
+    setListening(false)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setListening(true)}
+      onBlur={() => setListening(false)}
+      onKeyDown={handleKeyDown}
+      className={`min-w-[150px] rounded border px-3 py-1.5 text-[10px] font-mono transition-colors ${
+        listening
+          ? 'border-accent/60 bg-accent/10 text-accent'
+          : 'border-surface-100/30 bg-surface-300 text-text-secondary hover:text-text-primary'
+      }`}
+    >
+      {listening ? t('settings.pressShortcut') : (getShortcutDisplay(value) || t('settings.unassigned'))}
+    </button>
+  )
 }
 
 // ── Section components ───────────────────────────────────────────────
@@ -232,10 +293,65 @@ function PlaybackSection({
   const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
     onChange({ ...settings, [key]: val })
   const controlsDisabled = !settings.autoSkipScriptGaps
+  const randomStrokeControlsDisabled = !settings.noScriptRandomStrokeEnabled
 
   return (
     <div>
       <SectionHeading>{t('settings.playback')}</SectionHeading>
+
+      <FieldRow
+        label={t('settings.noScriptRandomStroke')}
+        description={t('settings.noScriptRandomStrokeDesc')}
+      >
+        <Toggle
+          checked={settings.noScriptRandomStrokeEnabled}
+          onChange={(value) => update('noScriptRandomStrokeEnabled', value)}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.noScriptRandomMinSpeed')}
+        description={`${formatSpeedLabel(settings.noScriptRandomMinSpeed)} • ${t('settings.noScriptRandomMinSpeedDesc')}`}
+      >
+        <input
+          type="range"
+          min={30}
+          max={240}
+          step={2}
+          disabled={randomStrokeControlsDisabled}
+          value={settings.noScriptRandomMinSpeed}
+          onChange={(e) => {
+            const value = Number(e.target.value)
+            update('noScriptRandomMinSpeed', Math.min(value, settings.noScriptRandomMaxSpeed))
+          }}
+          className={`w-36 ${randomStrokeControlsDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.noScriptRandomMaxSpeed')}
+        description={`${formatSpeedLabel(settings.noScriptRandomMaxSpeed)} • ${t('settings.noScriptRandomMaxSpeedDesc')}`}
+      >
+        <input
+          type="range"
+          min={30}
+          max={240}
+          step={2}
+          disabled={randomStrokeControlsDisabled}
+          value={settings.noScriptRandomMaxSpeed}
+          onChange={(e) => {
+            const value = Number(e.target.value)
+            update('noScriptRandomMaxSpeed', Math.max(value, settings.noScriptRandomMinSpeed))
+          }}
+          className={`w-36 ${randomStrokeControlsDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+        />
+      </FieldRow>
+
+      <Divider />
 
       <FieldRow
         label={t('settings.autoSkipScriptGaps')}
@@ -455,49 +571,64 @@ function DeviceSection({
   )
 }
 
-function ShortcutsSection() {
+function ShortcutsSection({
+  settings,
+  onChange,
+}: {
+  settings: AppSettings
+  onChange: (s: AppSettings) => void
+}) {
   const { t } = useTranslation()
 
   const shortcutGroups = [
     {
       title: t('settings.playback'),
       items: [
-        { keys: 'Space', action: t('settings.playPause') },
-        { keys: 'Left Arrow', action: t('settings.seekBackward5s') },
-        { keys: 'Right Arrow', action: t('settings.seekForward5s') },
-        { keys: 'Shift + Left', action: t('settings.seekBackward10s') },
-        { keys: 'Shift + Right', action: t('settings.seekForward10s') },
-        { keys: 'Home', action: t('settings.goToStart') },
-        { keys: 'End', action: t('settings.goToEnd') },
+        { id: 'playPause' as const, action: t('settings.playPause') },
+        { id: 'seekBackward' as const, action: t('settings.seekBackward5s') },
+        { id: 'seekForward' as const, action: t('settings.seekForward5s') },
+        { id: 'seekBackwardLarge' as const, action: t('settings.seekBackward10s') },
+        { id: 'seekForwardLarge' as const, action: t('settings.seekForward10s') },
+        { id: 'goToStart' as const, action: t('settings.goToStart') },
+        { id: 'goToEnd' as const, action: t('settings.goToEnd') },
       ],
     },
     {
       title: t('settings.volume'),
       items: [
-        { keys: 'Up Arrow', action: t('settings.volumeUp') },
-        { keys: 'Down Arrow', action: t('settings.volumeDown') },
-        { keys: 'M', action: t('settings.toggleMute') },
+        { id: 'volumeUp' as const, action: t('settings.volumeUp') },
+        { id: 'volumeDown' as const, action: t('settings.volumeDown') },
+        { id: 'toggleMute' as const, action: t('settings.toggleMute') },
       ],
     },
     {
       title: t('settings.view'),
       items: [
-        { keys: 'F', action: t('settings.toggleFullscreen') },
-        { keys: 'Escape', action: t('settings.exitFullscreen') },
+        { id: 'toggleFullscreen' as const, action: t('settings.toggleFullscreen') },
       ],
     },
     {
       title: t('settings.general'),
       items: [
-        { keys: 'Ctrl + O', action: t('settings.openFolder') },
-        { keys: 'Ctrl + ,', action: t('settings.openSettings') },
+        { id: 'openFolder' as const, action: t('settings.openFolder') },
+        { id: 'openSettings' as const, action: t('settings.openSettings') },
       ],
     },
   ]
 
+  const updateShortcut = (actionId: ShortcutActionId, binding: AppSettings['keyboardShortcuts'][ShortcutActionId]) => {
+    onChange({
+      ...settings,
+      keyboardShortcuts: setShortcutBinding(settings.keyboardShortcuts, actionId, binding),
+    })
+  }
+
   return (
     <div>
       <SectionHeading>{t('settings.keyboardShortcuts')}</SectionHeading>
+      <p className="mb-4 text-[10px] leading-relaxed text-text-muted">
+        {t('settings.shortcutHint')}
+      </p>
       <div className="space-y-5">
         {shortcutGroups.map((group) => (
           <div key={group.title}>
@@ -507,15 +638,32 @@ function ShortcutsSection() {
             <div className="space-y-1">
               {group.items.map((item) => (
                 <div
-                  key={item.keys}
-                  className="flex items-center justify-between py-1.5"
+                  key={item.id}
+                  className="flex items-center justify-between gap-3 py-1.5"
                 >
                   <span className="text-xs text-text-secondary">
                     {item.action}
                   </span>
-                  <kbd className="text-[10px] font-mono bg-surface-300 text-text-muted border border-surface-100/30 px-2 py-0.5 rounded">
-                    {item.keys}
-                  </kbd>
+                  <div className="flex items-center gap-2">
+                    <ShortcutCaptureButton
+                      value={settings.keyboardShortcuts[item.id]}
+                      onChange={(binding) => updateShortcut(item.id, binding)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updateShortcut(item.id, DEFAULT_SHORTCUT_BINDINGS[item.id])}
+                      className="rounded border border-surface-100/30 px-2.5 py-1.5 text-[10px] text-text-muted transition-colors hover:border-accent/40 hover:text-text-primary"
+                    >
+                      {t('settings.reset')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateShortcut(item.id, null)}
+                      className="rounded border border-surface-100/30 px-2.5 py-1.5 text-[10px] text-text-muted transition-colors hover:border-red-400/40 hover:text-red-300"
+                    >
+                      {t('settings.clear')}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -639,7 +787,7 @@ export default function Settings({
       case 'device':
         return <DeviceSection settings={settings} onChange={handleChange} />
       case 'shortcuts':
-        return <ShortcutsSection />
+        return <ShortcutsSection settings={settings} onChange={handleChange} />
       case 'about':
         return <AboutSection />
     }

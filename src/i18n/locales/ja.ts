@@ -119,6 +119,12 @@ const ja: Record<string, string> = {
   'settings.inverseStroke': 'ストローク反転',
   'settings.inverseStrokeDesc': 'デバイスへ送信する前に funscript のストローク位置を反転します',
   'settings.timeOffset': '\u6642\u9593\u30AA\u30D5\u30BB\u30C3\u30C8',
+  'settings.noScriptRandomStroke': '\u30B9\u30AF\u30EA\u30D7\u30C8\u306A\u3057\u30E9\u30F3\u30C0\u30E0\u30B9\u30C8\u30ED\u30FC\u30AF',
+  'settings.noScriptRandomStrokeDesc': '\u73FE\u5728\u306E\u30E1\u30C7\u30A3\u30A2\u306B\u30B9\u30AF\u30EA\u30D7\u30C8\u304C\u306A\u3044\u5834\u5408\u3001\u30E9\u30F3\u30C0\u30E0\u306AL0\u30B9\u30C8\u30ED\u30FC\u30AF\u30C8\u30E9\u30C3\u30AF\u3092\u751F\u6210\u3057\u307E\u3059',
+  'settings.noScriptRandomMinSpeed': '\u30E9\u30F3\u30C0\u30E0\u30B9\u30C8\u30ED\u30FC\u30AF \u6700\u4F4E\u901F\u5EA6',
+  'settings.noScriptRandomMinSpeedDesc': '\u751F\u6210\u3055\u308C\u308B\u30E9\u30F3\u30C0\u30E0\u30B9\u30C8\u30ED\u30FC\u30AF\u306E\u4E0B\u9650\u30C6\u30F3\u30DD',
+  'settings.noScriptRandomMaxSpeed': '\u30E9\u30F3\u30C0\u30E0\u30B9\u30C8\u30ED\u30FC\u30AF \u6700\u9AD8\u901F\u5EA6',
+  'settings.noScriptRandomMaxSpeedDesc': '\u751F\u6210\u3055\u308C\u308B\u30E9\u30F3\u30C0\u30E0\u30B9\u30C8\u30ED\u30FC\u30AF\u306E\u4E0A\u9650\u30C6\u30F3\u30DD',
   'settings.autoSkipScriptGaps': '空白のスクリプト区間を自動スキップ',
   'settings.autoSkipScriptGapsDesc': '再生中に長い無スクリプト区間を自動で次のアクション手前までジャンプします',
   'settings.autoSkipGapMinDuration': '最小ギャップ長',
@@ -139,6 +145,10 @@ const ja: Record<string, string> = {
   'settings.exitFullscreen': '\u30D5\u30EB\u30B9\u30AF\u30EA\u30FC\u30F3\u7D42\u4E86 / \u8A2D\u5B9A\u3092\u9589\u3058\u308B',
   'settings.openFolder': '\u30D5\u30A9\u30EB\u30C0\u30FC\u3092\u958B\u304F',
   'settings.openSettings': '\u8A2D\u5B9A\u3092\u958B\u304F',
+  'settings.shortcutHint': '\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3092\u30AF\u30EA\u30C3\u30AF\u3057\u3001\u4F7F\u3044\u305F\u3044\u30AD\u30FC\u7D44\u307F\u5408\u308F\u305B\u3092\u62BC\u3057\u3066\u304F\u3060\u3055\u3044\u3002',
+  'settings.pressShortcut': '\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3092\u5165\u529B',
+  'settings.unassigned': '\u672A\u5272\u308A\u5F53\u3066',
+  'settings.clear': '\u30AF\u30EA\u30A2',
   'settings.aboutDescription': '\u5B89\u5B9A\u3057\u305F\u7F8E\u3057\u3044\u30D5\u30A1\u30F3\u30B9\u30AF\u30EA\u30D7\u30C8\u30D7\u30EC\u30FC\u30E4\u30FC\u3002Handy\u7D71\u5408\u3068EroScripts\u30B5\u30DD\u30FC\u30C8\u4ED8\u304D\u3002',
 };
 

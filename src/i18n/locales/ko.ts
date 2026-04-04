@@ -122,6 +122,12 @@ const ko: Record<string, string> = {
   'settings.inverseStroke': '\uC2A4\uD2B8\uB85C\uD06C \uBC18\uC804',
   'settings.inverseStrokeDesc': '\uC7A5\uCE58\uC5D0 \uC804\uC1A1\uD558\uAE30 \uC804\uC5D0 \uD380\uC2A4\uD06C\uB9BD\uD2B8 \uC2A4\uD2B8\uB85C\uD06C\uB97C \uBC18\uC804\uD569\uB2C8\uB2E4',
   'settings.timeOffset': '\uC2DC\uAC04 \uC624\uD504\uC14B',
+  'settings.noScriptRandomStroke': '\uBB34\uC2A4\uD06C\uB9BD\uD2B8 \uB79C\uB364 \uC2A4\uD2B8\uB85C\uD06C',
+  'settings.noScriptRandomStrokeDesc': '\uD604\uC7AC \uBBF8\uB514\uC5B4\uC5D0 \uC2A4\uD06C\uB9BD\uD2B8\uAC00 \uC5C6\uC744 \uB54C \uB79C\uB364 L0 \uC2A4\uD2B8\uB85C\uD06C \uD2B8\uB799\uC744 \uC0DD\uC131\uD569\uB2C8\uB2E4',
+  'settings.noScriptRandomMinSpeed': '\uB79C\uB364 \uC2A4\uD2B8\uB85C\uD06C \uCD5C\uC18C \uC18D\uB3C4',
+  'settings.noScriptRandomMinSpeedDesc': '\uC0DD\uC131\uB41C \uB79C\uB364 \uC2A4\uD2B8\uB85C\uD06C\uC758 \uD558\uD55C \uD15C\uD3EC',
+  'settings.noScriptRandomMaxSpeed': '\uB79C\uB364 \uC2A4\uD2B8\uB85C\uD06C \uCD5C\uB300 \uC18D\uB3C4',
+  'settings.noScriptRandomMaxSpeedDesc': '\uC0DD\uC131\uB41C \uB79C\uB364 \uC2A4\uD2B8\uB85C\uD06C\uC758 \uC0C1\uD55C \uD15C\uD3EC',
   'settings.autoSkipScriptGaps': '비어 있는 스크립트 구간 자동 건너뛰기',
   'settings.autoSkipScriptGapsDesc': '재생 중 긴 무스크립트 구간을 자동으로 다음 액션 근처까지 점프합니다',
   'settings.autoSkipGapMinDuration': '최소 빈 구간 길이',
@@ -142,6 +148,10 @@ const ko: Record<string, string> = {
   'settings.exitFullscreen': '\uC804\uCCB4 \uD654\uBA74 \uC885\uB8CC / \uC124\uC815 \uB2EB\uAE30',
   'settings.openFolder': '\uD3F4\uB354 \uC5F4\uAE30',
   'settings.openSettings': '\uC124\uC815 \uC5F4\uAE30',
+  'settings.shortcutHint': '\uB2E8\uCD95\uD0A4\uB97C \uB204\uB978 \uB4A4, \uC0AC\uC6A9\uD560 \uD0A4 \uC870\uD569\uC744 \uB204\uB974\uC138\uC694.',
+  'settings.pressShortcut': '\uB2E8\uCD95\uD0A4 \uC785\uB825',
+  'settings.unassigned': '\uBBF8\uD560\uB2F9',
+  'settings.clear': '\uC9C0\uC6B0\uAE30',
   'settings.aboutDescription': '\uC548\uC815\uC801\uC774\uACE0 \uC544\uB984\uB2E4\uC6B4 \uD3B8\uC2A4\uD06C\uB9BD\uD2B8 \uD50C\uB808\uC774\uC5B4\uB85C Handy \uD1B5\uD569 \uBC0F EroScripts\uB97C \uC9C0\uC6D0\uD569\uB2C8\uB2E4.',
 };
 

@@ -13,6 +13,11 @@ import {
 import { APP_VERSION } from '../constants/app'
 import { AppSettings } from '../services/settings'
 import {
+  getNoScriptStrokePatternForPreset,
+  NO_SCRIPT_STROKE_PATTERNS,
+  NO_SCRIPT_STROKE_PRESETS,
+} from '../services/noScriptStroke'
+import {
   captureShortcutBinding,
   DEFAULT_SHORTCUT_BINDINGS,
   getShortcutDisplay,
@@ -294,6 +299,7 @@ function PlaybackSection({
     onChange({ ...settings, [key]: val })
   const controlsDisabled = !settings.autoSkipScriptGaps
   const randomStrokeControlsDisabled = !settings.noScriptRandomStrokeEnabled
+  const resolvedPattern = getNoScriptStrokePatternForPreset(settings.noScriptRandomPreset, settings.noScriptRandomPattern)
 
   return (
     <div>
@@ -307,6 +313,50 @@ function PlaybackSection({
           checked={settings.noScriptRandomStrokeEnabled}
           onChange={(value) => update('noScriptRandomStrokeEnabled', value)}
         />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.noScriptRandomPreset')}
+        description={t('settings.noScriptRandomPresetDesc')}
+      >
+        <select
+          disabled={randomStrokeControlsDisabled}
+          value={settings.noScriptRandomPreset}
+          onChange={(e) => update('noScriptRandomPreset', e.target.value as AppSettings['noScriptRandomPreset'])}
+          className={`bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[160px] ${randomStrokeControlsDisabled ? 'opacity-40 cursor-not-allowed' : 'focus:border-accent/50'}`}
+        >
+          {NO_SCRIPT_STROKE_PRESETS.map((preset) => (
+            <option key={preset} value={preset}>
+              {t(`settings.noScriptRandomPreset.${preset}`)}
+            </option>
+          ))}
+        </select>
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.noScriptRandomPattern')}
+        description={`${t(`settings.noScriptRandomPattern.${resolvedPattern}`)} • ${t('settings.noScriptRandomPatternDesc')}`}
+      >
+        <select
+          disabled={randomStrokeControlsDisabled || settings.noScriptRandomPreset !== 'custom'}
+          value={resolvedPattern}
+          onChange={(e) => update('noScriptRandomPattern', e.target.value as AppSettings['noScriptRandomPattern'])}
+          className={`bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[160px] ${
+            randomStrokeControlsDisabled || settings.noScriptRandomPreset !== 'custom'
+              ? 'opacity-40 cursor-not-allowed'
+              : 'focus:border-accent/50'
+          }`}
+        >
+          {NO_SCRIPT_STROKE_PATTERNS.map((pattern) => (
+            <option key={pattern} value={pattern}>
+              {t(`settings.noScriptRandomPattern.${pattern}`)}
+            </option>
+          ))}
+        </select>
       </FieldRow>
 
       <Divider />
@@ -589,6 +639,8 @@ function ShortcutsSection({
         { id: 'seekForward' as const, action: t('settings.seekForward5s') },
         { id: 'seekBackwardLarge' as const, action: t('settings.seekBackward10s') },
         { id: 'seekForwardLarge' as const, action: t('settings.seekForward10s') },
+        { id: 'previousVideo' as const, action: t('settings.previousVideo') },
+        { id: 'nextVideo' as const, action: t('settings.nextVideo') },
         { id: 'goToStart' as const, action: t('settings.goToStart') },
         { id: 'goToEnd' as const, action: t('settings.goToEnd') },
       ],
@@ -709,19 +761,19 @@ function AboutSection() {
         <div className="flex justify-between">
           <span className="text-text-muted">Electron</span>
           <span className="text-text-secondary font-mono">
-            {(window as any).electronAPI?.versions?.electron ?? '\u2014'}
+            {window.electronAPI?.versions?.electron ?? '\u2014'}
           </span>
         </div>
         <div className="flex justify-between">
           <span className="text-text-muted">Chrome</span>
           <span className="text-text-secondary font-mono">
-            {(window as any).electronAPI?.versions?.chrome ?? '\u2014'}
+            {window.electronAPI?.versions?.chrome ?? '\u2014'}
           </span>
         </div>
         <div className="flex justify-between">
           <span className="text-text-muted">Node</span>
           <span className="text-text-secondary font-mono">
-            {(window as any).electronAPI?.versions?.node ?? '\u2014'}
+            {window.electronAPI?.versions?.node ?? '\u2014'}
           </span>
         </div>
       </div>

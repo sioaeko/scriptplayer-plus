@@ -198,7 +198,15 @@ ipcMain.handle('dialog:openSubtitleFile', async () => {
 // File system operations
 ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
   try {
-    const files: Array<{ name: string; path: string; type: 'video' | 'audio'; hasScript: boolean; hasSubtitles: boolean; relativePath: string }> = []
+    const files: Array<{
+      name: string
+      path: string
+      type: 'video' | 'audio'
+      hasScript: boolean
+      hasSubtitles: boolean
+      modifiedAt: number
+      relativePath: string
+    }> = []
     let scannedEntries = 0
     const visitedDirectories = new Set<string>()
 
@@ -236,6 +244,13 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase()
           if (MEDIA_EXTS.includes(ext)) {
+            let modifiedAt = 0
+            try {
+              modifiedAt = (await fs.promises.stat(fullPath)).mtimeMs
+            } catch {
+              modifiedAt = 0
+            }
+
             const hasSubtitles = hasSubtitlesForMediaScan(fullPath)
             files.push({
               name: entry.name,
@@ -243,6 +258,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
               type: VIDEO_EXTS.includes(ext) ? 'video' : 'audio',
               hasScript: hasBundledFunscriptsForMediaScan(fullPath),
               hasSubtitles,
+              modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : 0,
               relativePath: prefix ? prefix + '/' + entry.name : entry.name,
             })
           }

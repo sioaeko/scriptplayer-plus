@@ -1,4 +1,10 @@
 import { createDefaultShortcutBindings, normalizeShortcutBindings, ShortcutBindings } from './shortcuts'
+import {
+  normalizeNoScriptStrokePattern,
+  normalizeNoScriptStrokePreset,
+  NoScriptStrokePattern,
+  NoScriptStrokePreset,
+} from './noScriptStroke'
 
 export interface AppSettings {
   // General
@@ -27,6 +33,8 @@ export interface AppSettings {
   noScriptRandomStrokeEnabled: boolean
   noScriptRandomMinSpeed: number // strokes/min, 30-240
   noScriptRandomMaxSpeed: number // strokes/min, 30-240
+  noScriptRandomPreset: NoScriptStrokePreset
+  noScriptRandomPattern: NoScriptStrokePattern
   autoSkipScriptGaps: boolean
   autoSkipGapMinDuration: number // seconds, 3-60
   autoSkipGapLeadIn: number // seconds, 0-5
@@ -56,6 +64,8 @@ function createDefaultSettings(): AppSettings {
     noScriptRandomStrokeEnabled: false,
     noScriptRandomMinSpeed: 72,
     noScriptRandomMaxSpeed: 140,
+    noScriptRandomPreset: 'natural',
+    noScriptRandomPattern: 'random',
     autoSkipScriptGaps: false,
     autoSkipGapMinDuration: 10,
     autoSkipGapLeadIn: 1.5,
@@ -73,6 +83,8 @@ export function loadSettings(): AppSettings {
     return {
       ...createDefaultSettings(),
       ...parsed,
+      noScriptRandomPreset: normalizeNoScriptStrokePreset((parsed as { noScriptRandomPreset?: unknown })?.noScriptRandomPreset),
+      noScriptRandomPattern: normalizeNoScriptStrokePattern((parsed as { noScriptRandomPattern?: unknown })?.noScriptRandomPattern),
       keyboardShortcuts: normalizeShortcutBindings((parsed as { keyboardShortcuts?: unknown })?.keyboardShortcuts),
     }
   } catch {

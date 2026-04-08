@@ -44,6 +44,8 @@ const PLAYER_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'seekForward',
   'seekBackwardLarge',
   'seekForwardLarge',
+  'previousVideo',
+  'nextVideo',
   'goToStart',
   'goToEnd',
   'volumeUp',
@@ -66,6 +68,10 @@ interface VideoPlayerProps {
   onEnded: () => void | Promise<void>
   mediaRef: React.MutableRefObject<HTMLMediaElement | null>
   autoPlayRequestId: number
+  canGoToPreviousFile?: boolean
+  onPreviousFile?: () => void | Promise<void>
+  canGoToNextFile?: boolean
+  onNextFile?: () => void | Promise<void>
   playbackMode: PlaybackMode
   onPlaybackModeChange: (mode: PlaybackMode) => void
   playbackRate: number
@@ -104,6 +110,10 @@ export default function VideoPlayer({
   onEnded,
   mediaRef,
   autoPlayRequestId,
+  canGoToPreviousFile = false,
+  onPreviousFile,
+  canGoToNextFile = false,
+  onNextFile,
   playbackMode,
   onPlaybackModeChange,
   playbackRate,
@@ -461,6 +471,12 @@ export default function VideoPlayer({
         case 'seekForwardLarge':
           skip(10)
           break
+        case 'previousVideo':
+          void onPreviousFile?.()
+          break
+        case 'nextVideo':
+          void onNextFile?.()
+          break
         case 'goToStart':
           handleSeek(0)
           break
@@ -483,7 +499,20 @@ export default function VideoPlayer({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [duration, handleSeek, handleVolumeChange, shortcutBindings, shortcutsEnabled, skip, toggleFullscreen, toggleMute, togglePlay, volume])
+  }, [
+    duration,
+    handleSeek,
+    handleVolumeChange,
+    onNextFile,
+    onPreviousFile,
+    shortcutBindings,
+    shortcutsEnabled,
+    skip,
+    toggleFullscreen,
+    toggleMute,
+    togglePlay,
+    volume,
+  ])
 
   useEffect(() => {
     onDurationChange?.(duration)
@@ -826,26 +855,72 @@ export default function VideoPlayer({
 
         {/* Control buttons */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); skip(-5) }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <SkipBack size={18} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); togglePlay() }}
-              className="p-2 text-text-primary hover:text-accent transition-colors"
-            >
-              {playing ? <Pause size={22} /> : <Play size={22} />}
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); skip(5) }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <SkipForward size={18} />
-            </button>
-            <span className="text-xs text-text-secondary ml-2 font-mono tabular-nums">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 items-center gap-1">
+              <button
+                onClick={(e) => { e.stopPropagation(); skip(-5) }}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-100/10 hover:text-text-primary transition-colors"
+                title="-5s"
+                aria-label="-5 seconds"
+              >
+                <SkipBack size={18} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePlay() }}
+                className="flex h-10 w-10 items-center justify-center text-text-primary hover:text-accent transition-colors"
+              >
+                {playing ? <Pause size={22} /> : <Play size={22} />}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); skip(5) }}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-100/10 hover:text-text-primary transition-colors"
+                title="+5s"
+                aria-label="+5 seconds"
+              >
+                <SkipForward size={18} />
+              </button>
+            </div>
+            <div className="h-5 w-px bg-surface-100/20" />
+            <div className="flex h-9 items-center gap-1 rounded-xl border border-surface-100/20 bg-surface-300/35 px-1">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!canGoToPreviousFile) return
+                  void onPreviousFile?.()
+                }}
+                disabled={!canGoToPreviousFile}
+                className={`flex h-7 items-center gap-1 rounded-lg px-2 transition-colors ${
+                  canGoToPreviousFile
+                    ? 'text-text-secondary hover:bg-surface-100/10 hover:text-text-primary'
+                    : 'text-text-muted/40 cursor-not-allowed'
+                }`}
+                title={t('player.previousVideo')}
+                aria-label={t('player.previousVideo')}
+              >
+                <SkipBack size={16} />
+                <span className="text-[10px] font-medium">{t('player.previousShort')}</span>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!canGoToNextFile) return
+                  void onNextFile?.()
+                }}
+                disabled={!canGoToNextFile}
+                className={`flex h-7 items-center gap-1 rounded-lg px-2 transition-colors ${
+                  canGoToNextFile
+                    ? 'text-text-secondary hover:bg-surface-100/10 hover:text-text-primary'
+                    : 'text-text-muted/40 cursor-not-allowed'
+                }`}
+                title={t('player.nextVideo')}
+                aria-label={t('player.nextVideo')}
+              >
+                <SkipForward size={16} />
+                <span className="text-[10px] font-medium">{t('player.nextShort')}</span>
+              </button>
+            </div>
+            <div className="h-5 w-px bg-surface-100/20" />
+            <span className="inline-flex h-9 items-center text-xs leading-none text-text-secondary font-mono tabular-nums">
               {formatTime(effectiveCurrentTime)} / {formatTime(duration)}
             </span>
           </div>

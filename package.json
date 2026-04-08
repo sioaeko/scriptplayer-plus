@@ -1,6 +1,6 @@
 {
   "name": "scriptplayer-plus",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "ScriptPlayer+ - Funscript video player with Handy, Intiface, and FunOSR support",
   "author": "sioaeko <grade0422@gmail.com>",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -27,7 +27,7 @@
     "autoprefixer": "^10.4.27",
     "concurrently": "^9.2.1",
     "electron": "^33.4.11",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.8.2",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",

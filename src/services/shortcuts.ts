@@ -4,6 +4,8 @@ export const SHORTCUT_ACTION_IDS = [
   'seekForward',
   'seekBackwardLarge',
   'seekForwardLarge',
+  'previousVideo',
+  'nextVideo',
   'goToStart',
   'goToEnd',
   'volumeUp',
@@ -39,12 +41,19 @@ const MODIFIER_CODES = new Set([
   'MetaRight',
 ])
 
+const SHORTCUT_CODE_ALIASES: Record<string, string> = {
+  Prior: 'PageUp',
+  Next: 'PageDown',
+}
+
 export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBindings = {
   playPause: { code: 'Space', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   seekBackward: { code: 'ArrowLeft', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   seekForward: { code: 'ArrowRight', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   seekBackwardLarge: { code: 'ArrowLeft', ctrlKey: false, altKey: false, shiftKey: true, metaKey: false },
   seekForwardLarge: { code: 'ArrowRight', ctrlKey: false, altKey: false, shiftKey: true, metaKey: false },
+  previousVideo: { code: 'PageUp', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  nextVideo: { code: 'PageDown', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   goToStart: { code: 'Home', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   goToEnd: { code: 'End', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   volumeUp: { code: 'ArrowUp', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
@@ -182,7 +191,7 @@ function normalizeShortcutBinding(raw: unknown): ShortcutBinding | null | undefi
     return undefined
   }
 
-  const code = candidate.code.trim()
+  const code = canonicalizeShortcutCode(candidate.code.trim())
   if (MODIFIER_CODES.has(code)) {
     return undefined
   }
@@ -198,7 +207,7 @@ function normalizeShortcutBinding(raw: unknown): ShortcutBinding | null | undefi
 
 function resolveShortcutCode(event: Pick<KeyboardEvent, 'code' | 'key'>): string | null {
   if (typeof event.code === 'string' && event.code && event.code !== 'Unidentified') {
-    return event.code
+    return canonicalizeShortcutCode(event.code)
   }
 
   return keyToCode(event.key)
@@ -206,6 +215,12 @@ function resolveShortcutCode(event: Pick<KeyboardEvent, 'code' | 'key'>): string
 
 function keyToCode(key: string): string | null {
   if (!key) return null
+
+  const aliasedKey = canonicalizeShortcutCode(key)
+
+  if (aliasedKey !== key) {
+    return aliasedKey
+  }
 
   if (key === ' ') return 'Space'
   if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`
@@ -242,12 +257,14 @@ function keyToCode(key: string): string | null {
 }
 
 function formatCodeLabel(code: string): string {
-  if (/^Key[A-Z]$/.test(code)) {
-    return code.slice(3)
+  const normalizedCode = canonicalizeShortcutCode(code)
+
+  if (/^Key[A-Z]$/.test(normalizedCode)) {
+    return normalizedCode.slice(3)
   }
 
-  if (/^Digit\d$/.test(code)) {
-    return code.slice(5)
+  if (/^Digit\d$/.test(normalizedCode)) {
+    return normalizedCode.slice(5)
   }
 
   const labels: Record<string, string> = {
@@ -278,7 +295,11 @@ function formatCodeLabel(code: string): string {
     Backquote: '`',
   }
 
-  return labels[code] ?? code
+  return labels[normalizedCode] ?? normalizedCode
+}
+
+function canonicalizeShortcutCode(code: string): string {
+  return SHORTCUT_CODE_ALIASES[code] ?? code
 }
 
 function areShortcutBindingsEqual(left: ShortcutBinding | null, right: ShortcutBinding | null): boolean {

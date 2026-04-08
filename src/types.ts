@@ -40,6 +40,7 @@ export interface VideoFile {
   type: MediaType
   hasScript: boolean
   hasSubtitles: boolean
+  modifiedAt: number
   relativePath?: string
 }
 
@@ -90,6 +91,11 @@ declare global {
   interface Window {
     electronAPI: {
       platform: string
+      versions: {
+        electron: string
+        chrome: string
+        node: string
+      }
       minimize: () => void
       maximize: () => void
       close: () => void

@@ -48,6 +48,13 @@ import {
   ShortcutActionId,
   isEditableShortcutTarget,
 } from './services/shortcuts'
+import {
+  DEFAULT_VIDEO_SORT,
+  getAdjacentVideoFile,
+  getNextPlaybackFile,
+  orderVideoFiles,
+  VideoSortState,
+} from './services/mediaOrder'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from './services/subtitles'
 import { useTranslation } from './i18n'
 
@@ -61,6 +68,8 @@ const BUTTPLUG_DEVICE_INDEX_STORAGE_KEY = 'scriptplayer-buttplug-device-index'
 const BUTTPLUG_FEATURE_MAPPINGS_STORAGE_KEY = 'scriptplayer-buttplug-feature-mappings-v1'
 const OSR_SERIAL_PORT_PATH_STORAGE_KEY = 'scriptplayer-osr-serial-port-path'
 const OSR_SERIAL_UPDATE_RATE_STORAGE_KEY = 'scriptplayer-osr-serial-update-rate'
+const VIDEO_SORT_FIELD_STORAGE_KEY = 'scriptplayer-video-sort-field'
+const VIDEO_SORT_DIRECTION_STORAGE_KEY = 'scriptplayer-video-sort-direction'
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
 const DEFAULT_OSR_SERIAL_BAUD_RATE = 115200
 const DEFAULT_OSR_SERIAL_UPDATE_RATE = 50
@@ -170,6 +179,20 @@ function loadOsrSerialUpdateRate(): number {
   return DEFAULT_OSR_SERIAL_UPDATE_RATE
 }
 
+function loadVideoSort(): VideoSortState {
+  try {
+    const storedField = localStorage.getItem(VIDEO_SORT_FIELD_STORAGE_KEY)
+    const storedDirection = localStorage.getItem(VIDEO_SORT_DIRECTION_STORAGE_KEY)
+
+    return {
+      field: storedField === 'name' || storedField === 'modified' ? storedField : DEFAULT_VIDEO_SORT.field,
+      direction: storedDirection === 'desc' ? 'desc' : DEFAULT_VIDEO_SORT.direction,
+    }
+  } catch {
+    return DEFAULT_VIDEO_SORT
+  }
+}
+
 function getPlaybackTimeScale(playbackRate: number): number {
   return 1 / (Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1)
 }
@@ -208,32 +231,6 @@ function waitForMediaSeekSettled(media: HTMLMediaElement, timeoutMs = HANDY_SEEK
       timeoutId = setTimeout(finalize, timeoutMs)
     })
   })
-}
-
-function getNextPlaybackFile(
-  files: VideoFile[],
-  currentFile: string | null,
-  playbackMode: PlaybackMode
-): VideoFile | null {
-  if (playbackMode === 'none' || !currentFile || files.length === 0) {
-    return null
-  }
-
-  const currentIndex = files.findIndex((file) => file.path === currentFile)
-  if (currentIndex < 0) {
-    return null
-  }
-
-  if (playbackMode === 'sequential') {
-    return currentIndex < files.length - 1 ? files[currentIndex + 1] : null
-  }
-
-  if (files.length === 1) {
-    return null
-  }
-
-  const candidates = files.filter((file) => file.path !== currentFile)
-  return candidates[Math.floor(Math.random() * candidates.length)] ?? null
 }
 
 function parseFunscriptBundleData(raw: unknown): FunscriptBundle | null {
@@ -379,6 +376,7 @@ export default function App() {
   const [mediaDurationSeconds, setMediaDurationSeconds] = useState(0)
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(loadPlaybackMode)
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
+  const [videoSort, setVideoSort] = useState<VideoSortState>(loadVideoSort)
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const handyUploadRequestId = useRef(0)
@@ -411,6 +409,8 @@ export default function App() {
       {
         minStrokesPerMinute: settings.noScriptRandomMinSpeed,
         maxStrokesPerMinute: settings.noScriptRandomMaxSpeed,
+        preset: settings.noScriptRandomPreset,
+        pattern: settings.noScriptRandomPattern,
       }
     )
     if (!script) {
@@ -428,6 +428,8 @@ export default function App() {
     mediaDurationSeconds,
     settings.noScriptRandomMaxSpeed,
     settings.noScriptRandomMinSpeed,
+    settings.noScriptRandomPattern,
+    settings.noScriptRandomPreset,
     settings.noScriptRandomStrokeEnabled,
   ])
   const primaryAxis = useMemo(() => getPrimaryAxis(effectiveFunscriptBundle), [effectiveFunscriptBundle])
@@ -475,6 +477,18 @@ export default function App() {
       hasSubtitles: file.hasSubtitles || Boolean(manualSubtitleFiles[file.path]),
     })),
     [files, manualScriptPaths, manualSubtitleFiles]
+  )
+  const orderedFiles = useMemo(
+    () => orderVideoFiles(displayFiles, videoSort),
+    [displayFiles, videoSort]
+  )
+  const previousSequentialFile = useMemo(
+    () => getAdjacentVideoFile(orderedFiles, currentFile, 'previous'),
+    [currentFile, orderedFiles]
+  )
+  const nextSequentialFile = useMemo(
+    () => getAdjacentVideoFile(orderedFiles, currentFile, 'next'),
+    [currentFile, orderedFiles]
   )
   const buttplugConnected = buttplugConnectionState === 'connected'
   const osrSerialConnected = osrSerialConnectionState === 'connected'
@@ -571,6 +585,15 @@ export default function App() {
       // Ignore storage failures
     }
   }, [playbackRate])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIDEO_SORT_FIELD_STORAGE_KEY, videoSort.field)
+      localStorage.setItem(VIDEO_SORT_DIRECTION_STORAGE_KEY, videoSort.direction)
+    } catch {
+      // Ignore storage failures
+    }
+  }, [videoSort.direction, videoSort.field])
 
   useEffect(() => {
     try {
@@ -939,6 +962,22 @@ export default function App() {
     await openMediaFile(file.path, file.type)
   }, [openMediaFile])
 
+  const handleNextFile = useCallback(async (options?: { autoplay?: boolean }) => {
+    const nextFile = getAdjacentVideoFile(orderedFiles, currentFile, 'next')
+    if (!nextFile) return
+
+    const shouldAutoplay = options?.autoplay ?? Boolean(mediaRef.current && !mediaRef.current.paused)
+    await openMediaFile(nextFile.path, nextFile.type, { autoplay: shouldAutoplay })
+  }, [currentFile, openMediaFile, orderedFiles])
+
+  const handlePreviousFile = useCallback(async (options?: { autoplay?: boolean }) => {
+    const previousFile = getAdjacentVideoFile(orderedFiles, currentFile, 'previous')
+    if (!previousFile) return
+
+    const shouldAutoplay = options?.autoplay ?? Boolean(mediaRef.current && !mediaRef.current.paused)
+    await openMediaFile(previousFile.path, previousFile.type, { autoplay: shouldAutoplay })
+  }, [currentFile, openMediaFile, orderedFiles])
+
   const handleManualScriptSelect = useCallback(async (file: VideoFile) => {
     const scriptPath = await window.electronAPI.openScriptFile()
     if (!scriptPath) return
@@ -1161,10 +1200,10 @@ export default function App() {
   ])
 
   const handleEnded = useCallback(async () => {
-    const nextFile = getNextPlaybackFile(files, currentFile, playbackMode)
+    const nextFile = getNextPlaybackFile(orderedFiles, currentFile, playbackMode)
     if (!nextFile) return
     await openMediaFile(nextFile.path, nextFile.type, { autoplay: true })
-  }, [currentFile, files, openMediaFile, playbackMode])
+  }, [currentFile, openMediaFile, orderedFiles, playbackMode])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1473,7 +1512,7 @@ export default function App() {
       <TitleBar onOpenSettings={() => openSettingsSection('general')} />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
-          files={displayFiles}
+          files={orderedFiles}
           currentFile={currentFile}
           onFileSelect={handleFileSelect}
           onOpenFolder={handleOpenFolder}
@@ -1516,6 +1555,8 @@ export default function App() {
           onButtplugFeatureMappingChange={setSelectedButtplugFeatureMapping}
           buttplugAvailableAxes={availableScriptAxes}
           scriptFolder={settings.scriptFolder}
+          videoSort={videoSort}
+          onVideoSortChange={setVideoSort}
         />
         <VideoPlayer
           videoUrl={videoUrl}
@@ -1531,6 +1572,10 @@ export default function App() {
           onEnded={handleEnded}
           mediaRef={mediaRef}
           autoPlayRequestId={autoPlayRequestId}
+          canGoToPreviousFile={Boolean(previousSequentialFile)}
+          onPreviousFile={handlePreviousFile}
+          canGoToNextFile={Boolean(nextSequentialFile)}
+          onNextFile={handleNextFile}
           playbackMode={playbackMode}
           onPlaybackModeChange={setPlaybackMode}
           playbackRate={playbackRate}

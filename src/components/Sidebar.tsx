@@ -1,7 +1,8 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions } from 'lucide-react'
 import { OsrSerialPortInfo, ScriptAxisId, VideoFile } from '../types'
 import { ButtplugDevice, ButtplugFeature } from '../services/buttplug'
+import { groupVideoFiles, VideoSortState } from '../services/mediaOrder'
 import { getScriptAxisDefinition } from '../services/multiaxis'
 import { useTranslation } from '../i18n'
 import EroScriptsPanel from './EroScriptsPanel'
@@ -89,6 +90,8 @@ interface SidebarProps {
   onButtplugFeatureMappingChange: (featureId: string, next: { axisId: ScriptAxisId | ''; invert: boolean }) => void
   buttplugAvailableAxes: ScriptAxisId[]
   scriptFolder?: string
+  videoSort: VideoSortState
+  onVideoSortChange: (sort: VideoSortState) => void
 }
 
 interface FileContextMenuState {
@@ -97,28 +100,40 @@ interface FileContextMenuState {
   y: number
 }
 
-interface FolderGroup {
-  folder: string
-  files: VideoFile[]
+interface HoverPreviewState {
+  file: VideoFile
+  x: number
+  y: number
+  url: string | null
 }
 
-const NATURAL_SORTER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+const HOVER_PREVIEW_DELAY_MS = 220
+const HOVER_PREVIEW_WIDTH_PX = 240
+const HOVER_PREVIEW_HEIGHT_PX = 152
+const HOVER_PREVIEW_VIEWPORT_MARGIN_PX = 16
 
-function groupByFolder(files: VideoFile[]): FolderGroup[] {
-  const map = new Map<string, VideoFile[]>()
-  for (const file of files) {
-    const rel = file.relativePath || file.name
-    const lastSlash = rel.lastIndexOf('/')
-    const folder = lastSlash >= 0 ? rel.substring(0, lastSlash) : ''
-    if (!map.has(folder)) map.set(folder, [])
-    map.get(folder)!.push(file)
-  }
-  const groups: FolderGroup[] = []
-  for (const [folder, folderFiles] of map) {
-    groups.push({ folder, files: folderFiles })
-  }
-  groups.sort((a, b) => NATURAL_SORTER.compare(a.folder, b.folder))
-  return groups
+function getHoverPreviewPosition(targetRect: DOMRect) {
+  const preferredX = targetRect.right + 12
+  const fallbackX = targetRect.left - HOVER_PREVIEW_WIDTH_PX - 12
+  const maxX = window.innerWidth - HOVER_PREVIEW_WIDTH_PX - HOVER_PREVIEW_VIEWPORT_MARGIN_PX
+  const x = preferredX <= maxX
+    ? preferredX
+    : Math.max(HOVER_PREVIEW_VIEWPORT_MARGIN_PX, fallbackX)
+  const preferredY = targetRect.top + (targetRect.height / 2) - (HOVER_PREVIEW_HEIGHT_PX / 2)
+  const y = Math.max(
+    HOVER_PREVIEW_VIEWPORT_MARGIN_PX,
+    Math.min(
+      preferredY,
+      window.innerHeight - HOVER_PREVIEW_HEIGHT_PX - HOVER_PREVIEW_VIEWPORT_MARGIN_PX
+    )
+  )
+  return { x, y }
+}
+
+function getHoverPreviewStartTime(durationSeconds: number) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 0
+  const target = Math.max(durationSeconds * 0.18, 1.5)
+  return Math.min(target, Math.max(durationSeconds - 1, 0))
 }
 
 export default function Sidebar({
@@ -165,6 +180,8 @@ export default function Sidebar({
   onButtplugFeatureMappingChange,
   buttplugAvailableAxes,
   scriptFolder,
+  videoSort,
+  onVideoSortChange,
 }: SidebarProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<'files' | 'search' | 'device'>('files')
@@ -175,13 +192,21 @@ export default function Sidebar({
   const [handyHistory, setHandyHistory] = useState<HandyHistoryEntry[]>(loadHandyHistory)
   const [autoConnect, setAutoConnectState] = useState(getAutoConnect)
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null)
+  const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null)
   const autoConnectAttempted = useRef(false)
+  const hoverPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hoverPreviewRequestId = useRef(0)
+  const hoverPreviewUrlCache = useRef(new Map<string, string>())
 
   const filteredFiles = files.filter((f) =>
     (f.relativePath || f.name).toLowerCase().includes(filter.toLowerCase())
   )
 
-  const folderGroups = useMemo(() => groupByFolder(filteredFiles), [filteredFiles])
+  const folderGroups = useMemo(() => groupVideoFiles(filteredFiles, videoSort), [filteredFiles, videoSort])
+  const orderedVisibleFiles = useMemo(
+    () => folderGroups.flatMap((group) => group.files),
+    [folderGroups]
+  )
   const hasSubfolders = folderGroups.length > 1 || (folderGroups.length === 1 && folderGroups[0].folder !== '')
   const activeDeviceConnected = deviceProvider === 'handy'
     ? handyConnected
@@ -242,6 +267,72 @@ export default function Sidebar({
     setAutoConnect(next)
   }
 
+  const handleSortFieldChange = (field: VideoSortState['field']) => {
+    if (field === videoSort.field) return
+    onVideoSortChange({ ...videoSort, field })
+  }
+
+  const handleSortDirectionToggle = () => {
+    onVideoSortChange({
+      ...videoSort,
+      direction: videoSort.direction === 'asc' ? 'desc' : 'asc',
+    })
+  }
+
+  const clearHoverPreviewTimer = useCallback(() => {
+    if (!hoverPreviewTimer.current) return
+    clearTimeout(hoverPreviewTimer.current)
+    hoverPreviewTimer.current = null
+  }, [])
+
+  const hideHoverPreview = useCallback(() => {
+    clearHoverPreviewTimer()
+    hoverPreviewRequestId.current += 1
+    setHoverPreview(null)
+  }, [clearHoverPreviewTimer])
+
+  const scheduleHoverPreview = useCallback((file: VideoFile, targetRect: DOMRect) => {
+    clearHoverPreviewTimer()
+    hoverPreviewRequestId.current += 1
+    const requestId = hoverPreviewRequestId.current
+
+    if (file.type === 'audio' || file.path === currentFile) {
+      setHoverPreview(null)
+      return
+    }
+
+    const position = getHoverPreviewPosition(targetRect)
+    const cachedUrl = hoverPreviewUrlCache.current.get(file.path) ?? null
+
+    setHoverPreview(null)
+
+    hoverPreviewTimer.current = setTimeout(() => {
+      setHoverPreview({
+        file,
+        x: position.x,
+        y: position.y,
+        url: cachedUrl,
+      })
+
+      if (cachedUrl) return
+
+      void window.electronAPI.getVideoUrl(file.path)
+        .then((url) => {
+          hoverPreviewUrlCache.current.set(file.path, url)
+          if (hoverPreviewRequestId.current !== requestId) return
+          setHoverPreview((current) => (
+            current && current.file.path === file.path
+              ? { ...current, url }
+              : current
+          ))
+        })
+        .catch(() => {
+          if (hoverPreviewRequestId.current !== requestId) return
+          setHoverPreview(null)
+        })
+    }, HOVER_PREVIEW_DELAY_MS)
+  }, [clearHoverPreviewTimer, currentFile])
+
   useEffect(() => {
     if (deviceProvider !== 'handy') {
       autoConnectAttempted.current = false
@@ -278,6 +369,14 @@ export default function Sidebar({
     }
   }, [contextMenu])
 
+  useEffect(() => {
+    if (tab !== 'files') {
+      hideHoverPreview()
+    }
+  }, [tab, hideHoverPreview])
+
+  useEffect(() => clearHoverPreviewTimer, [clearHoverPreviewTimer])
+
   const tabs = [
     { id: 'files' as const, icon: Film, label: t('sidebar.files') },
     { id: 'search' as const, icon: Search, label: t('sidebar.scripts') },
@@ -287,6 +386,7 @@ export default function Sidebar({
   const handleFileContextMenu = (event: React.MouseEvent<HTMLButtonElement>, file: VideoFile) => {
     event.preventDefault()
     event.stopPropagation()
+    hideHoverPreview()
     setContextMenu({
       file,
       x: event.clientX,
@@ -294,10 +394,17 @@ export default function Sidebar({
     })
   }
 
+  const handleFileSelect = (file: VideoFile) => {
+    hideHoverPreview()
+    onFileSelect(file)
+  }
+
   const renderFileItem = (file: VideoFile) => (
     <button
       key={file.path}
-      onClick={() => onFileSelect(file)}
+      onClick={() => handleFileSelect(file)}
+      onMouseEnter={(event) => scheduleHoverPreview(file, event.currentTarget.getBoundingClientRect())}
+      onMouseLeave={hideHoverPreview}
       onContextMenu={(event) => handleFileContextMenu(event, file)}
       className={`w-full text-left px-3 py-2 rounded-md text-xs flex items-start gap-2 transition-colors mb-0.5 ${
         currentFile === file.path
@@ -358,7 +465,27 @@ export default function Sidebar({
                 className="w-full bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 focus:border-accent/50 outline-none placeholder:text-text-muted"
               />
             </div>
-            <div className="flex-1 overflow-y-auto px-1">
+            <div className="px-2 pb-2 flex gap-2">
+              <select
+                value={videoSort.field}
+                onChange={(event) => handleSortFieldChange(event.target.value as VideoSortState['field'])}
+                className="flex-1 bg-surface-300 text-text-secondary text-[10px] px-2.5 py-1.5 rounded border border-surface-100/30 outline-none hover:text-text-primary"
+                aria-label={t('sidebar.sortBy')}
+              >
+                <option value="path">{t('sidebar.sortByPath')}</option>
+                <option value="name">{t('sidebar.sortByName')}</option>
+                <option value="modified">{t('sidebar.sortByModified')}</option>
+              </select>
+              <button
+                onClick={handleSortDirectionToggle}
+                className="min-w-[56px] px-2.5 py-1.5 rounded border border-surface-100/30 bg-surface-300 text-[10px] text-text-secondary transition-colors hover:text-text-primary"
+                title={videoSort.direction === 'asc' ? t('sidebar.sortAscending') : t('sidebar.sortDescending')}
+                aria-label={videoSort.direction === 'asc' ? t('sidebar.sortAscending') : t('sidebar.sortDescending')}
+              >
+                {videoSort.direction === 'asc' ? t('sidebar.sortAscShort') : t('sidebar.sortDescShort')}
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-1" onScroll={hideHoverPreview}>
               {filteredFiles.length === 0 ? (
                 <div className="text-text-muted text-xs text-center py-8">
                   {files.length === 0 ? t('sidebar.noFiles') : t('sidebar.noMatch')}
@@ -387,7 +514,7 @@ export default function Sidebar({
                   )
                 })
               ) : (
-                filteredFiles.map(renderFileItem)
+                orderedVisibleFiles.map(renderFileItem)
               )}
             </div>
           </>
@@ -788,6 +915,54 @@ export default function Sidebar({
           </div>
         )}
       </div>
+
+      {hoverPreview && (
+        <div
+          className="pointer-events-none fixed z-40"
+          style={{
+            left: hoverPreview.x,
+            top: hoverPreview.y,
+            width: HOVER_PREVIEW_WIDTH_PX,
+            height: HOVER_PREVIEW_HEIGHT_PX,
+          }}
+        >
+          <div className="relative h-full w-full overflow-hidden rounded-xl border border-surface-100/40 bg-black/95 shadow-2xl">
+            {hoverPreview.url ? (
+              <video
+                key={hoverPreview.file.path}
+                src={hoverPreview.url}
+                muted
+                autoPlay
+                playsInline
+                preload="metadata"
+                className="h-full w-full object-cover"
+                onLoadedMetadata={(event) => {
+                  const previewVideo = event.currentTarget
+                  previewVideo.currentTime = getHoverPreviewStartTime(previewVideo.duration)
+                  void previewVideo.play().catch(() => {})
+                }}
+                onEnded={(event) => {
+                  const previewVideo = event.currentTarget
+                  previewVideo.currentTime = getHoverPreviewStartTime(previewVideo.duration)
+                  void previewVideo.play().catch(() => {})
+                }}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-black/80 text-text-muted">
+                <RefreshCw size={18} className="animate-spin" />
+              </div>
+            )}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-5">
+              <div className="truncate text-[11px] font-medium text-white">
+                {hoverPreview.file.name}
+              </div>
+              <div className="truncate text-[10px] text-white/60">
+                {hoverPreview.file.relativePath || hoverPreview.file.path}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {contextMenu && (
         <div

@@ -95,6 +95,7 @@ interface VideoPlayerProps {
 }
 
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const TOP_NAV_TRIGGER_HEIGHT_PX = 84
 
 export default function VideoPlayer({
   videoUrl,
@@ -158,6 +159,7 @@ export default function VideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [fullscreenFitEnabled, setFullscreenFitEnabled] = useState(false)
   const [showControls, setShowControls] = useState(true)
+  const [showTopNav, setShowTopNav] = useState(false)
   const [showSubtitles, setShowSubtitles] = useState(subtitleCues.length > 0)
   const [strokeDraft, setStrokeDraft] = useState(() => ({
     min: strokeRangeMin,
@@ -357,6 +359,19 @@ export default function VideoPlayer({
       hideControlsTimer.current = setTimeout(() => setShowControls(false), 2200)
     }
   }, [clearHideControlsTimer, isFullscreen, playing])
+
+  const revealTopNav = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    setShowTopNav(true)
+    if (isFullscreen && playing) {
+      clearHideControlsTimer()
+      setShowControls(false)
+    }
+  }, [clearHideControlsTimer, isFullscreen, playing])
+
+  const hideTopNav = useCallback(() => {
+    setShowTopNav(false)
+  }, [])
 
   // Show device overlay for connection/status changes.
   const prevDeviceConnected = useRef<boolean | undefined>(undefined)
@@ -582,6 +597,7 @@ export default function VideoPlayer({
     setPlaying(false)
     setFullscreenFitEnabled(false)
     setShowControls(true)
+    setShowTopNav(false)
     setShowStrokeControls(false)
     setShowHeatmap(defaultShowHeatmap)
     setShowTimeline(defaultShowTimeline)
@@ -788,6 +804,64 @@ export default function VideoPlayer({
             )}
           </div>
         )}
+
+        {mediaType === 'video' && currentFileName && (
+          <div
+            className="absolute inset-x-0 top-0 z-10"
+            style={{ height: TOP_NAV_TRIGGER_HEIGHT_PX }}
+            onMouseEnter={revealTopNav}
+            onMouseMove={revealTopNav}
+            onMouseLeave={hideTopNav}
+          >
+            <div className={`pointer-events-none absolute inset-x-0 top-3 flex justify-center px-20 transition-opacity duration-200 ${
+              showTopNav ? 'opacity-100' : 'opacity-0'
+            }`}>
+              <div className="pointer-events-auto flex max-w-[min(72vw,760px)] items-center gap-1 rounded-xl border border-white/10 bg-black/55 px-1.5 py-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur-md">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (!canGoToPreviousFile) return
+                    void onPreviousFile?.()
+                  }}
+                  disabled={!canGoToPreviousFile}
+                  className={`flex h-8 items-center gap-1 rounded-lg px-2 text-[10px] font-medium transition-colors ${
+                    canGoToPreviousFile
+                      ? 'text-white/85 hover:bg-white/8 hover:text-white'
+                      : 'cursor-not-allowed text-white/25'
+                  }`}
+                  title={t('player.previousVideo')}
+                  aria-label={t('player.previousVideo')}
+                >
+                  <SkipBack size={14} />
+                  <span>{t('player.previousShort')}</span>
+                </button>
+                <div className="h-4 w-px bg-white/10" />
+                <div className="min-w-0 px-2 text-xs font-medium text-white/90">
+                  <span className="block truncate">{currentFileName}</span>
+                </div>
+                <div className="h-4 w-px bg-white/10" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (!canGoToNextFile) return
+                    void onNextFile?.()
+                  }}
+                  disabled={!canGoToNextFile}
+                  className={`flex h-8 items-center gap-1 rounded-lg px-2 text-[10px] font-medium transition-colors ${
+                    canGoToNextFile
+                      ? 'text-white/85 hover:bg-white/8 hover:text-white'
+                      : 'cursor-not-allowed text-white/25'
+                  }`}
+                  title={t('player.nextVideo')}
+                  aria-label={t('player.nextVideo')}
+                >
+                  <span>{t('player.nextShort')}</span>
+                  <SkipForward size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Script timeline / heatmap */}
@@ -854,9 +928,9 @@ export default function VideoPlayer({
         </div>
 
         {/* Control buttons */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 items-center gap-1">
+            <div className="flex h-10 items-center gap-1 rounded-2xl border border-surface-100/20 bg-surface-300/25 px-1.5">
               <button
                 onClick={(e) => { e.stopPropagation(); skip(-5) }}
                 className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-100/10 hover:text-text-primary transition-colors"
@@ -880,59 +954,20 @@ export default function VideoPlayer({
                 <SkipForward size={18} />
               </button>
             </div>
-            <div className="h-5 w-px bg-surface-100/20" />
-            <div className="flex h-9 items-center gap-1 rounded-xl border border-surface-100/20 bg-surface-300/35 px-1">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (!canGoToPreviousFile) return
-                  void onPreviousFile?.()
-                }}
-                disabled={!canGoToPreviousFile}
-                className={`flex h-7 items-center gap-1 rounded-lg px-2 transition-colors ${
-                  canGoToPreviousFile
-                    ? 'text-text-secondary hover:bg-surface-100/10 hover:text-text-primary'
-                    : 'text-text-muted/40 cursor-not-allowed'
-                }`}
-                title={t('player.previousVideo')}
-                aria-label={t('player.previousVideo')}
-              >
-                <SkipBack size={16} />
-                <span className="text-[10px] font-medium">{t('player.previousShort')}</span>
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (!canGoToNextFile) return
-                  void onNextFile?.()
-                }}
-                disabled={!canGoToNextFile}
-                className={`flex h-7 items-center gap-1 rounded-lg px-2 transition-colors ${
-                  canGoToNextFile
-                    ? 'text-text-secondary hover:bg-surface-100/10 hover:text-text-primary'
-                    : 'text-text-muted/40 cursor-not-allowed'
-                }`}
-                title={t('player.nextVideo')}
-                aria-label={t('player.nextVideo')}
-              >
-                <SkipForward size={16} />
-                <span className="text-[10px] font-medium">{t('player.nextShort')}</span>
-              </button>
-            </div>
-            <div className="h-5 w-px bg-surface-100/20" />
             <span className="inline-flex h-9 items-center text-xs leading-none text-text-secondary font-mono tabular-nums">
               {formatTime(effectiveCurrentTime)} / {formatTime(duration)}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <button
               onClick={(e) => { e.stopPropagation(); toggleMute() }}
               className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
             >
               {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
-            <input
+              </button>
+              <input
               type="range"
               min={0}
               max={1}
@@ -941,8 +976,8 @@ export default function VideoPlayer({
               onChange={(e) => { e.stopPropagation(); handleVolumeChange(parseFloat(e.target.value)) }}
               onClick={(e) => e.stopPropagation()}
               className="w-20 h-1"
-            />
-            <select
+              />
+              <select
               value={playbackRate.toString()}
               onChange={(e) => {
                 e.stopPropagation()
@@ -957,9 +992,9 @@ export default function VideoPlayer({
                   {formatPlaybackRate(rate)}
                 </option>
               ))}
-            </select>
-            {actions.length > 0 && onStrokeRangeChange && (
-              <div ref={strokeControlsRef} className="relative">
+              </select>
+              {actions.length > 0 && onStrokeRangeChange && (
+                <div ref={strokeControlsRef} className="relative">
                 {showStrokeControls && (
                   <div
                     className="absolute bottom-full right-0 mb-3 w-80 rounded-2xl border border-surface-100/20 bg-surface-300/95 p-4 shadow-[0_28px_100px_rgba(0,0,0,0.6)] backdrop-blur-xl"
@@ -1082,16 +1117,16 @@ export default function VideoPlayer({
                   <SlidersHorizontal size={16} />
                   <span className="text-[10px] font-medium">STR</span>
                 </button>
-              </div>
-            )}
-            <button
+                </div>
+              )}
+              <button
               onClick={(e) => { e.stopPropagation(); toggleSequentialPlayback() }}
               className={`p-1.5 rounded transition-colors ${playbackMode === 'sequential' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
               title={t('player.continuousPlayback')}
             >
               <Repeat size={16} />
-            </button>
-            <button
+              </button>
+              <button
               onClick={(e) => { e.stopPropagation(); toggleShufflePlayback() }}
               className={`p-1.5 rounded transition-colors ${playbackMode === 'shuffle' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
               title={t('player.shufflePlayback')}
@@ -1136,13 +1171,14 @@ export default function VideoPlayer({
               >
                 <span className="text-[10px] font-semibold tracking-wide">FIT</span>
               </button>
-            )}
-            <button
+              )}
+              <button
               onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
               className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
             >
               {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
+              </button>
+            </div>
           </div>
         </div>
       </div>

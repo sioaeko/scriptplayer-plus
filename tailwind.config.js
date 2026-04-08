@@ -19,7 +19,7 @@ module.exports = {
         text: {
           primary: '#cdd6f4',
           secondary: '#a6adc8',
-          muted: '#585b70',
+          muted: '#6c7086',
         },
       },
     },

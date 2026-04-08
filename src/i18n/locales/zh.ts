@@ -83,6 +83,8 @@ const zh: Record<string, string> = {
   'settings.title': '\u8BBE\u7F6E',
   'settings.general': '\u5E38\u89C4',
   'settings.appearance': '\u5916\u89C2',
+  'settings.uiScale': '\u754C\u9762\u7F29\u653E',
+  'settings.uiScaleDesc': '\u5728\u9AD8\u5206\u8FA8\u7387\u663E\u793A\u5668\u4E0A\u653E\u5927\u6574\u4E2A\u5E94\u7528\u754C\u9762',
   'settings.subtitleSize': '\u5B57\u5E55\u5927\u5C0F',
   'settings.language': '\u8BED\u8A00',
   'settings.theme': '\u4E3B\u9898',

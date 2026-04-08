@@ -83,6 +83,8 @@ const ja: Record<string, string> = {
   'settings.title': '\u8A2D\u5B9A',
   'settings.general': '\u4E00\u822C',
   'settings.appearance': '\u5916\u89B3',
+  'settings.uiScale': 'UI拡大率',
+  'settings.uiScaleDesc': '高解像度ディスプレイ向けにアプリ全体の表示を拡大します',
   'settings.subtitleSize': '\u5B57\u5E55\u30B5\u30A4\u30BA',
   'settings.language': '\u8A00\u8A9E',
   'settings.theme': '\u30C6\u30FC\u30DE',

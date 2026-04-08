@@ -86,6 +86,8 @@ const ko: Record<string, string> = {
   'settings.title': '\uC124\uC815',
   'settings.general': '\uC77C\uBC18',
   'settings.appearance': '\uC678\uAD00',
+  'settings.uiScale': 'UI 크기',
+  'settings.uiScaleDesc': '고해상도 디스플레이에서 앱 전체 인터페이스를 확대합니다',
   'settings.subtitleSize': '\uC790\uB9C9 \uD06C\uAE30',
   'settings.language': '\uC5B8\uC5B4',
   'settings.theme': '\uD14C\uB9C8',

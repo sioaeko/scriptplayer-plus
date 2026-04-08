@@ -571,6 +571,10 @@ export default function App() {
   }, [locale, setLocale, settings.language])
 
   useEffect(() => {
+    window.electronAPI.setZoomFactor(settings.uiScale / 100)
+  }, [settings.uiScale])
+
+  useEffect(() => {
     try {
       localStorage.setItem(PLAYBACK_MODE_STORAGE_KEY, playbackMode)
     } catch {

@@ -96,6 +96,7 @@ declare global {
         chrome: string
         node: string
       }
+      setZoomFactor: (factor: number) => void
       minimize: () => void
       maximize: () => void
       close: () => void

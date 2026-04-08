@@ -86,6 +86,8 @@ const en: Record<string, string> = {
   'settings.title': 'Settings',
   'settings.general': 'General',
   'settings.appearance': 'Appearance',
+  'settings.uiScale': 'UI Scale',
+  'settings.uiScaleDesc': 'Scale the full interface for high-resolution displays',
   'settings.subtitleSize': 'Subtitle Size',
   'settings.language': 'Language',
   'settings.theme': 'Theme',

@@ -6,6 +6,10 @@ import {
   NoScriptStrokePreset,
 } from './noScriptStroke'
 
+export const UI_SCALE_OPTIONS = [100, 115, 125, 140, 150] as const
+
+export type UiScaleValue = typeof UI_SCALE_OPTIONS[number]
+
 export interface AppSettings {
   // General
   language: string // 'en' | 'ko' | 'ja' | 'zh'
@@ -14,6 +18,7 @@ export interface AppSettings {
 
   // Appearance
   theme: 'dark' // only dark for now
+  uiScale: UiScaleValue // percent
   subtitleFontSize: number // px, 14-32
 
   // Timeline
@@ -51,6 +56,7 @@ function createDefaultSettings(): AppSettings {
     defaultVideoFolder: '',
     scriptFolder: '',
     theme: 'dark',
+    uiScale: 100,
     subtitleFontSize: 20,
     showHeatmapByDefault: false,
     showTimelineByDefault: false,
@@ -75,6 +81,18 @@ function createDefaultSettings(): AppSettings {
 
 const STORAGE_KEY = 'handycontrol-settings'
 
+function normalizeUiScale(value: unknown): UiScaleValue {
+  const requested = Number(value)
+  if (!Number.isFinite(requested)) {
+    return 100
+  }
+  const nearest = UI_SCALE_OPTIONS.reduce((best, option) => (
+    Math.abs(option - requested) < Math.abs(best - requested) ? option : best
+  ), UI_SCALE_OPTIONS[0])
+
+  return nearest
+}
+
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -83,6 +101,7 @@ export function loadSettings(): AppSettings {
     return {
       ...createDefaultSettings(),
       ...parsed,
+      uiScale: normalizeUiScale((parsed as { uiScale?: unknown })?.uiScale),
       noScriptRandomPreset: normalizeNoScriptStrokePreset((parsed as { noScriptRandomPreset?: unknown })?.noScriptRandomPreset),
       noScriptRandomPattern: normalizeNoScriptStrokePattern((parsed as { noScriptRandomPattern?: unknown })?.noScriptRandomPattern),
       keyboardShortcuts: normalizeShortcutBindings((parsed as { keyboardShortcuts?: unknown })?.keyboardShortcuts),

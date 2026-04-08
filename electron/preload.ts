@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     chrome: process.versions.chrome,
     node: process.versions.node,
   },
+
+  // Display
+  setZoomFactor: (factor: number) => webFrame.setZoomFactor(factor),
 
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),

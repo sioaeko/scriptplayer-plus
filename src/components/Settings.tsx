@@ -11,7 +11,7 @@ import {
   FolderOpen,
 } from 'lucide-react'
 import { APP_VERSION } from '../constants/app'
-import { AppSettings } from '../services/settings'
+import { AppSettings, UI_SCALE_OPTIONS } from '../services/settings'
 import {
   getNoScriptStrokePatternForPreset,
   NO_SCRIPT_STROKE_PATTERNS,
@@ -264,6 +264,25 @@ function AppearanceSection({
           className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[140px] opacity-60 cursor-not-allowed"
         >
           <option value="dark">{t('settings.dark')}</option>
+        </select>
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.uiScale')}
+        description={`${settings.uiScale}% • ${t('settings.uiScaleDesc')}`}
+      >
+        <select
+          value={settings.uiScale}
+          onChange={(e) => update('uiScale', Number(e.target.value) as AppSettings['uiScale'])}
+          className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 focus:border-accent/50 outline-none min-w-[140px]"
+        >
+          {UI_SCALE_OPTIONS.map((scale) => (
+            <option key={scale} value={scale}>
+              {scale}%
+            </option>
+          ))}
         </select>
       </FieldRow>
 

@@ -21,8 +21,5 @@ Thumbs.db
 # Build cache
 *.tsbuildinfo
 
-# Temp
-package-lock.json
-
 # Local private notes
 LOCAL_WORKLOG.md

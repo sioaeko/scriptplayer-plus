@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -14,13 +17,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
       - run: npm ci
-      - run: npx vite build
-      - run: npx electron-builder --win --publish never
+      - run: npm run build:win
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          $label = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' } else { '${{ github.sha }}'.Substring(0, 7) }
+          $label = $label -replace '[^0-9A-Za-z._-]', '-'
+          $zip = "release/ScriptPlayerPlus-$label-windows-x64.zip"
+          if (Test-Path -LiteralPath $zip) {
+            Remove-Item -LiteralPath $zip -Force
+          }
+          Compress-Archive -Path release/win-unpacked/* -DestinationPath $zip
       - uses: actions/upload-artifact@v4
         with:
-          name: ScriptPlayerPlus-Windows
-          path: dist/win-unpacked/
+          name: release-windows
+          path: release/ScriptPlayerPlus-*-windows-x64.zip
+          if-no-files-found: error
 
   build-mac:
     runs-on: macos-latest
@@ -29,12 +43,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
       - run: npm ci
-      - run: npx vite build
-      - run: npx electron-builder --mac --publish never
+      - run: npm run build:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
-          name: ScriptPlayerPlus-Mac
-          path: dist/*.zip
+          name: release-mac
+          path: release/*.zip
+          if-no-files-found: error
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs:
+      - build-windows
+      - build-mac
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: release-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

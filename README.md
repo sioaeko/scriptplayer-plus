@@ -91,6 +91,8 @@ Linux x64 builds can be created from source. The configured Linux package target
 
 ### Build from Source
 
+Use Node.js 20 LTS. The project pins `20.20.2` in `.nvmrc`.
+
 ```bash
 git clone https://github.com/sioaeko/scriptplayer-plus.git
 cd scriptplayer-plus

@@ -91,6 +91,8 @@ Linux x64 빌드는 소스에서 만들 수 있습니다. 현재 Linux 패키지
 
 ### 소스에서 빌드
 
+Node.js 20 LTS를 사용하세요. 프로젝트 기준 버전은 `.nvmrc`의 `20.20.2`입니다.
+
 ```bash
 git clone https://github.com/sioaeko/scriptplayer-plus.git
 cd scriptplayer-plus

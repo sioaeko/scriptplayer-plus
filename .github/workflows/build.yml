@@ -18,8 +18,16 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - run: npm ci
-      - run: npm run build:win
+      - name: Build Windows app
+        shell: pwsh
+        run: |
+          npx vite build
+          npx electron-builder --win --publish never
+          node scripts/set-icon.js
       - name: Package Windows release
         shell: pwsh
         run: |
@@ -44,8 +52,12 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - run: npm ci
-      - run: npm run build:mac
+      - run: npx vite build
+      - run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4

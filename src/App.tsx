@@ -1272,10 +1272,21 @@ export default function App() {
   ])
 
   const handleEnded = useCallback(async () => {
+    if (playlist.length > 0 && currentFile) {
+      const idx = playlist.findIndex((item) => item.path === currentFile)
+      if (idx !== -1) {
+        const nextItem = playlist[idx + 1]
+        if (!nextItem) return
+        const type = getMediaTypeFromPath(nextItem.path)
+        if (!type) return
+        await openMediaFile(nextItem.path, type, { autoplay: true })
+        return
+      }
+    }
     const nextFile = getNextPlaybackFile(orderedFiles, currentFile, playbackMode)
     if (!nextFile) return
     await openMediaFile(nextFile.path, nextFile.type, { autoplay: true })
-  }, [currentFile, openMediaFile, orderedFiles, playbackMode])
+  }, [currentFile, openMediaFile, orderedFiles, playbackMode, playlist])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

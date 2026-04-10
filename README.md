@@ -37,7 +37,7 @@
 
 <p align="center">
   <a href="docs/readme-media/overview-demo.mp4">
-    <img src="docs/readme-media/overview-demo.gif" alt="ScriptPlayer+ overview demo" width="100%">
+    <img src="docs/readme-media/overview-demo-hq.gif" alt="ScriptPlayer+ overview demo" width="100%">
   </a>
 </p>
 

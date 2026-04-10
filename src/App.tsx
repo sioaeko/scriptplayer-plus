@@ -982,7 +982,7 @@ export default function App() {
   const handlePlaylistItemPlay = useCallback(async (filePath: string) => {
     const type = getMediaTypeFromPath(filePath)
     if (!type) return
-    await openMediaFile(filePath, type)
+    await openMediaFile(filePath, type, { autoplay: true })
   }, [openMediaFile])
 
   const handlePlaylistImportFromFiles = useCallback(() => {

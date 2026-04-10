@@ -330,6 +330,10 @@ ipcMain.handle('fs:readFunscriptFile', async (_event, filePath: string) => {
   return readFunscriptJson(filePath)
 })
 
+ipcMain.handle('fs:listFunscriptVariants', async (_event, videoPath: string, scriptFolder?: string) => {
+  return listFunscriptVariantsForMedia(videoPath, scriptFolder)
+})
+
 ipcMain.handle('fs:readSubtitleFile', async (_event, filePath: string) => {
   try {
     return {
@@ -370,6 +374,73 @@ ipcMain.handle('osrSerial:write', async (_event, command: string) => {
 // ============================================================
 
 const NAS_EXTS = [...MEDIA_EXTS, '.funscript']
+
+function listFunscriptVariantsForMedia(
+  mediaPath: string,
+  scriptFolder?: string
+): Array<{ path: string; label: string }> {
+  const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
+  const baseLower = mediaBaseName.toLowerCase()
+  const searchDirs = [path.dirname(mediaPath)]
+  if (scriptFolder) searchDirs.push(scriptFolder)
+
+  // Deduplicate directories so the same folder is never scanned twice
+  // (e.g. when scriptFolder is the same directory as the video folder)
+  const seenDirs = new Set<string>()
+  const uniqueDirs = searchDirs.filter((dir) => {
+    const resolved = path.resolve(dir)
+    if (seenDirs.has(resolved)) return false
+    seenDirs.add(resolved)
+    return true
+  })
+
+  const variants: Array<{ path: string; label: string }> = []
+  const seenStems = new Set<string>()
+
+  for (const dir of uniqueDirs) {
+    let entries: string[]
+    try {
+      entries = fs.readdirSync(dir)
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      const entryExt = path.extname(entry).toLowerCase()
+      if (!FUNSCRIPT_EXTS.includes(entryExt)) continue
+
+      const entryStem = path.basename(entry, path.extname(entry))
+      const stemLower = entryStem.toLowerCase()
+
+      // Skip if a file with the same stem was already found in a previous directory
+      if (seenStems.has(stemLower)) continue
+
+      let label: string | null = null
+      if (stemLower === baseLower) {
+        label = 'Default'
+      } else if (
+        stemLower.startsWith(baseLower)
+        && stemLower.length > baseLower.length
+        && !/[a-z0-9]/i.test(stemLower[baseLower.length])
+      ) {
+        // Strip leading separator characters (space, period, dash, underscore, etc.)
+        // but preserve characters like '(' that are part of the variant name
+        label = entryStem.slice(mediaBaseName.length).replace(/^[ ._\-]+/, '').trim() || 'Default'
+      }
+
+      if (label === null) continue
+
+      seenStems.add(stemLower)
+      variants.push({ path: path.join(dir, entry), label })
+    }
+  }
+
+  return variants.sort((a, b) => {
+    if (a.label === 'Default') return -1
+    if (b.label === 'Default') return 1
+    return a.label.localeCompare(b.label)
+  })
+}
 
 function hasBundledFunscriptsForMediaScan(mediaPath: string): boolean {
   const mediaDir = path.dirname(mediaPath)

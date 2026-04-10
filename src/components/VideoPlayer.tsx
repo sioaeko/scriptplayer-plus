@@ -92,6 +92,9 @@ interface VideoPlayerProps {
   timelineWindow?: number
   speedColors?: boolean
   subtitleFontSize?: number
+  funscriptVariants?: Array<{ path: string; label: string }>
+  selectedVariantPath?: string | null
+  onFunscriptVariantChange?: (path: string) => void
 }
 
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -135,6 +138,9 @@ export default function VideoPlayer({
   timelineWindow = 10,
   speedColors = true,
   subtitleFontSize = 20,
+  funscriptVariants,
+  selectedVariantPath,
+  onFunscriptVariantChange,
 }: VideoPlayerProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1226,6 +1232,19 @@ export default function VideoPlayer({
                       <span className="text-[10px] font-medium">HM</span>
                     </button>
                   </>
+                )}
+                {funscriptVariants && funscriptVariants.length > 1 && (
+                  <select
+                    value={selectedVariantPath ?? ''}
+                    onChange={(e) => { e.stopPropagation(); onFunscriptVariantChange?.(e.target.value) }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-surface-300/80 text-text-secondary text-[10px] px-2 py-1 rounded border border-surface-100/30 outline-none hover:text-text-primary"
+                    title="Script variant"
+                  >
+                    {funscriptVariants.map(({ path, label }) => (
+                      <option key={path} value={path}>{label}</option>
+                    ))}
+                  </select>
                 )}
                 {subtitleCues.length > 0 && (
                   <button

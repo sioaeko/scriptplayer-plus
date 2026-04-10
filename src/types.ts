@@ -115,6 +115,7 @@ declare global {
       readFunscript: (videoPath: string, scriptFolder?: string) => Promise<Funscript | null>
       readFunscriptBundle: (videoPath: string, scriptFolder?: string, preferredScriptPath?: string) => Promise<FunscriptBundle | null>
       readFunscriptFile: (filePath: string) => Promise<Funscript | null>
+      listFunscriptVariants: (videoPath: string, scriptFolder?: string) => Promise<Array<{ path: string; label: string }>>
       saveFunscript: (videoPath: string, data: string) => Promise<boolean>
       getVideoUrl: (filePath: string) => Promise<string>
       findArtwork: (mediaPath: string) => Promise<string | null>

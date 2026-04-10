@@ -378,6 +378,9 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
   const [settings, setSettings] = useState<AppSettings>(loadSettings)
   const [manualScriptPaths, setManualScriptPaths] = useState<Record<string, string>>({})
+  const [selectedAxisId, setSelectedAxisId] = useState<ScriptAxisId | null>(null)
+  const [availableFunscriptVariants, setAvailableFunscriptVariants] = useState<Array<{ path: string; label: string }>>([])
+  const [selectedVariantPath, setSelectedVariantPath] = useState<string | null>(null)
   const [manualSubtitleFiles, setManualSubtitleFiles] = useState<Record<string, SubtitleFile>>({})
   const [mediaDurationSeconds, setMediaDurationSeconds] = useState(0)
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(loadPlaybackMode)
@@ -439,7 +442,6 @@ export default function App() {
     settings.noScriptRandomPreset,
     settings.noScriptRandomStrokeEnabled,
   ])
-  const primaryAxis = useMemo(() => getPrimaryAxis(effectiveFunscriptBundle), [effectiveFunscriptBundle])
   const displayAxisActions = useMemo(
     () => buildAxisActionMap(
       effectiveFunscriptBundle?.scripts,
@@ -459,6 +461,10 @@ export default function App() {
     ),
     [effectiveFunscriptBundle?.scripts, settings.invertStroke, settings.strokeRangeMax, settings.strokeRangeMin]
   )
+  const primaryAxis = useMemo(() => {
+    if (selectedAxisId && displayAxisActions[selectedAxisId]?.length) return selectedAxisId
+    return getPrimaryAxis(effectiveFunscriptBundle)
+  }, [selectedAxisId, effectiveFunscriptBundle, displayAxisActions])
   const runtimeAxisActions = useMemo(
     () => buildAxisActionMap(displayAxisActions, (_axisId, actions) =>
       transformFunscriptActions(actions, { timeScale: getPlaybackTimeScale(playbackRate) })
@@ -479,6 +485,11 @@ export default function App() {
     () => SCRIPT_AXIS_IDS.filter((axisId) => Boolean(displayAxisActions[axisId]?.length)),
     [displayAxisActions]
   )
+  const activeVariantPath = useMemo(() => {
+    if (selectedVariantPath) return selectedVariantPath
+    if (!effectiveFunscriptBundle || !primaryAxis) return availableFunscriptVariants[0]?.path ?? null
+    return effectiveFunscriptBundle.sources[primaryAxis] ?? availableFunscriptVariants[0]?.path ?? null
+  }, [selectedVariantPath, effectiveFunscriptBundle, primaryAxis, availableFunscriptVariants])
   const allScriptActionTimes = useMemo(
     () => collectSortedActionTimes(displayAxisActions),
     [displayAxisActions]
@@ -941,17 +952,21 @@ export default function App() {
     setCurrentFileType(resolvedType)
     setMediaDurationSeconds(0)
     setFunscriptBundle(null)
+    setSelectedAxisId(null)
+    setSelectedVariantPath(null)
+    setAvailableFunscriptVariants([])
     setSubtitleCues([])
     setScriptUploadUrl(null)
     setArtworkUrl(null)
 
-    const [url, nextSubtitleCues, parsedBundle, artworkPath] = await Promise.all([
+    const [url, nextSubtitleCues, parsedBundle, artworkPath, variants] = await Promise.all([
       window.electronAPI.getVideoUrl(filePath),
       loadSubtitleCues(filePath, resolvedType),
       loadScriptBundle(filePath),
       resolvedType === 'audio'
         ? window.electronAPI.findArtwork(filePath)
         : Promise.resolve<string | null>(null),
+      window.electronAPI.listFunscriptVariants(filePath, settings.scriptFolder),
     ])
 
     if (requestId !== openMediaRequestId.current) {
@@ -961,6 +976,7 @@ export default function App() {
     setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
+    setAvailableFunscriptVariants(variants)
     if (options?.autoplay) {
       setAutoPlayRequestId((prev) => prev + 1)
     }
@@ -972,7 +988,15 @@ export default function App() {
       }
       setArtworkUrl(nextArtworkUrl)
     }
-  }, [cancelPendingHandySync, loadScriptBundle, loadSubtitleCues, osrSerialConnected, stopButtplugPlayback, stopOsrSerialPlayback])
+  }, [cancelPendingHandySync, loadScriptBundle, loadSubtitleCues, osrSerialConnected, settings.scriptFolder, stopButtplugPlayback, stopOsrSerialPlayback])
+
+  const handleFunscriptVariantChange = useCallback(async (variantPath: string) => {
+    if (!currentFile) return
+    setSelectedVariantPath(variantPath)
+    setSelectedAxisId(null)
+    const rawBundle = await window.electronAPI.readFunscriptBundle(currentFile, settings.scriptFolder, variantPath)
+    setFunscriptBundle(parseFunscriptBundleData(rawBundle))
+  }, [currentFile, settings.scriptFolder])
 
   const handleFileSelect = useCallback(async (file: VideoFile) => {
     await openMediaFile(file.path, file.type)
@@ -1686,6 +1710,9 @@ export default function App() {
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}
           subtitleFontSize={settings.subtitleFontSize}
+          funscriptVariants={availableFunscriptVariants}
+          selectedVariantPath={activeVariantPath}
+          onFunscriptVariantChange={handleFunscriptVariantChange}
         />
       </div>
 

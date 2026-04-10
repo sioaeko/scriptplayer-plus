@@ -935,10 +935,6 @@ export default function App() {
       currentMedia.pause()
     }
 
-    if (options?.autoplay) {
-      setAutoPlayRequestId((prev) => prev + 1)
-    }
-
     autoSkipSuppressedUntilRef.current = 0
     autoSkipCooldownUntilRef.current = 0
     setCurrentFile(filePath)
@@ -965,6 +961,9 @@ export default function App() {
     setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
+    if (options?.autoplay) {
+      setAutoPlayRequestId((prev) => prev + 1)
+    }
 
     if (artworkPath) {
       const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)

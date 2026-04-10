@@ -37,7 +37,7 @@
 
 <p align="center">
   <a href="docs/readme-media/overview-demo.mp4">
-    <img src="docs/readme-media/hero-device-view.jpg" alt="ScriptPlayer+ overview demo" width="100%">
+    <img src="docs/readme-media/overview-demo.gif" alt="ScriptPlayer+ overview demo" width="100%">
   </a>
 </p>
 
@@ -73,17 +73,17 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
   <tr>
     <td width="33%">
       <a href="docs/readme-media/overview-demo.mp4">
-        <img src="docs/screenshots/main.png" alt="Overview demo" width="100%">
+        <img src="docs/readme-media/overview-demo.gif" alt="Overview demo" width="100%">
       </a>
     </td>
     <td width="33%">
       <a href="docs/readme-media/video-preview-demo.mp4">
-        <img src="docs/screenshots/preview_v015_exp1.png" alt="Video preview demo" width="100%">
+        <img src="docs/readme-media/video-preview-demo.gif" alt="Video preview demo" width="100%">
       </a>
     </td>
     <td width="33%">
       <a href="docs/readme-media/random-stroke-demo.mp4">
-        <img src="docs/screenshots/VOICE_HM_TL.png" alt="Random stroke demo" width="100%">
+        <img src="docs/readme-media/random-stroke-demo.gif" alt="Random stroke demo" width="100%">
       </a>
     </td>
   </tr>

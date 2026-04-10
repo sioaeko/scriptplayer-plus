@@ -2,15 +2,66 @@ name: Build
 
 on:
   push:
+    branches:
+      - master
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to publish or refresh, for example v0.1.7
+        required: false
+        type: string
+      publish_release:
+        description: Upload the built artifacts to a GitHub Release
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.vars.outputs.release_tag }}
+      release_label: ${{ steps.vars.outputs.release_label }}
+      should_publish: ${{ steps.vars.outputs.should_publish }}
+    steps:
+      - id: vars
+        shell: bash
+        run: |
+          release_tag=""
+          should_publish="false"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+            should_publish="true"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            input_tag="${{ inputs.release_tag }}"
+            input_publish="${{ inputs.publish_release }}"
+            if [[ -n "$input_tag" ]]; then
+              release_tag="$input_tag"
+            fi
+            if [[ "$input_publish" == "true" && -n "$release_tag" ]]; then
+              should_publish="true"
+            fi
+          fi
+
+          release_label="$release_tag"
+          if [[ -z "$release_label" ]]; then
+            release_label="${GITHUB_SHA::7}"
+          fi
+
+          release_label="$(echo "$release_label" | sed -E 's/[^0-9A-Za-z._-]/-/g')"
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "release_label=$release_label" >> "$GITHUB_OUTPUT"
+          echo "should_publish=$should_publish" >> "$GITHUB_OUTPUT"
+
   build-windows:
+    needs: prepare
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -31,9 +82,8 @@ jobs:
       - name: Package Windows release
         shell: pwsh
         run: |
-          $label = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' } else { '${{ github.sha }}'.Substring(0, 7) }
-          $label = $label -replace '[^0-9A-Za-z._-]', '-'
-          $zip = "release/ScriptPlayerPlus-$label-windows-x64.zip"
+          $label = '${{ needs.prepare.outputs.release_label }}'
+          $zip = "release/ScriptPlayerPlus-$label-win-x64.zip"
           if (Test-Path -LiteralPath $zip) {
             Remove-Item -LiteralPath $zip -Force
           }
@@ -41,10 +91,11 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: release-windows
-          path: release/ScriptPlayerPlus-*-windows-x64.zip
+          path: release/ScriptPlayerPlus-*-win-x64.zip
           if-no-files-found: error
 
   build-mac:
+    needs: prepare
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -66,22 +117,70 @@ jobs:
           path: release/*.zip
           if-no-files-found: error
 
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: npm ci
+      - run: npx vite build
+      - run: npx electron-builder --linux --publish never
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-linux
+          path: |
+            release/*.AppImage
+            release/latest-linux.yml
+          if-no-files-found: error
+
   publish-release:
     runs-on: ubuntu-latest
     needs:
+      - prepare
       - build-windows
       - build-mac
-    if: github.ref_type == 'tag'
+      - build-linux
+    if: needs.prepare.outputs.should_publish == 'true'
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
+      - id: notes
+        shell: bash
+        run: |
+          tag="${{ needs.prepare.outputs.release_tag }}"
+          notes_path="release/${tag}-notes.md"
+          if [[ -f "$notes_path" ]]; then
+            echo "body_path=$notes_path" >> "$GITHUB_OUTPUT"
+            echo "has_body_path=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_body_path=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v8
         with:
           path: release-assets
           pattern: release-*
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
+        if: steps.notes.outputs.has_body_path == 'true'
         with:
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          files: release-assets/*
+          body_path: ${{ steps.notes.outputs.body_path }}
+          overwrite_files: true
+          prerelease: ${{ contains(needs.prepare.outputs.release_tag, '-') }}
+      - uses: softprops/action-gh-release@v2
+        if: steps.notes.outputs.has_body_path != 'true'
+        with:
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
           files: release-assets/*
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          overwrite_files: true
+          prerelease: ${{ contains(needs.prepare.outputs.release_tag, '-') }}

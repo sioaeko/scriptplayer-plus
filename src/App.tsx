@@ -263,7 +263,11 @@ function parseFunscriptBundleData(raw: unknown): FunscriptBundle | null {
 
 function buildAxisActionMap(
   scripts: Partial<Record<ScriptAxisId, Funscript>> | AxisActionMap | undefined,
-  transform: (axisId: ScriptAxisId, actions: FunscriptAction[]) => FunscriptAction[]
+  transform: (
+    axisId: ScriptAxisId,
+    actions: FunscriptAction[],
+    source: Funscript | FunscriptAction[]
+  ) => FunscriptAction[]
 ): AxisActionMap {
   const next: AxisActionMap = {}
 
@@ -273,7 +277,7 @@ function buildAxisActionMap(
     const source = scripts[axisId]
     if (!source) continue
     const actions = Array.isArray(source) ? source : source.actions
-    next[axisId] = transform(axisId, actions)
+    next[axisId] = transform(axisId, actions, source)
   }
 
   return next
@@ -436,13 +440,19 @@ export default function App() {
   const displayAxisActions = useMemo(
     () => buildAxisActionMap(
       effectiveFunscriptBundle?.scripts,
-      (axisId, actions) => transformFunscriptActions(actions, axisId === 'L0'
-        ? {
-            strokeMin: settings.strokeRangeMin,
-            strokeMax: settings.strokeRangeMax,
-            invert: settings.invertStroke,
-          }
-        : {})
+      (axisId, actions, source) => {
+        const scriptInverted = !Array.isArray(source) && Boolean(source.inverted)
+
+        return transformFunscriptActions(actions, axisId === 'L0'
+          ? {
+              strokeMin: settings.strokeRangeMin,
+              strokeMax: settings.strokeRangeMax,
+              invert: scriptInverted !== settings.invertStroke,
+            }
+          : {
+              invert: scriptInverted,
+            })
+      }
     ),
     [effectiveFunscriptBundle?.scripts, settings.invertStroke, settings.strokeRangeMax, settings.strokeRangeMin]
   )

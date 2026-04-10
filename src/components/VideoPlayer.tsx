@@ -146,11 +146,12 @@ export default function VideoPlayer({
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const strokeControlsRef = useRef<HTMLDivElement>(null)
   const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
+  const fullscreenControlsOverlayRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [progressPreviewTime, setProgressPreviewTime] = useState<number | null>(null)
   const [isProgressScrubbing, setIsProgressScrubbing] = useState(false)
   const [duration, setDuration] = useState(0)
-  const [videoAspectRatio, setVideoAspectRatio] = useState<number | null>(null)
   const [volume, setVolume] = useState(() => {
     const saved = localStorage.getItem('volume')
     return saved ? parseFloat(saved) : 1
@@ -158,6 +159,8 @@ export default function VideoPlayer({
   const [muted, setMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [fullscreenFitEnabled, setFullscreenFitEnabled] = useState(false)
+  const [fullscreenScriptOverlayHeight, setFullscreenScriptOverlayHeight] = useState(0)
+  const [fullscreenControlsOverlayHeight, setFullscreenControlsOverlayHeight] = useState(0)
   const [showControls, setShowControls] = useState(true)
   const [showTopNav, setShowTopNav] = useState(false)
   const [showSubtitles, setShowSubtitles] = useState(subtitleCues.length > 0)
@@ -171,18 +174,29 @@ export default function VideoPlayer({
   const progressScrubbingRef = useRef(false)
   const effectiveCurrentTime = isProgressScrubbing && progressPreviewTime !== null ? progressPreviewTime : currentTime
   const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, effectiveCurrentTime) : ''
-  const isPortraitVideo = videoAspectRatio !== null && videoAspectRatio < 1
   const controlsVisible = showControls || !playing
-  const scriptOverlayHeight = actions.length > 0
-    ? (showHeatmap ? 32 : 0) + (showTimeline ? timelineHeight : 0)
-    : 0
-  const fullscreenControlsOffset = isFullscreen && controlsVisible ? 96 : 0
-  const subtitleBottomOffset = 24 + (isFullscreen ? scriptOverlayHeight + fullscreenControlsOffset : 0)
+  const fullscreenScriptVisible = isFullscreen && actions.length > 0 && (showHeatmap || showTimeline)
+  const subtitleBottomOffset = 24 + (
+    isFullscreen
+      ? fullscreenScriptOverlayHeight + (controlsVisible ? fullscreenControlsOverlayHeight : 0)
+      : 0
+  )
   const videoClassName = getVideoClassName({
     isFullscreen,
     fullscreenFitEnabled,
-    isPortraitVideo,
   })
+  const controlsContainerClass = isFullscreen
+    ? 'absolute inset-x-0 bottom-0 z-10 px-4 pb-3 pt-4'
+    : 'relative flex-shrink-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-4 pb-3 pt-8'
+  const controlsPanelClass = isFullscreen
+    ? 'rounded-2xl border border-white/14 bg-black px-3 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.6)]'
+    : ''
+  const progressBarWrapClass = isFullscreen
+    ? 'mb-3'
+    : 'mb-2'
+  const controlRowClass = isFullscreen
+    ? 'flex items-center justify-between gap-4'
+    : 'flex items-center justify-between gap-4'
 
   const syncCurrentTimeFromMedia = useCallback(() => {
     const media = mediaRef.current
@@ -202,14 +216,6 @@ export default function VideoPlayer({
       setDuration((prevDuration) => (Math.abs(prevDuration - rawDuration) >= 1 / 240 ? rawDuration : prevDuration))
     }
 
-    if (media instanceof HTMLVideoElement && media.videoWidth > 0 && media.videoHeight > 0) {
-      const nextAspectRatio = media.videoWidth / media.videoHeight
-      setVideoAspectRatio((prevAspectRatio) => (
-        prevAspectRatio === null || Math.abs(prevAspectRatio - nextAspectRatio) >= 1 / 1000
-          ? nextAspectRatio
-          : prevAspectRatio
-      ))
-    }
   }, [mediaRef])
 
   const handleTimeUpdate = useCallback(() => {
@@ -593,7 +599,6 @@ export default function VideoPlayer({
     setIsProgressScrubbing(false)
     progressScrubbingRef.current = false
     setDuration(0)
-    setVideoAspectRatio(null)
     setPlaying(false)
     setFullscreenFitEnabled(false)
     setShowControls(true)
@@ -606,6 +611,70 @@ export default function VideoPlayer({
   useEffect(() => {
     setShowSubtitles(subtitleCues.length > 0)
   }, [subtitleCues])
+
+  useEffect(() => {
+    if (!fullscreenScriptVisible) {
+      setFullscreenScriptOverlayHeight(0)
+      return
+    }
+
+    const overlay = fullscreenScriptOverlayRef.current
+    if (!overlay) {
+      setFullscreenScriptOverlayHeight(0)
+      return
+    }
+
+    const updateOverlayHeight = () => {
+      setFullscreenScriptOverlayHeight(overlay.getBoundingClientRect().height)
+    }
+
+    updateOverlayHeight()
+    window.addEventListener('resize', updateOverlayHeight)
+
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+          updateOverlayHeight()
+        })
+    observer?.observe(overlay)
+
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', updateOverlayHeight)
+    }
+  }, [fullscreenScriptVisible, showHeatmap, showTimeline, timelineHeight])
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      setFullscreenControlsOverlayHeight(0)
+      return
+    }
+
+    const overlay = fullscreenControlsOverlayRef.current
+    if (!overlay) {
+      setFullscreenControlsOverlayHeight(0)
+      return
+    }
+
+    const updateOverlayHeight = () => {
+      setFullscreenControlsOverlayHeight(overlay.getBoundingClientRect().height)
+    }
+
+    updateOverlayHeight()
+    window.addEventListener('resize', updateOverlayHeight)
+
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+          updateOverlayHeight()
+        })
+    observer?.observe(overlay)
+
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', updateOverlayHeight)
+    }
+  }, [isFullscreen])
 
   useEffect(() => {
     if (!isProgressScrubbing) return
@@ -732,35 +801,6 @@ export default function VideoPlayer({
                 </div>
               </div>
             </div>
-          </div>
-        )}
-
-        {isFullscreen && actions.length > 0 && (showHeatmap || showTimeline) && (
-          <div
-            className="absolute inset-x-0 z-10 border-t border-surface-100/20 bg-black/35 backdrop-blur-sm transition-[bottom] duration-300 ease-out"
-            style={{ bottom: fullscreenControlsOffset }}
-          >
-            {showHeatmap && (
-              <div className="h-8">
-                <ScriptHeatmap
-                  actions={actions}
-                  duration={duration}
-                  currentTime={effectiveCurrentTime}
-                  onSeek={handleSeek}
-                />
-              </div>
-            )}
-            {showTimeline && (
-              <div style={{ height: timelineHeight }}>
-                <ScriptTimeline
-                  actions={actions}
-                  currentTime={effectiveCurrentTime}
-                  duration={duration}
-                  onSeek={handleSeek}
-                  windowSize={timelineWindow}
-                />
-              </div>
-            )}
           </div>
         )}
 
@@ -891,293 +931,329 @@ export default function VideoPlayer({
         </div>
       )}
 
+      {fullscreenScriptVisible && (
+        <div
+          ref={fullscreenScriptOverlayRef}
+          className="absolute inset-x-0 z-10 px-4 transition-[bottom] duration-300 ease-out"
+          style={{ bottom: controlsVisible ? fullscreenControlsOverlayHeight : 0 }}
+        >
+          <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/62 shadow-[0_14px_40px_rgba(0,0,0,0.45)]">
+            {showHeatmap && (
+              <div className="h-8">
+                <ScriptHeatmap
+                  actions={actions}
+                  duration={duration}
+                  currentTime={effectiveCurrentTime}
+                  onSeek={handleSeek}
+                />
+              </div>
+            )}
+            {showTimeline && (
+              <div style={{ height: timelineHeight }}>
+                <ScriptTimeline
+                  actions={actions}
+                  currentTime={effectiveCurrentTime}
+                  duration={duration}
+                  onSeek={handleSeek}
+                  windowSize={timelineWindow}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Controls overlay */}
       <div
-        className={`${isFullscreen ? 'absolute inset-x-0 bottom-0 z-10' : 'flex-shrink-0'} relative bg-gradient-to-t from-black/90 via-black/60 to-transparent px-4 pb-3 pt-8 transition-opacity duration-300 ${
+        ref={fullscreenControlsOverlayRef}
+        className={`${controlsContainerClass} transition-opacity duration-300 ${
           controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
-        {/* Progress bar */}
-        <div className="mb-2">
-          <input
-            type="range"
-            min={0}
-            max={duration || 100}
-            step={0.1}
-            value={effectiveCurrentTime}
-            onPointerDown={(e) => {
-              e.stopPropagation()
-              beginProgressScrub()
-            }}
-            onPointerUp={(e) => {
-              e.stopPropagation()
-              commitProgressScrub(parseFloat((e.target as HTMLInputElement).value))
-            }}
-            onChange={(e) => {
-              const nextTime = parseFloat(e.target.value)
-              if (progressScrubbingRef.current) {
-                updateProgressPreview(nextTime)
-                return
-              }
-              handleSeek(nextTime)
-            }}
-            onBlur={() => commitProgressScrub()}
-            className="w-full h-1"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-
-        {/* Control buttons */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 items-center gap-1 rounded-2xl border border-surface-100/20 bg-surface-300/25 px-1.5">
-              <button
-                onClick={(e) => { e.stopPropagation(); skip(-5) }}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-100/10 hover:text-text-primary transition-colors"
-                title="-5s"
-                aria-label="-5 seconds"
-              >
-                <SkipBack size={18} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); togglePlay() }}
-                className="flex h-10 w-10 items-center justify-center text-text-primary hover:text-accent transition-colors"
-              >
-                {playing ? <Pause size={22} /> : <Play size={22} />}
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); skip(5) }}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-100/10 hover:text-text-primary transition-colors"
-                title="+5s"
-                aria-label="+5 seconds"
-              >
-                <SkipForward size={18} />
-              </button>
-            </div>
-            <span className="inline-flex h-9 items-center text-xs leading-none text-text-secondary font-mono tabular-nums">
-              {formatTime(effectiveCurrentTime)} / {formatTime(duration)}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <button
-              onClick={(e) => { e.stopPropagation(); toggleMute() }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-              </button>
-              <input
+        <div className={controlsPanelClass}>
+          <div className={progressBarWrapClass}>
+            <input
               type="range"
               min={0}
-              max={1}
-              step={0.01}
-              value={muted ? 0 : volume}
-              onChange={(e) => { e.stopPropagation(); handleVolumeChange(parseFloat(e.target.value)) }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-20 h-1"
-              />
-              <select
-              value={playbackRate.toString()}
-              onChange={(e) => {
+              max={duration || 100}
+              step={0.1}
+              value={effectiveCurrentTime}
+              onPointerDown={(e) => {
                 e.stopPropagation()
-                onPlaybackRateChange(parseFloat(e.target.value))
+                beginProgressScrub()
               }}
+              onPointerUp={(e) => {
+                e.stopPropagation()
+                commitProgressScrub(parseFloat((e.target as HTMLInputElement).value))
+              }}
+              onChange={(e) => {
+                const nextTime = parseFloat(e.target.value)
+                if (progressScrubbingRef.current) {
+                  updateProgressPreview(nextTime)
+                  return
+                }
+                handleSeek(nextTime)
+              }}
+              onBlur={() => commitProgressScrub()}
+              className="w-full h-1"
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface-300/80 text-text-secondary text-[10px] px-2 py-1 rounded border border-surface-100/30 outline-none hover:text-text-primary"
-              title={t('player.playbackSpeed')}
-            >
-              {PLAYBACK_RATE_OPTIONS.map((rate) => (
-                <option key={rate} value={rate}>
-                  {formatPlaybackRate(rate)}
-                </option>
-              ))}
-              </select>
-              {actions.length > 0 && onStrokeRangeChange && (
-                <div ref={strokeControlsRef} className="relative">
-                {showStrokeControls && (
-                  <div
-                    className="absolute bottom-full right-0 mb-3 w-80 rounded-2xl border border-surface-100/20 bg-surface-300/95 p-4 shadow-[0_28px_100px_rgba(0,0,0,0.6)] backdrop-blur-xl"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
-                          {t('device.strokeRange')}
-                        </div>
-                        <div className="mt-1 text-sm font-semibold text-text-primary">
-                          {strokeDraft.min}% - {strokeDraft.max}%
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          commitStrokeRange(strokeDraft.min, strokeDraft.max)
-                          setShowStrokeControls(false)
-                          onOpenDeviceSettings?.()
-                        }}
-                        className="rounded-lg border border-surface-100/20 bg-surface-200/70 px-2.5 py-1.5 text-[10px] font-medium text-text-secondary transition-colors hover:text-text-primary"
+            />
+          </div>
+
+          <div className={controlRowClass}>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 items-center gap-1 rounded-2xl border border-surface-100/20 bg-surface-300/25 px-1.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); skip(-5) }}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-100/10 hover:text-text-primary transition-colors"
+                  title="-5s"
+                  aria-label="-5 seconds"
+                >
+                  <SkipBack size={18} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); togglePlay() }}
+                  className="flex h-10 w-10 items-center justify-center text-text-primary hover:text-accent transition-colors"
+                >
+                  {playing ? <Pause size={22} /> : <Play size={22} />}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); skip(5) }}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-100/10 hover:text-text-primary transition-colors"
+                  title="+5s"
+                  aria-label="+5 seconds"
+                >
+                  <SkipForward size={18} />
+                </button>
+              </div>
+              <span className="inline-flex h-9 items-center text-xs leading-none text-text-secondary font-mono tabular-nums">
+                {formatTime(effectiveCurrentTime)} / {formatTime(duration)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleMute() }}
+                  className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={muted ? 0 : volume}
+                  onChange={(e) => { e.stopPropagation(); handleVolumeChange(parseFloat(e.target.value)) }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-20 h-1"
+                />
+                <select
+                  value={playbackRate.toString()}
+                  onChange={(e) => {
+                    e.stopPropagation()
+                    onPlaybackRateChange(parseFloat(e.target.value))
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-surface-300/80 text-text-secondary text-[10px] px-2 py-1 rounded border border-surface-100/30 outline-none hover:text-text-primary"
+                  title={t('player.playbackSpeed')}
+                >
+                  {PLAYBACK_RATE_OPTIONS.map((rate) => (
+                    <option key={rate} value={rate}>
+                      {formatPlaybackRate(rate)}
+                    </option>
+                  ))}
+                </select>
+
+                {actions.length > 0 && onStrokeRangeChange && (
+                  <div ref={strokeControlsRef} className="relative">
+                    {showStrokeControls && (
+                      <div
+                        className="absolute bottom-full right-0 mb-3 w-80 rounded-2xl border border-surface-100/20 bg-surface-300/95 p-4 shadow-[0_28px_100px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        {t('settings.device')}
-                      </button>
-                    </div>
-
-                    <div className="mb-3 grid grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-surface-100/20 bg-surface-200/60 px-3 py-2">
-                        <div className="text-[10px] font-semibold text-text-muted">
-                          {t('settings.strokeRangeMin')}
+                        <div className="mb-3 flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                              {t('device.strokeRange')}
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-text-primary">
+                              {strokeDraft.min}% - {strokeDraft.max}%
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              commitStrokeRange(strokeDraft.min, strokeDraft.max)
+                              setShowStrokeControls(false)
+                              onOpenDeviceSettings?.()
+                            }}
+                            className="rounded-lg border border-surface-100/20 bg-surface-200/70 px-2.5 py-1.5 text-[10px] font-medium text-text-secondary transition-colors hover:text-text-primary"
+                          >
+                            {t('settings.device')}
+                          </button>
                         </div>
-                        <div className="mt-1 font-mono text-lg font-semibold text-text-primary">
-                          {strokeDraft.min}%
+
+                        <div className="mb-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl border border-surface-100/20 bg-surface-200/60 px-3 py-2">
+                            <div className="text-[10px] font-semibold text-text-muted">
+                              {t('settings.strokeRangeMin')}
+                            </div>
+                            <div className="mt-1 font-mono text-lg font-semibold text-text-primary">
+                              {strokeDraft.min}%
+                            </div>
+                          </div>
+                          <div className="rounded-xl border border-surface-100/20 bg-surface-200/60 px-3 py-2">
+                            <div className="text-[10px] font-semibold text-text-muted">
+                              {t('settings.strokeRangeMax')}
+                            </div>
+                            <div className="mt-1 font-mono text-lg font-semibold text-text-primary">
+                              {strokeDraft.max}%
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="rounded-xl border border-surface-100/15 bg-black/20 px-3 py-2.5">
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <span className="text-xs font-medium text-text-secondary">{t('settings.strokeRangeMin')}</span>
+                              <span className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-xs text-text-primary">{strokeDraft.min}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={strokeDraft.min}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                handleStrokeMinChange(Number(e.target.value))
+                              }}
+                              onMouseUp={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                              onTouchEnd={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full h-1"
+                            />
+                          </div>
+
+                          <div className="rounded-xl border border-surface-100/15 bg-black/20 px-3 py-2.5">
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <span className="text-xs font-medium text-text-secondary">{t('settings.strokeRangeMax')}</span>
+                              <span className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-xs text-text-primary">{strokeDraft.max}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={strokeDraft.max}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                handleStrokeMaxChange(Number(e.target.value))
+                              }}
+                              onMouseUp={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                              onTouchEnd={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full h-1"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onInvertStrokeChange?.(!invertStroke)
+                            }}
+                            className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-xs transition-colors ${
+                              invertStroke
+                                ? 'border-accent/30 bg-accent/10 text-accent'
+                                : 'border-surface-100/20 text-text-secondary hover:text-text-primary'
+                            }`}
+                          >
+                            <span>{t('settings.inverseStroke')}</span>
+                            <span className="font-mono text-[10px]">{invertStroke ? 'ON' : 'OFF'}</span>
+                          </button>
                         </div>
                       </div>
-                      <div className="rounded-xl border border-surface-100/20 bg-surface-200/60 px-3 py-2">
-                        <div className="text-[10px] font-semibold text-text-muted">
-                          {t('settings.strokeRangeMax')}
-                        </div>
-                        <div className="mt-1 font-mono text-lg font-semibold text-text-primary">
-                          {strokeDraft.max}%
-                        </div>
-                      </div>
-                    </div>
+                    )}
 
-                    <div className="space-y-3">
-                      <div className="rounded-xl border border-surface-100/15 bg-black/20 px-3 py-2.5">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium text-text-secondary">{t('settings.strokeRangeMin')}</span>
-                          <span className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-xs text-text-primary">{strokeDraft.min}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={strokeDraft.min}
-                          onChange={(e) => {
-                            e.stopPropagation()
-                            handleStrokeMinChange(Number(e.target.value))
-                          }}
-                          onMouseUp={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
-                          onTouchEnd={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full h-1"
-                        />
-                      </div>
-
-                      <div className="rounded-xl border border-surface-100/15 bg-black/20 px-3 py-2.5">
-                        <div className="mb-2 flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium text-text-secondary">{t('settings.strokeRangeMax')}</span>
-                          <span className="rounded-md bg-black/30 px-2 py-0.5 font-mono text-xs text-text-primary">{strokeDraft.max}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={strokeDraft.max}
-                          onChange={(e) => {
-                            e.stopPropagation()
-                            handleStrokeMaxChange(Number(e.target.value))
-                          }}
-                          onMouseUp={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
-                          onTouchEnd={() => commitStrokeRange(strokeDraft.min, strokeDraft.max)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full h-1"
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onInvertStrokeChange?.(!invertStroke)
-                        }}
-                        className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-xs transition-colors ${
-                          invertStroke
-                            ? 'border-accent/30 bg-accent/10 text-accent'
-                            : 'border-surface-100/20 text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        <span>{t('settings.inverseStroke')}</span>
-                        <span className="font-mono text-[10px]">{invertStroke ? 'ON' : 'OFF'}</span>
-                      </button>
-                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowStrokeControls((value) => !value)
+                      }}
+                      className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showStrokeControls ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                      title={t('device.strokeRange')}
+                    >
+                      <SlidersHorizontal size={16} />
+                      <span className="text-[10px] font-medium">STR</span>
+                    </button>
                   </div>
                 )}
 
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowStrokeControls((value) => !value)
-                  }}
-                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showStrokeControls ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                  title={t('device.strokeRange')}
+                  onClick={(e) => { e.stopPropagation(); toggleSequentialPlayback() }}
+                  className={`p-1.5 rounded transition-colors ${playbackMode === 'sequential' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                  title={t('player.continuousPlayback')}
                 >
-                  <SlidersHorizontal size={16} />
-                  <span className="text-[10px] font-medium">STR</span>
-                </button>
-                </div>
-              )}
-              <button
-              onClick={(e) => { e.stopPropagation(); toggleSequentialPlayback() }}
-              className={`p-1.5 rounded transition-colors ${playbackMode === 'sequential' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-              title={t('player.continuousPlayback')}
-            >
-              <Repeat size={16} />
-              </button>
-              <button
-              onClick={(e) => { e.stopPropagation(); toggleShufflePlayback() }}
-              className={`p-1.5 rounded transition-colors ${playbackMode === 'shuffle' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-              title={t('player.shufflePlayback')}
-            >
-              <Shuffle size={16} />
-            </button>
-            {actions.length > 0 && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowTimeline(v => !v) }}
-                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showTimeline ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                  title="Timeline"
-                >
-                  <Activity size={16} />
-                  <span className="text-[10px] font-medium">TL</span>
+                  <Repeat size={16} />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowHeatmap(v => !v) }}
-                  className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showHeatmap ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                  title="Heatmap"
+                  onClick={(e) => { e.stopPropagation(); toggleShufflePlayback() }}
+                  className={`p-1.5 rounded transition-colors ${playbackMode === 'shuffle' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                  title={t('player.shufflePlayback')}
                 >
-                  <BarChart3 size={16} />
-                  <span className="text-[10px] font-medium">HM</span>
+                  <Shuffle size={16} />
                 </button>
-              </>
-            )}
-            {subtitleCues.length > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowSubtitles((value) => !value) }}
-                className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showSubtitles ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                title={t('player.subtitles')}
+                {actions.length > 0 && (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowTimeline(v => !v) }}
+                      className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showTimeline ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                      title="Timeline"
+                    >
+                      <Activity size={16} />
+                      <span className="text-[10px] font-medium">TL</span>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowHeatmap(v => !v) }}
+                      className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showHeatmap ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                      title="Heatmap"
+                    >
+                      <BarChart3 size={16} />
+                      <span className="text-[10px] font-medium">HM</span>
+                    </button>
+                  </>
+                )}
+                {subtitleCues.length > 0 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowSubtitles((value) => !value) }}
+                    className={`p-1.5 flex items-center gap-1 rounded transition-colors ${showSubtitles ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                    title={t('player.subtitles')}
+                  >
+                    <Captions size={16} />
+                    <span className="text-[10px] font-medium">CC</span>
+                  </button>
+                )}
+                {mediaType === 'video' && isFullscreen && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setFullscreenFitEnabled((value) => !value) }}
+                    className={`p-1.5 flex items-center gap-1 rounded transition-colors ${fullscreenFitEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                    title="Fill screen"
+                    aria-label="Fill screen"
+                  >
+                    <span className="text-[10px] font-semibold tracking-wide">FIT</span>
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
+                  className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
                 >
-                  <Captions size={16} />
-                  <span className="text-[10px] font-medium">CC</span>
+                  {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
                 </button>
-              )}
-            {mediaType === 'video' && isFullscreen && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setFullscreenFitEnabled((value) => !value) }}
-                className={`p-1.5 flex items-center gap-1 rounded transition-colors ${fullscreenFitEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                title="FIT"
-              >
-                <span className="text-[10px] font-semibold tracking-wide">FIT</span>
-              </button>
-              )}
-              <button
-              onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
-              className="p-1.5 text-text-secondary hover:text-text-primary transition-colors"
-            >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-              </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1211,19 +1287,13 @@ function formatPlaybackRate(rate: number): string {
 function getVideoClassName({
   isFullscreen,
   fullscreenFitEnabled,
-  isPortraitVideo,
 }: {
   isFullscreen: boolean
   fullscreenFitEnabled: boolean
-  isPortraitVideo: boolean
 }): string {
-  if (!isFullscreen || !fullscreenFitEnabled) {
-    return 'block max-w-full max-h-full'
+  if (isFullscreen && fullscreenFitEnabled) {
+    return 'block h-full w-full object-cover'
   }
 
-  if (isPortraitVideo) {
-    return 'block h-full w-auto max-w-none'
-  }
-
-  return 'block w-full h-auto max-h-full'
+  return 'block max-w-full max-h-full object-contain'
 }

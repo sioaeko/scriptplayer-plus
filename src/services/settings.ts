@@ -15,6 +15,7 @@ export interface AppSettings {
   language: string // 'en' | 'ko' | 'ja' | 'zh'
   defaultVideoFolder: string
   scriptFolder: string
+  defaultVariantPreference: string
 
   // Appearance
   theme: 'dark' // only dark for now
@@ -55,6 +56,7 @@ function createDefaultSettings(): AppSettings {
     language: 'en',
     defaultVideoFolder: '',
     scriptFolder: '',
+    defaultVariantPreference: '',
     theme: 'dark',
     uiScale: 100,
     subtitleFontSize: 20,

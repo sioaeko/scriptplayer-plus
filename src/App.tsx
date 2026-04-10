@@ -285,6 +285,20 @@ function buildAxisActionMap(
   return next
 }
 
+function findPreferredVariant(
+  variants: Array<{ path: string; label: string }>,
+  preference: string
+): string | null {
+  if (!preference.trim() || variants.length === 0) return null
+  const terms = preference.split(';').map((t) => t.trim()).filter(Boolean)
+  for (const term of terms) {
+    const termLower = term.toLowerCase()
+    const match = variants.find((v) => v.label.toLowerCase().includes(termLower))
+    if (match) return match.path
+  }
+  return null
+}
+
 function getPrimaryAxis(bundle: FunscriptBundle | null): ScriptAxisId | null {
   if (!bundle) return null
   if (bundle.primaryAxis && bundle.scripts[bundle.primaryAxis]) return bundle.primaryAxis
@@ -879,9 +893,9 @@ export default function App() {
     return selectSubtitleCues(mediaPath, mediaType, subtitleFiles)
   }, [manualSubtitleFiles])
 
-  const loadScriptBundle = useCallback(async (mediaPath: string) => {
+  const loadScriptBundle = useCallback(async (mediaPath: string, preferredPathOverride?: string) => {
     const manualScriptPath = manualScriptPaths[mediaPath]
-    const rawBundle = await window.electronAPI.readFunscriptBundle(mediaPath, settings.scriptFolder, manualScriptPath)
+    const rawBundle = await window.electronAPI.readFunscriptBundle(mediaPath, settings.scriptFolder, preferredPathOverride ?? manualScriptPath)
     return parseFunscriptBundleData(rawBundle)
   }, [manualScriptPaths, settings.scriptFolder])
 
@@ -959,14 +973,23 @@ export default function App() {
     setScriptUploadUrl(null)
     setArtworkUrl(null)
 
-    const [url, nextSubtitleCues, parsedBundle, artworkPath, variants] = await Promise.all([
+    // Scan for variants first so we can apply the preference before loading the bundle
+    const variants = await window.electronAPI.listFunscriptVariants(filePath, settings.scriptFolder)
+
+    if (requestId !== openMediaRequestId.current) return
+
+    const manualPath = manualScriptPaths[filePath]
+    const preferredPath = manualPath
+      ? null
+      : findPreferredVariant(variants, settings.defaultVariantPreference)
+
+    const [url, nextSubtitleCues, parsedBundle, artworkPath] = await Promise.all([
       window.electronAPI.getVideoUrl(filePath),
       loadSubtitleCues(filePath, resolvedType),
-      loadScriptBundle(filePath),
+      loadScriptBundle(filePath, preferredPath ?? undefined),
       resolvedType === 'audio'
         ? window.electronAPI.findArtwork(filePath)
         : Promise.resolve<string | null>(null),
-      window.electronAPI.listFunscriptVariants(filePath, settings.scriptFolder),
     ])
 
     if (requestId !== openMediaRequestId.current) {
@@ -977,6 +1000,7 @@ export default function App() {
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
     setAvailableFunscriptVariants(variants)
+    setSelectedVariantPath(preferredPath)
     if (options?.autoplay) {
       setAutoPlayRequestId((prev) => prev + 1)
     }
@@ -988,7 +1012,7 @@ export default function App() {
       }
       setArtworkUrl(nextArtworkUrl)
     }
-  }, [cancelPendingHandySync, loadScriptBundle, loadSubtitleCues, osrSerialConnected, settings.scriptFolder, stopButtplugPlayback, stopOsrSerialPlayback])
+  }, [cancelPendingHandySync, loadScriptBundle, loadSubtitleCues, manualScriptPaths, osrSerialConnected, settings.defaultVariantPreference, settings.scriptFolder, stopButtplugPlayback, stopOsrSerialPlayback])
 
   const handleFunscriptVariantChange = useCallback(async (variantPath: string) => {
     if (!currentFile) return

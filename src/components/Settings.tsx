@@ -240,6 +240,21 @@ function GeneralSection({
         </button>
       </FieldRow>
 
+      <Divider />
+
+      <FieldRow
+        label={t('settings.defaultVariantPreference')}
+        description={t('settings.defaultVariantPreferenceDesc')}
+      >
+        <input
+          type="text"
+          value={settings.defaultVariantPreference}
+          onChange={(e) => update('defaultVariantPreference', e.target.value)}
+          placeholder="e.g. hard; overclocked"
+          className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 focus:border-accent/50 outline-none w-52"
+        />
+      </FieldRow>
+
     </div>
   )
 }

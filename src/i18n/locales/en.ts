@@ -122,6 +122,8 @@ const en: Record<string, string> = {
   'settings.scriptFolder': 'Script Storage Folder',
   'settings.scriptFolderDesc': 'Downloaded scripts are saved here and used as fallback when no local script is found',
   'settings.noFolderSelected': 'No folder selected',
+  'settings.defaultVariantPreference': 'Default Script Variant',
+  'settings.defaultVariantPreferenceDesc': 'Auto-select a variant when multiple scripts are found. Separate multiple terms with ; — the first match wins. Matching is case-insensitive. Example: hard; overclocked; handy 2',
   'settings.browse': 'Browse',
   'settings.autoLoadScriptDesc': 'Automatically load matching .funscript files when opening a video',
   'settings.autoSearchEroDesc': 'Search EroScripts for matching scripts when none found locally',

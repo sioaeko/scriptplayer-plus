@@ -114,7 +114,9 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: release-mac
-          path: release/*.zip
+          path: |
+            release/*.zip
+            release/*.zip.blockmap
           if-no-files-found: error
 
   build-linux:

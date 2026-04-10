@@ -189,7 +189,7 @@ const en: Record<string, string> = {
   'playlist.new': 'New',
   'playlist.open': 'Open',
   'playlist.save': 'Save',
-  'playlist.importFromFiles': 'Import from Files',
+  'playlist.importFromFiles': 'Import from Files Tab',
   'playlist.importFromFolder': 'Import from Folder',
   'playlist.empty': 'No playlist loaded.\nImport files or open an .m3u8 playlist.',
   'playlist.saveError': 'Failed to save playlist.',

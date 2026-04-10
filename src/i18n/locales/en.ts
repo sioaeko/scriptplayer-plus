@@ -4,6 +4,7 @@ const en: Record<string, string> = {
   'sidebar.files': 'Files',
   'sidebar.scripts': 'Scripts',
   'sidebar.device': 'Device',
+  'sidebar.playlist': 'Playlist',
   'sidebar.openFolder': 'Open Folder',
   'sidebar.filterFiles': 'Filter files...',
   'sidebar.noFiles': 'Open a folder to browse media files',
@@ -184,6 +185,15 @@ const en: Record<string, string> = {
   'settings.unassigned': 'Unassigned',
   'settings.clear': 'Clear',
   'settings.aboutDescription': 'A stable and beautiful funscript player with Handy integration and EroScripts support.',
+
+  'playlist.new': 'New',
+  'playlist.open': 'Open',
+  'playlist.save': 'Save',
+  'playlist.importFromFiles': 'Import from Files',
+  'playlist.importFromFolder': 'Import from Folder',
+  'playlist.empty': 'No playlist loaded.\nImport files or open an .m3u8 playlist.',
+  'playlist.saveError': 'Failed to save playlist.',
+  'playlist.items': '{count} items',
 };
 
 export default en;

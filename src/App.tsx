@@ -11,11 +11,13 @@ import {
   OsrSerialConnectionState,
   OsrSerialPortInfo,
   PlaybackMode,
+  PlaylistItem,
   ScriptAxisId,
   SubtitleCue,
   SubtitleFile,
   VideoFile,
 } from './types'
+import { serializeM3U8 } from './services/playlist'
 import { parseFunscript, transformFunscriptActions } from './services/funscript'
 import { handyService, HandyUploadStatus } from './services/handy'
 import {
@@ -382,6 +384,7 @@ export default function App() {
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
   const [videoSort, setVideoSort] = useState<VideoSortState>(loadVideoSort)
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
+  const [playlist, setPlaylist] = useState<PlaylistItem[]>([])
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const handyUploadRequestId = useRef(0)
   const handySyncRunId = useRef(0)
@@ -975,6 +978,61 @@ export default function App() {
   const handleFileSelect = useCallback(async (file: VideoFile) => {
     await openMediaFile(file.path, file.type)
   }, [openMediaFile])
+
+  const handlePlaylistItemPlay = useCallback(async (filePath: string) => {
+    const type = getMediaTypeFromPath(filePath)
+    if (!type) return
+    await openMediaFile(filePath, type)
+  }, [openMediaFile])
+
+  const handlePlaylistImportFromFiles = useCallback(() => {
+    if (files.length === 0) return
+    const items: PlaylistItem[] = files.map((f) => ({
+      path: f.path,
+      title: f.name.replace(/\.[^.]+$/, ''),
+      duration: -1,
+    }))
+    setPlaylist((prev) => {
+      const existingPaths = new Set(prev.map((i) => i.path))
+      return [...prev, ...items.filter((i) => !existingPaths.has(i.path))]
+    })
+  }, [files])
+
+  const handlePlaylistImportFromFolder = useCallback(async () => {
+    const folderPath = await window.electronAPI.openFolder()
+    if (!folderPath) return
+    const mediaFiles = await window.electronAPI.readDir(folderPath)
+    const items: PlaylistItem[] = mediaFiles.map((f) => ({
+      path: f.path,
+      title: f.name.replace(/\.[^.]+$/, ''),
+      duration: -1,
+    }))
+    setPlaylist((prev) => {
+      const existingPaths = new Set(prev.map((i) => i.path))
+      return [...prev, ...items.filter((i) => !existingPaths.has(i.path))]
+    })
+  }, [])
+
+  const handlePlaylistLoad = useCallback(async () => {
+    const items = await window.electronAPI.playlistOpen()
+    if (items) setPlaylist(items)
+  }, [])
+
+  const handlePlaylistSave = useCallback(async () => {
+    if (playlist.length === 0) return
+    const savePath = await window.electronAPI.playlistSaveDialog('playlist.m3u8')
+    if (!savePath) return
+    const content = serializeM3U8(playlist)
+    await window.electronAPI.playlistWrite(savePath, content)
+  }, [playlist])
+
+  const handlePlaylistClear = useCallback(() => {
+    setPlaylist([])
+  }, [])
+
+  const handlePlaylistRemoveItem = useCallback((index: number) => {
+    setPlaylist((prev) => prev.filter((_, i) => i !== index))
+  }, [])
 
   const handleNextFile = useCallback(async (options?: { autoplay?: boolean }) => {
     const nextFile = getAdjacentVideoFile(orderedFiles, currentFile, 'next')
@@ -1571,6 +1629,14 @@ export default function App() {
           scriptFolder={settings.scriptFolder}
           videoSort={videoSort}
           onVideoSortChange={setVideoSort}
+          playlist={playlist}
+          onPlaylistItemPlay={handlePlaylistItemPlay}
+          onPlaylistImportFromFiles={handlePlaylistImportFromFiles}
+          onPlaylistImportFromFolder={handlePlaylistImportFromFolder}
+          onPlaylistLoad={handlePlaylistLoad}
+          onPlaylistSave={handlePlaylistSave}
+          onPlaylistClear={handlePlaylistClear}
+          onPlaylistRemoveItem={handlePlaylistRemoveItem}
         />
         <VideoPlayer
           videoUrl={videoUrl}

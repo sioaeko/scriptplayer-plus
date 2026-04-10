@@ -72,4 +72,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   eroscriptsFetch: (url: string) => ipcRenderer.invoke('eroscripts:fetch', url),
   eroscriptsDownload: (url: string, scriptFolder?: string, saveName?: string) => ipcRenderer.invoke('eroscripts:download', url, scriptFolder, saveName),
   eroscriptsGetCookies: () => ipcRenderer.invoke('eroscripts:getCookies'),
+
+  // Playlist
+  playlistOpen: () => ipcRenderer.invoke('playlist:open'),
+  playlistSaveDialog: (defaultName?: string) => ipcRenderer.invoke('playlist:saveDialog', defaultName),
+  playlistWrite: (filePath: string, content: string) => ipcRenderer.invoke('playlist:write', filePath, content),
 })

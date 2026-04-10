@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions } from 'lucide-react'
-import { OsrSerialPortInfo, ScriptAxisId, VideoFile } from '../types'
+import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions, ListMusic } from 'lucide-react'
+import { OsrSerialPortInfo, PlaylistItem, ScriptAxisId, VideoFile } from '../types'
 import { ButtplugDevice, ButtplugFeature } from '../services/buttplug'
 import { groupVideoFiles, VideoSortState } from '../services/mediaOrder'
 import { getScriptAxisDefinition } from '../services/multiaxis'
 import { useTranslation } from '../i18n'
 import EroScriptsPanel from './EroScriptsPanel'
+import PlaylistPanel from './PlaylistPanel'
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
 
@@ -92,6 +93,15 @@ interface SidebarProps {
   scriptFolder?: string
   videoSort: VideoSortState
   onVideoSortChange: (sort: VideoSortState) => void
+  // Playlist (optional — only wired when playlist feature is used)
+  playlist?: PlaylistItem[]
+  onPlaylistItemPlay?: (path: string) => void
+  onPlaylistImportFromFiles?: () => void
+  onPlaylistImportFromFolder?: () => void
+  onPlaylistLoad?: () => void
+  onPlaylistSave?: () => void
+  onPlaylistClear?: () => void
+  onPlaylistRemoveItem?: (index: number) => void
 }
 
 interface FileContextMenuState {
@@ -182,9 +192,17 @@ export default function Sidebar({
   scriptFolder,
   videoSort,
   onVideoSortChange,
+  playlist = [],
+  onPlaylistItemPlay,
+  onPlaylistImportFromFiles,
+  onPlaylistImportFromFolder,
+  onPlaylistLoad,
+  onPlaylistSave,
+  onPlaylistClear,
+  onPlaylistRemoveItem,
 }: SidebarProps) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<'files' | 'search' | 'device'>('files')
+  const [tab, setTab] = useState<'files' | 'search' | 'device' | 'playlist'>('files')
   const [filter, setFilter] = useState('')
   const [handyKey, setHandyKey] = useState(() => localStorage.getItem('handyKey') || '')
   const [connecting, setConnecting] = useState(false)
@@ -381,6 +399,7 @@ export default function Sidebar({
     { id: 'files' as const, icon: Film, label: t('sidebar.files') },
     { id: 'search' as const, icon: Search, label: t('sidebar.scripts') },
     { id: 'device' as const, icon: activeDeviceConnected ? Wifi : WifiOff, label: t('sidebar.device') },
+    { id: 'playlist' as const, icon: ListMusic, label: t('sidebar.playlist') },
   ]
 
   const handleFileContextMenu = (event: React.MouseEvent<HTMLButtonElement>, file: VideoFile) => {
@@ -913,6 +932,21 @@ export default function Sidebar({
               </>
             )}
           </div>
+        )}
+
+        {tab === 'playlist' && (
+          <PlaylistPanel
+            playlist={playlist}
+            currentFile={currentFile}
+            filesInFolder={files}
+            onPlayItem={onPlaylistItemPlay ?? (() => {})}
+            onImportFromFiles={onPlaylistImportFromFiles ?? (() => {})}
+            onImportFromFolder={onPlaylistImportFromFolder ?? (() => {})}
+            onLoadPlaylist={onPlaylistLoad ?? (() => {})}
+            onSavePlaylist={onPlaylistSave ?? (() => {})}
+            onClearPlaylist={onPlaylistClear ?? (() => {})}
+            onRemoveItem={onPlaylistRemoveItem ?? (() => {})}
+          />
         )}
       </div>
 

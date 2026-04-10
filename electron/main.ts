@@ -1316,6 +1316,72 @@ ipcMain.handle('eroscripts:getCookies', () => {
   return eroScriptsCookies
 })
 
+// Playlist operations
+ipcMain.handle('playlist:open', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile'],
+    filters: [{ name: 'Playlist', extensions: ['m3u8', 'm3u'] }],
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+
+  const filePath = result.filePaths[0]
+  const dir = path.dirname(filePath)
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const lines = content.split(/\r?\n/)
+    const items: { path: string; title: string; duration: number }[] = []
+    let pendingDuration = -1
+    let pendingTitle = ''
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed === '#EXTM3U') continue
+      if (trimmed.startsWith('#EXTINF:')) {
+        const rest = trimmed.slice(8)
+        const commaIdx = rest.indexOf(',')
+        if (commaIdx >= 0) {
+          pendingDuration = parseFloat(rest.slice(0, commaIdx)) || -1
+          pendingTitle = rest.slice(commaIdx + 1).trim()
+        } else {
+          pendingDuration = parseFloat(rest) || -1
+          pendingTitle = ''
+        }
+      } else if (!trimmed.startsWith('#')) {
+        const resolved = path.isAbsolute(trimmed) ? trimmed : path.join(dir, trimmed)
+        items.push({
+          path: resolved,
+          title: pendingTitle || path.basename(resolved),
+          duration: pendingDuration,
+        })
+        pendingDuration = -1
+        pendingTitle = ''
+      }
+    }
+    return items
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('playlist:saveDialog', async (_event, defaultName?: string) => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    defaultPath: defaultName || 'playlist.m3u8',
+    filters: [{ name: 'Playlist', extensions: ['m3u8'] }],
+  })
+  if (result.canceled || !result.filePath) return null
+  return result.filePath
+})
+
+ipcMain.handle('playlist:write', async (_event, filePath: string, content: string) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+})
+
 function makeEroRequest(url: string, cookies: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)

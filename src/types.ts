@@ -50,6 +50,12 @@ export interface HandyStatus {
   mode: number
 }
 
+export interface PlaylistItem {
+  path: string
+  title: string
+  duration: number
+}
+
 export interface EroScriptResult {
   title: string
   url: string
@@ -130,6 +136,11 @@ declare global {
       eroscriptsFetch: (url: string) => Promise<{ ok: boolean; data: any; error?: string }>
       eroscriptsDownload: (url: string, scriptFolder?: string, saveName?: string) => Promise<{ ok: boolean; path?: string; content?: string; error?: string }>
       eroscriptsGetCookies: () => Promise<string>
+
+      // Playlist
+      playlistOpen: () => Promise<PlaylistItem[] | null>
+      playlistSaveDialog: (defaultName?: string) => Promise<string | null>
+      playlistWrite: (filePath: string, content: string) => Promise<boolean>
     }
   }
 }

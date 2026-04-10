@@ -5,93 +5,191 @@
 <h1 align="center">ScriptPlayer+</h1>
 
 <p align="center">
-  <b>The Handy</b> 연동, <b>Intiface / Buttplug / FunOSR</b> 다축 지원, <b>EroScripts</b> 브라우저 로그인, 다국어 지원을 갖춘 모던 펀스크립트 비디오 플레이어
+  로컬 펀스크립트 재생을 위한 모던 데스크톱 플레이어.
+  <b>The Handy</b> 동기화, <b>Intiface / Buttplug</b> 다축 라우팅, <b>FunOSR 시리얼</b> 지원,
+  인앱 <b>EroScripts</b> 탐색, 그리고 실제로 쓰기 편한 미디어 라이브러리 UI를 제공합니다.
 </p>
 
 <p align="center">
-  <a href="../README.md">English</a> · <a href="README_KO.md">한국어</a> · <a href="README_JA.md">日本語</a> · <a href="README_ZH.md">中文</a>
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/sioaeko/scriptplayer-plus?display_name=tag&label=Latest%20Release">
+  </a>
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
+    <img alt="Downloads" src="https://img.shields.io/github/downloads/sioaeko/scriptplayer-plus/total?label=Downloads">
+  </a>
+  <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-1f2937">
+  <img alt="License" src="https://img.shields.io/badge/License-PolyForm--Noncommercial-111827">
+</p>
+
+<p align="center">
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest"><b>최신 버전 다운로드</b></a>
+  ·
+  <a href="readme-media/overview-demo.mp4"><b>개요 데모 보기</b></a>
+  ·
+  <a href="../README.md">English</a>
+  ·
+  <a href="README_JA.md">日本語</a>
+  ·
+  <a href="README_ZH.md">中文</a>
 </p>
 
 ---
 
-## 스크린샷
+<p align="center">
+  <a href="readme-media/overview-demo.mp4">
+    <img src="readme-media/hero-device-view.jpg" alt="ScriptPlayer+ 개요 데모" width="100%">
+  </a>
+</p>
 
-| v0.1.4 미리보기 | 디바이스 설정 |
-|:-:|:-:|
-| ![v0.1.4 미리보기](screenshots/preview_v014.png) | ![디바이스 설정](screenshots/device_settings_v014.png) |
+<p align="center">
+  상단 히어로 이미지와 아래 데모 카드를 누르면 짧은 제품 영상을 바로 열 수 있습니다.
+</p>
 
-| 오디오 재생 + 히트맵 | 오디오 재생 |
-|:-:|:-:|
-| ![오디오 재생 + 히트맵](screenshots/VOICE_HM_TL.png) | ![오디오 재생](screenshots/VOICE_ASMR.png) |
+## 왜 ScriptPlayer+인가
 
-| 타임라인 설정 | Windows 재생 |
-|:-:|:-:|
-| ![타임라인 설정](screenshots/Timeline_setting.png) | ![Windows](screenshots/playing_mode1.png) |
+ScriptPlayer+는 이미 로컬 미디어와 스크립트를 갖고 있지만, 여기저기 덧붙인 느낌이 아니라 지금 기준으로도 쓸 만한 플레이어를 원하는 사람을 위한 앱입니다.
+핵심은 단순합니다. 더 깔끔한 재생 경험, 더 정리된 디바이스 제어, 덜 번거로운 라이브러리 워크플로우입니다.
 
-| 히트맵 & 타임라인 | EroScripts 검색 |
-|:-:|:-:|
-| ![히트맵](screenshots/heatmap.png) | ![스크립트](screenshots/scripts_search.png) |
+<table>
+  <tr>
+    <td width="33%">
+      <b>재생 중심 UI</b><br>
+      전체화면 재생, 타임라인과 히트맵 오버레이, 자막, 오디오 아트워크 모드, 빠른 스트로크 조절까지 메뉴를 뒤지지 않고 바로 접근할 수 있습니다.
+    </td>
+    <td width="33%">
+      <b>확장되는 디바이스 지원</b><br>
+      The Handy, Intiface / Buttplug 장치, FunOSR 시리얼 출력을 하나의 앱 안에서 다루고, 장치별 라우팅과 다축 스크립트까지 처리합니다.
+    </td>
+    <td width="33%">
+      <b>시간 낭비를 줄이는 라이브러리</b><br>
+      폴더 탐색, 스크립트와 자막 감지, 호버 비디오 프리뷰, 정렬, EroScripts 검색, 수동 오버라이드까지 기본으로 들어 있습니다.
+    </td>
+  </tr>
+</table>
 
-| 설정 (한국어) | macOS |
-|:-:|:-:|
-| ![설정](screenshots/setting_kor.png) | ![macOS](screenshots/macos.png) |
+## 제품 투어
 
-## v0.1.6에서 추가된 내용
+<table>
+  <tr>
+    <td width="33%">
+      <a href="readme-media/overview-demo.mp4">
+        <img src="screenshots/main.png" alt="개요 데모" width="100%">
+      </a>
+    </td>
+    <td width="33%">
+      <a href="readme-media/video-preview-demo.mp4">
+        <img src="screenshots/preview_v015_exp1.png" alt="비디오 프리뷰 데모" width="100%">
+      </a>
+    </td>
+    <td width="33%">
+      <a href="readme-media/random-stroke-demo.mp4">
+        <img src="screenshots/VOICE_HM_TL.png" alt="랜덤 스트로크 데모" width="100%">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>개요 데모</b><br>
+      현재 플레이어 화면, 재생 레이아웃, 디바이스 흐름을 짧은 영상으로 확인할 수 있습니다.
+    </td>
+    <td align="center">
+      <b>비디오 프리뷰 데모</b><br>
+      파일을 열기 전에 리스트에서 바로 호버 프리뷰가 어떻게 동작하는지 보여줍니다.
+    </td>
+    <td align="center">
+      <b>랜덤 스트로크 데모</b><br>
+      스크립트가 없는 미디어에서 랜덤 스트로크 생성 기능이 어떻게 쓰이는지 확인할 수 있습니다.
+    </td>
+  </tr>
+</table>
 
-`v0.1.6`은 재생바에서 바로 조절하는 `STR` 스트로크 범위 컨트롤, 비어 있는 스크립트 구간 자동 스킵, 더 안정적인 미디어 길이 인식, 더 부드러운 seek / 스크럽 동작, 그리고 대형 폴더 스캔 및 디렉터리 순회 안정화까지 포함합니다.
+## 앱 내부 화면
 
-| v0.1.6 미리보기 |
-|:-:|
-| ![v0.1.6 미리보기](screenshots/preview_v015_exp1.png) |
-
-- 정식 릴리스 다운로드: [ScriptPlayer+ v0.1.6](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.6)
+<table>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/device_settings_v014.png" alt="디바이스 설정" width="100%">
+    </td>
+    <td width="50%">
+      <img src="readme-media/keyboard-shortcuts.jpg" alt="키보드 단축키" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>디바이스 라우팅과 매핑</b><br>
+      Handy, Buttplug, 시리얼 동작을 여러 툴로 나눠 설정하지 않고 한곳에서 관리할 수 있습니다.
+    </td>
+    <td align="center">
+      <b>키보드 중심 제어</b><br>
+      재생, 탐색, 전체화면, 파일 이동까지 모두 단축키 중심으로 다룰 수 있습니다.
+    </td>
+  </tr>
+</table>
 
 ## 주요 기능
 
-- **비디오 + 오디오 플레이어** — 로컬 영상 파일(MP4, MKV, AVI, WebM, MOV, WMV)과 오디오 파일(MP3, WAV, FLAC, M4A, AAC, OGG, OPUS, WMA)을 재생합니다
-- **오디오 커버 아트 감지** — 같은 폴더에 있는 앨범 아트 / 커버 이미지를 자동으로 찾아 표시합니다
-- **재생 모드** — 연속 재생, 랜덤 재생, 배속 조절을 플레이어에서 바로 사용할 수 있습니다
-- **펀스크립트 지원** — 미디어와 같은 이름의 `.funscript` 파일을 자동으로 로드합니다
-- **타임라인 시각화** — 스크립트 액션 포인트를 속도별 색상으로 실시간 표시
-- **히트맵** — 전체 미디어의 강도를 색상으로 한눈에 확인합니다 (초록 → 노랑 → 주황 → 빨강 → 보라)
-- **기본 표시 설정 가능** — 설정에서 타임라인과 히트맵의 기본 표시 여부를 각각 지정할 수 있습니다
-- **The Handy 연동** — HSSP 프로토콜로 The Handy 디바이스와 동기화
-  - 자동 연결 & 연결 기록
-  - 스크립트 자동 업로드
-  - 시간 오프셋 조정
-  - 스트로크 범위 커스터마이징
-  - 스트로크 반전 토글
-- **Intiface / Buttplug 다축 지원** — 지원 장치를 연결하고 기능별 축 매핑 후 raw TCode 전송까지 사용할 수 있습니다
-- **FunOSR (COM) 지원** — 호환 장치로 한 줄 TCode를 조절 가능한 주기로 직접 전송합니다
-- **EroScripts 연동** — 앱 내 브라우저 로그인으로 펀스크립트 검색 및 다운로드 (API 키 불필요)
-  - 로그인 세션 로컬 유지
-  - 설정된 스크립트 저장 폴더로 직접 다운로드
-- **다국어 지원** — English, 한국어, 日本語, 中文
-- **드래그 & 드롭** — 영상 또는 오디오 파일을 플레이어에 바로 드롭
-- **폴더 브라우저** — 하위 폴더 그룹핑 및 스크립트 유무 표시 (초록 체크마크)
-- **키보드 단축키** — Space, 방향키, F (전체화면), M (음소거) 등
-- **크로스 플랫폼** — Windows (스탠드얼론), macOS (GitHub Actions), Linux x64 (소스 빌드)
+### 재생과 라이브러리
 
-## 설치
+- 로컬 영상 파일 재생: `MP4`, `MKV`, `AVI`, `WebM`, `MOV`, `WMV`
+- 로컬 오디오 파일 재생: `MP3`, `WAV`, `FLAC`, `M4A`, `AAC`, `OGG`, `OPUS`, `WMA`
+- 번들 펀스크립트 자동 감지 및 별도 스크립트 폴더 지원
+- 외부 자막 파일 자동 감지 및 수동 자막 불러오기 지원
+- 파일 리스트에서 호버 비디오 프리뷰 제공
+- 경로, 파일명, 수정 시간 기준 정렬 지원
+- 순차 재생, 랜덤 재생, 재생 속도 조절 지원
+- 드래그 앤 드롭으로 미디어 바로 열기 지원
+- 오디오 재생 시 같은 폴더의 커버 아트 자동 선택
 
-### Windows
+### 스크립트 시각화와 제어
 
-1. [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)에서 최신 Windows x64 빌드 다운로드
-2. 압축 해제 후 `ScriptPlayerPlus.exe` 실행 — 설치 불필요
-3. 메인 `v0.1.6` 빌드에 The Handy, Intiface / Buttplug, 공식 FunOSR 지원이 모두 포함됩니다
+- 창 크기와 표시 구간을 조절할 수 있는 실시간 스크롤 타임라인
+- 속도 기반 색상 시각화를 적용한 전체 미디어 히트맵
+- 재생바에서 바로 조절하는 빠른 `STR` 스트로크 컨트롤
+- 스트로크 최소값 / 최대값 조절과 반전 토글
+- 스크립트가 없는 미디어용 랜덤 폴백 스트로크 생성
+- 비어 있는 긴 구간을 자동으로 건너뛰는 스크립트 갭 스킵
+- 다축 펀스크립트 번들 로딩 및 축별 라우팅
 
-### macOS
+### 디바이스와 스크립트 소스
 
-1. [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)에서 최신 macOS 빌드 다운로드
-2. 압축 해제 후 `ScriptPlayerPlus.app`을 Applications 폴더로 이동
+- `The Handy` 업로드, 세팅, 시간 오프셋을 포함한 동기화 지원
+- `Intiface / Buttplug` 선형, 회전, 스칼라 피처에 대한 다축 매핑 지원
+- `FunOSR` 시리얼 / COM 출력과 갱신 주기 조절 지원
+- 인앱 `EroScripts` 로그인, 탐색, 검색, 다운로드 지원
+- 로컬 머신 기준 EroScripts 로그인 세션 유지
 
-### Linux
+## v0.1.7 변경점
 
-Linux x64 빌드는 소스에서 만들 수 있습니다. 현재 Linux 패키지 타깃은 `AppImage`와 `linux-unpacked`입니다.
+- 전체화면 `FIT` 동작을 손봐서 화면을 더 자연스럽게 채우도록 개선
+- 전체화면 컨트롤을 다시 정리해 가독성과 오버레이 동작 개선
+- 펀스크립트 `inverted` 메타데이터를 Intiface / Buttplug 재생에 더 정확히 반영
+- Windows, macOS, Linux 릴리스 자산을 GitHub Actions에서 자동 발행하도록 정리
 
-### 소스에서 빌드
+## 다운로드
 
-Node.js 20 LTS를 사용하세요. 프로젝트 기준 버전은 `.nvmrc`의 `20.20.2`입니다.
+| 플랫폼 | 패키지 | 비고 |
+| --- | --- | --- |
+| Windows x64 | [최신 릴리스](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | 압축 해제 후 `ScriptPlayerPlus.exe` 실행 |
+| macOS x64 / arm64 | [최신 릴리스](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | ZIP 압축 해제 후 `ScriptPlayerPlus.app`을 Applications로 이동 |
+| Linux x64 | [최신 릴리스](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | 태그 릴리스마다 `AppImage`를 함께 배포 |
+
+## 지원 파일 형식
+
+| 유형 | 형식 |
+| --- | --- |
+| 미디어 | `mp4`, `mkv`, `avi`, `webm`, `mov`, `wmv`, `mp3`, `wav`, `flac`, `m4a`, `aac`, `ogg`, `opus`, `wma` |
+| 스크립트 | `.funscript`, `.json` |
+| 외부 자막 | `.srt`, `.vtt`, `.txt` |
+
+## 현재 참고 사항
+
+- 영상 컨테이너 내부의 내장 자막 트랙은 아직 파싱하지 않습니다. 현재는 외부 자막 파일을 사용해야 합니다.
+- Linux 릴리스는 현재 `x64 AppImage` 중심으로 배포합니다.
+- 다른 현지화 README는 아직 이 문서 수준까지 동일하게 정리되지 않았습니다.
+
+## 소스에서 빌드
+
+Node.js `20.x`를 사용하세요. 프로젝트 기준 버전은 [`.nvmrc`](../.nvmrc)의 `20.20.2`입니다.
 
 ```bash
 git clone https://github.com/sioaeko/scriptplayer-plus.git
@@ -99,56 +197,53 @@ cd scriptplayer-plus
 npm install
 ```
 
-**개발 모드:**
+개발 모드 실행:
+
 ```bash
 npm run electron:dev
 ```
 
-**Windows 빌드:**
+Windows 빌드:
+
 ```bash
 npm run build:win
 ```
 
-**macOS 빌드** (macOS 필요):
+macOS 빌드:
+
 ```bash
 npm run build:mac
 ```
 
-**Linux 빌드:**
+Linux 빌드:
+
 ```bash
 npm run build:linux
 ```
 
 ## 키보드 단축키
 
-| 키 | 기능 |
-|-----|------|
+| 키 | 동작 |
+| --- | --- |
 | `Space` / `K` | 재생 / 일시정지 |
-| `←` / `→` | ±5초 이동 |
-| `Shift + ←/→` | ±10초 이동 |
-| `↑` / `↓` | 볼륨 ±5% |
+| `Left` / `Right` | `-5초 / +5초` 이동 |
+| `Shift + Left / Right` | `-10초 / +10초` 이동 |
+| `Up` / `Down` | 볼륨 `+5% / -5%` |
 | `F` | 전체화면 전환 |
 | `M` | 음소거 전환 |
 | `Ctrl + ,` | 설정 열기 |
 
 ## 기술 스택
 
-- **Electron** — 데스크톱 애플리케이션 프레임워크
-- **React** + **TypeScript** — UI 컴포넌트
-- **Tailwind CSS** — 스타일링
-- **Vite** — 빌드 도구
-- **Handy API v2** — 디바이스 통신
-- **Discourse API** — EroScripts 연동
+- Electron
+- React
+- TypeScript
+- Tailwind CSS
+- Vite
 
 ## 라이선스
 
-PolyForm-Noncommercial-1.0.0
+`PolyForm-Noncommercial-1.0.0`
 
-이 프로젝트는 비상업적 사용만 허용하는 source-available 소프트웨어로 배포됩니다.
-상업적 사용은 저작권자의 별도 허가가 필요합니다.
-
----
-
-<p align="center">
-  Electron, React, Tailwind CSS로 제작
-</p>
+이 프로젝트는 비상업적 사용을 위한 source-available 소프트웨어입니다.
+상업적 사용에는 저작권자의 별도 허가가 필요합니다.

@@ -1,97 +1,195 @@
 <p align="center">
-  <img src="public/icon.png" width="128" height="128" alt="ScriptPlayer+ Icon">
+  <img src="public/icon.png" width="128" height="128" alt="ScriptPlayer+ icon">
 </p>
 
 <h1 align="center">ScriptPlayer+</h1>
 
 <p align="center">
-  A modern funscript video player with <b>The Handy</b> integration, <b>Intiface / Buttplug / FunOSR</b> multi-axis support, <b>EroScripts</b> browser login, and multi-language support.
+  A modern desktop player for <b>local funscript playback</b>, with a cleaner playback UI,
+  <b>The Handy</b> sync, <b>Intiface / Buttplug</b> multi-axis routing, <b>FunOSR serial</b> support,
+  in-app <b>EroScripts</b> browsing, and a media library that is actually pleasant to use.
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="docs/README_KO.md">한국어</a> · <a href="docs/README_JA.md">日本語</a> · <a href="docs/README_ZH.md">中文</a>
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/sioaeko/scriptplayer-plus?display_name=tag&label=Latest%20Release">
+  </a>
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
+    <img alt="Downloads" src="https://img.shields.io/github/downloads/sioaeko/scriptplayer-plus/total?label=Downloads">
+  </a>
+  <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-1f2937">
+  <img alt="License" src="https://img.shields.io/badge/License-PolyForm--Noncommercial-111827">
+</p>
+
+<p align="center">
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest"><b>Download Latest Release</b></a>
+  ·
+  <a href="docs/readme-media/overview-demo.mp4"><b>Watch Overview Demo</b></a>
+  ·
+  <a href="docs/README_KO.md">한국어</a>
+  ·
+  <a href="docs/README_JA.md">日本語</a>
+  ·
+  <a href="docs/README_ZH.md">中文</a>
 </p>
 
 ---
 
-## Screenshots
+<p align="center">
+  <a href="docs/readme-media/overview-demo.mp4">
+    <img src="docs/readme-media/hero-device-view.jpg" alt="ScriptPlayer+ overview demo" width="100%">
+  </a>
+</p>
 
-| v0.1.4 Preview | Device Settings |
-|:-:|:-:|
-| ![v0.1.4 Preview](docs/screenshots/preview_v014.png) | ![Device Settings](docs/screenshots/device_settings_v014.png) |
+<p align="center">
+  Click the hero image or the demo cards below to open the short product videos.
+</p>
 
-| Audio Playback + Heatmap | Audio Playback |
-|:-:|:-:|
-| ![Audio Playback + Heatmap](docs/screenshots/VOICE_HM_TL.png) | ![Audio Playback](docs/screenshots/VOICE_ASMR.png) |
+## Why ScriptPlayer+
 
-| Timeline Settings | Windows Playback |
-|:-:|:-:|
-| ![Timeline Settings](docs/screenshots/Timeline_setting.png) | ![Windows Playback](docs/screenshots/playing_mode1.png) |
+ScriptPlayer+ is for people who already have local media and scripts, but want a player that feels current instead of patched together.
+The point is straightforward: cleaner playback, cleaner device control, and a library workflow that does not waste time.
 
-| Heatmap & Timeline | EroScripts Search |
-|:-:|:-:|
-| ![Heatmap](docs/screenshots/heatmap.png) | ![Scripts](docs/screenshots/scripts_search.png) |
+<table>
+  <tr>
+    <td width="33%">
+      <b>Playback-first UI</b><br>
+      Fullscreen playback, timeline and heatmap overlays, subtitle support, audio artwork mode, and quick stroke controls without burying everything in menus.
+    </td>
+    <td width="33%">
+      <b>Device support that scales</b><br>
+      Use The Handy, Intiface / Buttplug devices, or direct FunOSR serial output from the same app, with per-device routing and multi-axis support.
+    </td>
+    <td width="33%">
+      <b>Library workflow that wastes less time</b><br>
+      Folder browsing, script and subtitle detection, hover video preview, sorting, EroScripts search, and manual override tools are all built in.
+    </td>
+  </tr>
+</table>
 
-| Settings | macOS |
-|:-:|:-:|
-| ![Settings](docs/screenshots/setting.png) | ![macOS](docs/screenshots/macos.png) |
+## Product Tour
 
-## What's New In v0.1.6
+<table>
+  <tr>
+    <td width="33%">
+      <a href="docs/readme-media/overview-demo.mp4">
+        <img src="docs/screenshots/main.png" alt="Overview demo" width="100%">
+      </a>
+    </td>
+    <td width="33%">
+      <a href="docs/readme-media/video-preview-demo.mp4">
+        <img src="docs/screenshots/preview_v015_exp1.png" alt="Video preview demo" width="100%">
+      </a>
+    </td>
+    <td width="33%">
+      <a href="docs/readme-media/random-stroke-demo.mp4">
+        <img src="docs/screenshots/VOICE_HM_TL.png" alt="Random stroke demo" width="100%">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>Overview Demo</b><br>
+      Open the main player walkthrough and see the current playback surface, layout, and device flow.
+    </td>
+    <td align="center">
+      <b>Video Preview Demo</b><br>
+      See how file-list hover preview works without leaving the browser or opening the file first.
+    </td>
+    <td align="center">
+      <b>Random Stroke Demo</b><br>
+      Check the fallback stroke generation workflow for media that does not ship with a script.
+    </td>
+  </tr>
+</table>
 
-`v0.1.6` adds quick `STR` stroke controls in the playback bar, automatic skipping for long empty script gaps in sparse audio scripts, stronger media duration handling, smoother seek / scrub behavior, and faster large-folder scanning with safer directory traversal.
+## Inside The App
 
-| v0.1.6 Preview |
-|:-:|
-| ![v0.1.6 Preview](docs/screenshots/preview_v015_exp1.png) |
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/device_settings_v014.png" alt="Device settings" width="100%">
+    </td>
+    <td width="50%">
+      <img src="docs/readme-media/keyboard-shortcuts.jpg" alt="Keyboard shortcuts" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>Device routing and mapping</b><br>
+      Configure Handy, Buttplug, and serial behavior in one place instead of splitting setup across multiple tools.
+    </td>
+    <td align="center">
+      <b>Keyboard-first control</b><br>
+      Playback, seeking, fullscreen, and navigation are all available from configurable shortcuts.
+    </td>
+  </tr>
+</table>
 
-- Download the stable release: [ScriptPlayer+ v0.1.6](https://github.com/sioaeko/scriptplayer-plus/releases/tag/v0.1.6)
+## Highlights
 
-## Features
+### Playback And Library
 
-- **Video + Audio Player** — Play local video files (MP4, MKV, AVI, WebM, MOV, WMV) and audio files (MP3, WAV, FLAC, M4A, AAC, OGG, OPUS, WMA)
-- **Artwork Detection For Audio** — Automatically picks matching cover art from the media folder when available
-- **Playback Modes** — Continuous playback, shuffle playback, and adjustable playback speed controls
-- **Funscript Support** — Automatically loads matching `.funscript` files alongside local media
-- **Timeline Visualization** — Real-time scrolling timeline showing script action points with speed-based colors
-- **Heatmap** — Full-media intensity heatmap (green → yellow → orange → red → purple)
-- **Configurable Default View** — Timeline and heatmap can be enabled or disabled by default from Settings
-- **The Handy Integration** — Connect and sync The Handy device via HSSP protocol
-  - Auto-connect & connection history
-  - Script auto-upload to Handy servers
-  - Time offset adjustment
-  - Stroke range customization
-  - Inverse stroke toggle
-- **Intiface / Buttplug Multi-Axis Support** — Connect supported devices, map features to script axes, and send raw TCode when available
-- **FunOSR (COM) Support** — Stream one-line TCode directly to compatible devices at an adjustable update rate
-- **EroScripts Integration** — Search and download funscripts directly from EroScripts via in-app browser login (no API key needed)
-  - Session-based login persisted locally
-  - Direct download into the configured script storage folder
-- **Multi-Language** — English, 한국어, 日本語, 中文
-- **Drag & Drop** — Drop video or audio files directly into the player
-- **Folder Browser** — Browse folders with subfolder grouping and script detection (green checkmark)
-- **Keyboard Shortcuts** — Space, Arrow keys, F (fullscreen), M (mute), and more
-- **Cross-Platform** — Windows (standalone), macOS (via GitHub Actions), and Linux x64 (build from source)
+- Plays local video files: `MP4`, `MKV`, `AVI`, `WebM`, `MOV`, `WMV`
+- Plays local audio files: `MP3`, `WAV`, `FLAC`, `M4A`, `AAC`, `OGG`, `OPUS`, `WMA`
+- Detects matching bundled funscripts and supports separate script folders
+- Detects matching external subtitle files and lets you load subtitles manually
+- Shows hover video preview inside the file list
+- Sorts the library by path, file name, or last modified time
+- Supports sequential playback, shuffle playback, and adjustable playback rate
+- Supports drag and drop for opening media directly
+- Automatically picks matching cover art for audio playback when available
 
-## Installation
+### Script Visualization And Control
 
-### Windows
+- Real-time scrolling timeline with configurable window size and height
+- Full-media heatmap with speed-based color visualization
+- Quick `STR` stroke controls in the playback bar
+- Stroke range min / max controls and inverse stroke toggle
+- Optional random fallback stroke generation for media without scripts
+- Automatic skipping for long empty script gaps in sparse scripts
+- Multi-axis funscript bundle loading and routing
 
-1. Download the latest Windows x64 build from [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)
-2. Extract and run `ScriptPlayerPlus.exe` — no installation required
-3. The main `v0.1.6` build includes The Handy, Intiface / Buttplug, and official FunOSR device support
+### Devices And Script Sources
 
-### macOS
+- `The Handy` sync with upload, setup, and time offset handling
+- `Intiface / Buttplug` multi-axis mapping for linear, rotate, and scalar features
+- `FunOSR` serial / COM output with adjustable update rate
+- In-app `EroScripts` login, browsing, searching, and downloading
+- Session persistence for EroScripts login on the local machine
 
-1. Download the latest macOS build from [Releases](https://github.com/sioaeko/scriptplayer-plus/releases)
-2. Extract and move `ScriptPlayerPlus.app` to Applications
+## What's New In v0.1.7
 
-### Linux
+- Fullscreen `FIT` behavior was refreshed so playback can fill the screen more naturally
+- Fullscreen controls were reworked for better readability and cleaner overlay behavior
+- Funscript `inverted` metadata is now respected more reliably for Intiface / Buttplug playback
+- Release assets are now published for Windows, macOS, and Linux from GitHub Actions
 
-Linux x64 builds can be created from source. The configured Linux package targets are `AppImage` and `linux-unpacked`.
+## Download
 
-### Build from Source
+| Platform | Package | Notes |
+| --- | --- | --- |
+| Windows x64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | Portable build, extract and run `ScriptPlayerPlus.exe` |
+| macOS x64 / arm64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | ZIP package, move `ScriptPlayerPlus.app` to Applications |
+| Linux x64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | `AppImage` build is published with each tagged release |
 
-Use Node.js 20 LTS. The project pins `20.20.2` in `.nvmrc`.
+## Supported Files
+
+| Type | Formats |
+| --- | --- |
+| Media | `mp4`, `mkv`, `avi`, `webm`, `mov`, `wmv`, `mp3`, `wav`, `flac`, `m4a`, `aac`, `ogg`, `opus`, `wma` |
+| Scripts | `.funscript`, `.json` |
+| External subtitles | `.srt`, `.vtt`, `.txt` |
+
+## Current Notes
+
+- Embedded subtitle tracks inside video containers are not parsed yet. Use external subtitle files for now.
+- Linux release output currently targets `x64 AppImage`.
+- The localized READMEs under [`docs/`](docs) have not been refreshed to the same level as this main README yet.
+
+## Build From Source
+
+Use Node.js `20.x`. The project pins `20.20.2` in [`.nvmrc`](.nvmrc).
 
 ```bash
 git clone https://github.com/sioaeko/scriptplayer-plus.git
@@ -99,22 +197,26 @@ cd scriptplayer-plus
 npm install
 ```
 
-**Development:**
+Run the app in development:
+
 ```bash
 npm run electron:dev
 ```
 
-**Build Windows:**
+Build for Windows:
+
 ```bash
 npm run build:win
 ```
 
-**Build macOS** (requires macOS):
+Build for macOS:
+
 ```bash
 npm run build:mac
 ```
 
-**Build Linux:**
+Build for Linux:
+
 ```bash
 npm run build:linux
 ```
@@ -122,33 +224,26 @@ npm run build:linux
 ## Keyboard Shortcuts
 
 | Key | Action |
-|-----|--------|
+| --- | --- |
 | `Space` / `K` | Play / Pause |
-| `←` / `→` | Seek ±5s |
-| `Shift + ←/→` | Seek ±10s |
-| `↑` / `↓` | Volume ±5% |
+| `Left` / `Right` | Seek `-5s / +5s` |
+| `Shift + Left / Right` | Seek `-10s / +10s` |
+| `Up` / `Down` | Volume `+5% / -5%` |
 | `F` | Toggle fullscreen |
 | `M` | Toggle mute |
 | `Ctrl + ,` | Open settings |
 
 ## Tech Stack
 
-- **Electron** — Desktop application framework
-- **React** + **TypeScript** — UI components
-- **Tailwind CSS** — Styling
-- **Vite** — Build tool
-- **Handy API v2** — Device communication
-- **Discourse API** — EroScripts integration
+- Electron
+- React
+- TypeScript
+- Tailwind CSS
+- Vite
 
 ## License
 
-PolyForm-Noncommercial-1.0.0
+`PolyForm-Noncommercial-1.0.0`
 
-This project is distributed as source-available software for noncommercial use only.
+This project is source-available for noncommercial use.
 Commercial use requires separate permission from the copyright holder.
-
----
-
-<p align="center">
-  Built with Electron, React, and Tailwind CSS
-</p>

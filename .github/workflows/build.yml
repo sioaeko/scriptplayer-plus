@@ -158,7 +158,7 @@ jobs:
         shell: bash
         run: |
           tag="${{ needs.prepare.outputs.release_tag }}"
-          notes_path="release/${tag}-notes.md"
+          notes_path="docs/releases/${tag}.md"
           if [[ -f "$notes_path" ]]; then
             echo "body_path=$notes_path" >> "$GITHUB_OUTPUT"
             echo "has_body_path=true" >> "$GITHUB_OUTPUT"

@@ -1,8 +1,9 @@
 {
-  "name": "scriptplayer-plus",
-  "version": "0.1.7-feat2",
-  "description": "ScriptPlayer+ - Funscript video player with Handy, Intiface, and FunOSR support",
+  "name": "scriptplayer-plus-moon-edition",
+  "version": "0.1.7-moon-2.3",
+  "description": "ScriptPlayer+ Moon addition - Funscript video player with Handy, Intiface, and FunOSR support",
   "author": "sioaeko <grade0422@gmail.com>",
+  "contributors": ["technomooney / Martronic <github@moontronic.com> (https://www.github.com/technomooney)"],
   "license": "PolyForm-Noncommercial-1.0.0",
   "main": "dist-electron/main.js",
   "engines": {

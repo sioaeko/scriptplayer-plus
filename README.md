@@ -1,10 +1,10 @@
-<p style="text-align: center;">
+<p align="center">
   <img src="public/icon.png" width="128" height="128" alt="ScriptPlayer+ icon">
 </p>
 
-<h1 style="text-align: center;">ScriptPlayer+ Moon Edition</h1>
+<h1 align="center">ScriptPlayer+ Moon Edition</h1>
 
-<p style="text-align: center;">
+<p align="center">
   A modern desktop player for <b>local funscript playback</b>, with a cleaner playback UI,
   <b>The Handy</b> sync, <b>Intiface / Buttplug</b> multi-axis routing, <b>FunOSR serial</b> support,
   in-app <b>EroScripts</b> browsing, and a media library that is actually pleasant to use. 
@@ -12,7 +12,7 @@
 I will try to merge changes in the upstream to try and keep feature parity with the upstream.</u>
 </p>
 
-<p style="text-align: center;">
+<p align="center">
   <a href="https://github.com/technomooney/scriptplayer-plus/releases/latest">
     <img alt="Latest Release" src="https://img.shields.io/github/v/release/technomooney/scriptplayer-plus?display_name=tag&label=Latest%20Release">
   </a>
@@ -23,7 +23,7 @@ I will try to merge changes in the upstream to try and keep feature parity with 
   <img alt="License" src="https://img.shields.io/badge/License-PolyForm--Noncommercial-111827">
 </p>
 
-<p style="text-align: center;">
+<p align="center">
   <a href="https://github.com/technomooney/scriptplayer-plus/releases/latest"><b>Download Latest Release</b></a>
   ·
   <a href="docs/readme-media/overview-demo.mp4"><b>Watch Overview Demo</b></a>
@@ -37,13 +37,13 @@ I will try to merge changes in the upstream to try and keep feature parity with 
 
 ---
 
-<p style="text-align: center;">
+<p align="center">
   <a href="docs/readme-media/overview-demo.mp4">
     <img src="docs/readme-media/overview-demo-hq.gif" alt="ScriptPlayer+ Moon Edition overview demo" width="100%">
   </a>
 </p>
 
-<p style="text-align: center;">
+<p align="center">
   Click the hero image or the demo cards below to open the short product videos.
 </p>
 
@@ -90,15 +90,15 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
     </td>
   </tr>
   <tr>
-    <td style="text-align: center;">
+    <td align="center">
       <b>Overview Demo</b><br>
       Open the main player walkthrough and see the current playback surface, layout, and device flow.
     </td>
-    <td style="text-align: center;">
+    <td align="center">
       <b>Video Preview Demo</b><br>
       See how file-list hover preview works without leaving the browser or opening the file first.
     </td>
-    <td style="text-align: center;">
+    <td align="center">
       <b>Random Stroke Demo</b><br>
       Check the fallback stroke generation workflow for media that does not ship with a script.
     </td>
@@ -119,11 +119,11 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
     </td>
   </tr>
   <tr>
-    <td style="text-align: center;">
+    <td align="center">
       <b>Playlist Demo</b><br>
       Create playlists for your favorate videos, and save the playlist for later use.
     </td>
-    <td style="text-align: center;">
+    <td align="center">
       <b>Script Variant Demo</b><br>
       Select script variant you want from the player, and customize the default selected variant
     </td>
@@ -142,11 +142,11 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
     </td>
   </tr>
   <tr>
-    <td style="text-align: center;">
+    <td align="center">
       <b>Device routing and mapping</b><br>
       Configure Handy, Buttplug, and serial behavior in one place instead of splitting setup across multiple tools.
     </td>
-    <td style="text-align: center;">
+    <td align="center">
       <b>Keyboard-first control</b><br>
       Playback, seeking, fullscreen, and navigation are all available from configurable shortcuts.
     </td>

@@ -5,6 +5,14 @@ const SCRIPT_API = 'https://scripts01.handyfeeling.com/api/script/v0'
 
 export type HandyUploadStatus = 'idle' | 'uploading' | 'setting-up' | 'ready' | 'error'
 
+interface HandyApiResult {
+  result?: number
+  error?: string
+  connected?: boolean
+  serverTime?: number
+  url?: string
+}
+
 export class HandyService {
   private connectionKey: string = ''
   private connected: boolean = false
@@ -45,13 +53,30 @@ export class HandyService {
     this._onStatusChange?.(status, error)
   }
 
+  private async readResponseData(response: Response): Promise<HandyApiResult> {
+    const text = await response.text()
+    if (!text.trim()) {
+      return {}
+    }
+
+    try {
+      return JSON.parse(text) as HandyApiResult
+    } catch {
+      return { error: text }
+    }
+  }
+
+  private isSuccessfulResult(data: HandyApiResult): boolean {
+    return typeof data.result !== 'number' || data.result >= 0
+  }
+
   async connect(connectionKey: string): Promise<boolean> {
     this.connectionKey = connectionKey
     try {
       const response = await fetch(`${HANDY_API}/connected`, {
         headers: { 'X-Connection-Key': this.connectionKey },
       })
-      const data = await response.json()
+      const data = await this.readResponseData(response)
       console.log('[Handy] connect response:', data)
       this.connected = data.connected === true
       if (this.connected) {
@@ -82,10 +107,13 @@ export class HandyService {
           headers: { 'X-Connection-Key': this.connectionKey },
         })
         const receiveTime = Date.now()
-        const data = await response.json()
+        const data = await this.readResponseData(response)
+        if (!response.ok || !Number.isFinite(data.serverTime)) {
+          continue
+        }
         const roundTrip = receiveTime - sendTime
         trips.push(roundTrip)
-        serverTimes.push(data.serverTime - sendTime - roundTrip / 2)
+        serverTimes.push((data.serverTime as number) - sendTime - roundTrip / 2)
       } catch {
         continue
       }
@@ -116,9 +144,9 @@ export class HandyService {
         },
         body: JSON.stringify({ mode }),
       })
-      const data = await response.json()
+      const data = await this.readResponseData(response)
       console.log('[Handy] setMode response:', data)
-      return response.ok
+      return response.ok && this.isSuccessfulResult(data)
     } catch (e) {
       console.error('[Handy] setMode error:', e)
       return false
@@ -145,10 +173,10 @@ export class HandyService {
         },
         body: JSON.stringify({ url }),
       })
-      const data = await response.json()
+      const data = await this.readResponseData(response)
       console.log('[Handy] setHSSP response:', data)
 
-      if (response.ok) {
+      if (response.ok && this.isSuccessfulResult(data)) {
         this.setUploadStatus('ready')
         return true
       } else {
@@ -165,6 +193,12 @@ export class HandyService {
   async hsspPlay(serverTime: number, startTime: number): Promise<boolean> {
     if (!this.connected) return false
     try {
+      const modeOk = await this.setMode(1)
+      if (!modeOk) {
+        this.setUploadStatus('error', 'Failed to switch Handy to HSSP mode')
+        return false
+      }
+
       const response = await fetch(`${HANDY_API}/hssp/play`, {
         method: 'PUT',
         headers: {
@@ -176,11 +210,18 @@ export class HandyService {
           startTime,
         }),
       })
-      const data = await response.json()
+      const data = await this.readResponseData(response)
       console.log('[Handy] hsspPlay response:', data)
-      return response.ok
+      if (response.ok && this.isSuccessfulResult(data)) {
+        this.setUploadStatus('ready')
+        return true
+      }
+
+      this.setUploadStatus('error', `HSSP play failed: ${data.error || data.result || response.status}`)
+      return false
     } catch (e) {
       console.error('[Handy] hsspPlay error:', e)
+      this.setUploadStatus('error', `HSSP play error: ${e}`)
       return false
     }
   }
@@ -192,8 +233,9 @@ export class HandyService {
         method: 'PUT',
         headers: { 'X-Connection-Key': this.connectionKey },
       })
-      console.log('[Handy] hsspStop status:', response.status)
-      return response.ok
+      const data = await this.readResponseData(response)
+      console.log('[Handy] hsspStop response:', data, 'status:', response.status)
+      return response.ok && this.isSuccessfulResult(data)
     } catch (e) {
       console.error('[Handy] hsspStop error:', e)
       return false
@@ -230,7 +272,7 @@ export class HandyService {
         return null
       }
 
-      const data = await response.json()
+      const data = await this.readResponseData(response)
       console.log('[Handy] upload response:', data)
 
       if (data.error) {

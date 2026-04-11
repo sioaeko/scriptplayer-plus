@@ -787,15 +787,9 @@ function readFunscriptBundle(
     sources: {},
   }
   const loadedPaths = new Set<string>()
-  const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
 
   if (preferredScriptPath) {
-    addFunscriptToBundle(bundle, loadedPaths, preferredScriptPath, inferAxisIdFromFilePath(preferredScriptPath))
-    const preferredBundleStem = stripKnownAxisSuffixPreserveCase(path.basename(preferredScriptPath, path.extname(preferredScriptPath)))
-    if (preferredBundleStem) {
-      addBundleCandidates(bundle, loadedPaths, path.dirname(preferredScriptPath), preferredBundleStem)
-    }
-
+    addScriptPathBundle(bundle, loadedPaths, preferredScriptPath)
     if (Object.keys(bundle.scripts).length > 0) {
       if (bundle.primaryAxis === null) {
         bundle.primaryAxis = Object.keys(bundle.scripts)[0] as ScriptAxisId | undefined ?? null
@@ -804,6 +798,7 @@ function readFunscriptBundle(
     }
   }
 
+  const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
   const contexts = [
     { dir: path.dirname(mediaPath), baseNames: [mediaBaseName] },
   ]
@@ -818,11 +813,31 @@ function readFunscriptBundle(
     }
   }
 
+  if (Object.keys(bundle.scripts).length === 0) {
+    const firstVariant = listScriptVariants(mediaPath, scriptFolder)[0]
+    if (firstVariant) {
+      addScriptPathBundle(bundle, loadedPaths, firstVariant.path)
+    }
+  }
+
   if (bundle.primaryAxis === null) {
     bundle.primaryAxis = Object.keys(bundle.scripts)[0] as ScriptAxisId | undefined ?? null
   }
 
   return Object.keys(bundle.scripts).length > 0 ? bundle : null
+}
+
+function addScriptPathBundle(
+  bundle: { primaryAxis: ScriptAxisId | null; scripts: Partial<Record<ScriptAxisId, unknown>>; sources: Partial<Record<ScriptAxisId, string>> },
+  loadedPaths: Set<string>,
+  scriptPath: string
+) {
+  addFunscriptToBundle(bundle, loadedPaths, scriptPath, inferAxisIdFromFilePath(scriptPath))
+
+  const bundleStem = stripKnownAxisSuffixPreserveCase(path.basename(scriptPath, path.extname(scriptPath)))
+  if (bundleStem) {
+    addBundleCandidates(bundle, loadedPaths, path.dirname(scriptPath), bundleStem)
+  }
 }
 
 function addBundleCandidates(

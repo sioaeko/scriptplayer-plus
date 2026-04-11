@@ -380,6 +380,7 @@ export default function App() {
   const [handyConnected, setHandyConnected] = useState(false)
   const [scriptUploadUrl, setScriptUploadUrl] = useState<string | null>(null)
   const [handyUploadStatus, setHandyUploadStatus] = useState<HandyUploadStatus>('idle')
+  const [handyUploadError, setHandyUploadError] = useState<string | null>(null)
   const [buttplugConnectionState, setButtplugConnectionState] = useState<ButtplugConnectionState>('disconnected')
   const [buttplugError, setButtplugError] = useState<string | null>(null)
   const [buttplugDevices, setButtplugDevices] = useState<ButtplugDevice[]>([])
@@ -556,8 +557,9 @@ export default function App() {
   }, [currentFile])
 
   useEffect(() => {
-    handyService.onStatusChange = (status) => {
+    handyService.onStatusChange = (status, error) => {
       setHandyUploadStatus(status)
+      setHandyUploadError(error)
     }
     return () => {
       handyService.onStatusChange = null
@@ -1589,7 +1591,7 @@ export default function App() {
 
   const deviceInfo = useMemo(() => {
     if (deviceProvider === 'handy') {
-      const uploadState = getHandyOverlayStatus(handyUploadStatus)
+      const uploadState = getHandyOverlayStatus(handyUploadStatus, handyUploadError)
       return {
         connected: handyConnected,
         label: 'Handy',
@@ -1628,6 +1630,7 @@ export default function App() {
     buttplugServerUrl,
     deviceProvider,
     handyConnected,
+    handyUploadError,
     handyUploadStatus,
     osrSerialConnected,
     osrSerialError,
@@ -1750,14 +1753,17 @@ export default function App() {
   )
 }
 
-function getHandyOverlayStatus(uploadStatus: HandyUploadStatus): { text: string; tone: 'busy' | 'error' } | null {
+function getHandyOverlayStatus(
+  uploadStatus: HandyUploadStatus,
+  uploadError: string | null
+): { text: string; tone: 'busy' | 'error' } | null {
   switch (uploadStatus) {
     case 'uploading':
       return { text: 'Uploading script...', tone: 'busy' }
     case 'setting-up':
       return { text: 'Setting up HSSP...', tone: 'busy' }
     case 'error':
-      return { text: 'Script upload failed', tone: 'error' }
+      return { text: uploadError || 'Script upload failed', tone: 'error' }
     default:
       return null
   }

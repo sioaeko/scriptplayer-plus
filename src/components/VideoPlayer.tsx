@@ -60,6 +60,7 @@ interface VideoPlayerProps {
   currentFileName: string | null
   artworkUrl: string | null
   actions: FunscriptAction[]
+  scriptSource?: string | null
   subtitleCues: SubtitleCue[]
   onTimeUpdate: (time: number) => void
   onPlay: () => void | Promise<void>
@@ -74,6 +75,8 @@ interface VideoPlayerProps {
   onNextFile?: () => void | Promise<void>
   playbackMode: PlaybackMode
   onPlaybackModeChange: (mode: PlaybackMode) => void
+  loopCurrentMedia: boolean
+  onLoopCurrentMediaChange: (enabled: boolean) => void
   playbackRate: number
   onPlaybackRateChange: (rate: number) => void
   onDurationChange?: (duration: number) => void
@@ -103,6 +106,7 @@ export default function VideoPlayer({
   currentFileName,
   artworkUrl,
   actions,
+  scriptSource = null,
   subtitleCues,
   onTimeUpdate,
   onPlay,
@@ -117,6 +121,8 @@ export default function VideoPlayer({
   onNextFile,
   playbackMode,
   onPlaybackModeChange,
+  loopCurrentMedia,
+  onLoopCurrentMediaChange,
   playbackRate,
   onPlaybackRateChange,
   onDurationChange,
@@ -146,12 +152,14 @@ export default function VideoPlayer({
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const strokeControlsRef = useRef<HTMLDivElement>(null)
   const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoRevealedScriptUrl = useRef<string | null>(null)
   const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
   const fullscreenControlsOverlayRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [progressPreviewTime, setProgressPreviewTime] = useState<number | null>(null)
   const [isProgressScrubbing, setIsProgressScrubbing] = useState(false)
   const [duration, setDuration] = useState(0)
+  const [displayDuration, setDisplayDuration] = useState(0)
   const [volume, setVolume] = useState(() => {
     const saved = localStorage.getItem('volume')
     return saved ? parseFloat(saved) : 1
@@ -174,6 +182,18 @@ export default function VideoPlayer({
   const progressScrubbingRef = useRef(false)
   const effectiveCurrentTime = isProgressScrubbing && progressPreviewTime !== null ? progressPreviewTime : currentTime
   const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, effectiveCurrentTime) : ''
+  const firstActionTimeSeconds = actions.length > 0 ? Math.max(0, actions[0].at / 1000) : null
+  const scriptSourceName = scriptSource ? getFileNameFromPath(scriptSource) : null
+  const scriptStatusText = actions.length === 0
+    ? null
+    : (
+        firstActionTimeSeconds !== null && effectiveCurrentTime + 0.05 < firstActionTimeSeconds
+          ? t('player.scriptStartsAt', {
+              count: actions.length.toString(),
+              time: formatTime(firstActionTimeSeconds),
+            })
+          : t('player.scriptLoaded', { count: actions.length.toString() })
+      )
   const controlsVisible = showControls || !playing
   const fullscreenScriptVisible = isFullscreen && actions.length > 0 && (showHeatmap || showTimeline)
   const subtitleBottomOffset = 24 + (
@@ -214,6 +234,7 @@ export default function VideoPlayer({
     const rawDuration = media.duration
     if (Number.isFinite(rawDuration) && rawDuration > 0) {
       setDuration((prevDuration) => (Math.abs(prevDuration - rawDuration) >= 1 / 240 ? rawDuration : prevDuration))
+      setDisplayDuration((prevDisplayDuration) => getStableDisplayDuration(prevDisplayDuration, rawDuration, media.currentTime))
     }
 
   }, [mediaRef])
@@ -296,9 +317,9 @@ export default function VideoPlayer({
     handleSeek(Math.max(0, Math.min(duration, currentTime + seconds)))
   }, [currentTime, duration, handleSeek])
 
-  const toggleSequentialPlayback = useCallback(() => {
-    onPlaybackModeChange(playbackMode === 'sequential' ? 'none' : 'sequential')
-  }, [onPlaybackModeChange, playbackMode])
+  const toggleLoopCurrentMedia = useCallback(() => {
+    onLoopCurrentMediaChange(!loopCurrentMedia)
+  }, [loopCurrentMedia, onLoopCurrentMediaChange])
 
   const toggleShufflePlayback = useCallback(() => {
     onPlaybackModeChange(playbackMode === 'shuffle' ? 'none' : 'shuffle')
@@ -599,6 +620,7 @@ export default function VideoPlayer({
     setIsProgressScrubbing(false)
     progressScrubbingRef.current = false
     setDuration(0)
+    setDisplayDuration(0)
     setPlaying(false)
     setFullscreenFitEnabled(false)
     setShowControls(true)
@@ -709,6 +731,19 @@ export default function VideoPlayer({
     return () => cancelAnimationFrame(frame)
   }, [autoPlayRequestId, mediaRef, videoUrl])
 
+  useEffect(() => {
+    if (!videoUrl || actions.length === 0 || showHeatmap || showTimeline) {
+      return
+    }
+
+    if (autoRevealedScriptUrl.current === videoUrl) {
+      return
+    }
+
+    autoRevealedScriptUrl.current = videoUrl
+    setShowTimeline(true)
+  }, [actions.length, showHeatmap, showTimeline, videoUrl])
+
   return (
     <div
       ref={containerRef}
@@ -728,6 +763,7 @@ export default function VideoPlayer({
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={syncDurationFromMedia}
                 onDurationChange={syncDurationFromMedia}
+                loop={loopCurrentMedia}
                 onPlay={() => { setPlaying(true); void onPlay() }}
                 onPause={() => { setPlaying(false); void onPause() }}
                 onEnded={() => {
@@ -758,6 +794,19 @@ export default function VideoPlayer({
                   <div className="text-sm text-text-muted">
                     {t('player.audioMode')}
                   </div>
+                  {scriptStatusText && (
+                    <div className="pt-1">
+                      <div className="inline-flex items-center gap-1.5 rounded-md border border-accent/20 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
+                        <Activity size={12} />
+                        <span>{scriptStatusText}</span>
+                      </div>
+                      {scriptSourceName && (
+                        <div className="mt-1 text-[11px] text-text-muted break-all">
+                          {scriptSourceName}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -769,6 +818,7 @@ export default function VideoPlayer({
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={syncDurationFromMedia}
               onDurationChange={syncDurationFromMedia}
+              loop={loopCurrentMedia}
               onPlay={() => { setPlaying(true); void onPlay() }}
               onPause={() => { setPlaying(false); void onPause() }}
               onEnded={() => {
@@ -1027,7 +1077,7 @@ export default function VideoPlayer({
                 </button>
               </div>
               <span className="inline-flex h-9 items-center text-xs leading-none text-text-secondary font-mono tabular-nums">
-                {formatTime(effectiveCurrentTime)} / {formatTime(duration)}
+                {formatTime(effectiveCurrentTime)} / {formatTime(displayDuration || duration)}
               </span>
             </div>
 
@@ -1194,9 +1244,9 @@ export default function VideoPlayer({
                 )}
 
                 <button
-                  onClick={(e) => { e.stopPropagation(); toggleSequentialPlayback() }}
-                  className={`p-1.5 rounded transition-colors ${playbackMode === 'sequential' ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                  title={t('player.continuousPlayback')}
+                  onClick={(e) => { e.stopPropagation(); toggleLoopCurrentMedia() }}
+                  className={`p-1.5 rounded transition-colors ${loopCurrentMedia ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                  title={t('player.repeatCurrentMedia')}
                 >
                   <Repeat size={16} />
                 </button>
@@ -1271,6 +1321,28 @@ function formatTime(seconds: number): string {
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function getStableDisplayDuration(previousDuration: number, nextDuration: number, currentTime: number): number {
+  const normalizedNextDuration = Math.ceil(nextDuration)
+  if (!Number.isFinite(normalizedNextDuration) || normalizedNextDuration <= 0) {
+    return previousDuration
+  }
+
+  if (previousDuration <= 0) {
+    return normalizedNextDuration
+  }
+
+  const playbackProgress = previousDuration > 0 ? currentTime / previousDuration : 0
+  if (currentTime >= 1 && playbackProgress >= 0.9) {
+    return previousDuration
+  }
+
+  return normalizedNextDuration
+}
+
+function getFileNameFromPath(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || filePath
 }
 
 function clampPercent(value: number): number {

@@ -25,6 +25,14 @@ export interface Funscript {
 
 export type ScriptAxisId = 'L0' | 'L1' | 'L2' | 'R0' | 'R1' | 'R2' | 'V0' | 'V1' | 'A0' | 'A1' | 'A2'
 
+export interface ScriptVariantOption {
+  path: string
+  label: string
+  axes: ScriptAxisId[]
+  source: 'local' | 'scriptFolder'
+  isDefault: boolean
+}
+
 export interface FunscriptBundle {
   primaryAxis: ScriptAxisId | null
   scripts: Partial<Record<ScriptAxisId, Funscript>>
@@ -39,6 +47,7 @@ export interface VideoFile {
   path: string
   type: MediaType
   hasScript: boolean
+  autoScriptPath?: string
   hasSubtitles: boolean
   modifiedAt: number
   relativePath?: string
@@ -108,6 +117,7 @@ declare global {
       readDir: (path: string) => Promise<VideoFile[]>
       readFunscript: (videoPath: string, scriptFolder?: string) => Promise<Funscript | null>
       readFunscriptBundle: (videoPath: string, scriptFolder?: string, preferredScriptPath?: string) => Promise<FunscriptBundle | null>
+      listScriptVariants: (videoPath: string, scriptFolder?: string) => Promise<ScriptVariantOption[]>
       readFunscriptFile: (filePath: string) => Promise<Funscript | null>
       saveFunscript: (videoPath: string, data: string) => Promise<boolean>
       getVideoUrl: (filePath: string) => Promise<string>

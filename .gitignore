@@ -23,3 +23,12 @@ Thumbs.db
 
 # Local private notes
 LOCAL_WORKLOG.md
+
+# Private/internal resources
+.alpha-private-push/
+codex-memory-export-*.zip
+codex-memory-export-*/
+release-hotfix/
+release-hotfix-*/
+scan-results/
+docs/funscript-audit-*.md

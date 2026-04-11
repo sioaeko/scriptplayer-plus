@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing tag to publish or refresh, for example v0.1.7
+        description: Existing tag to publish or refresh, for example v0.1.8
         required: false
         type: string
       publish_release:

@@ -109,6 +109,11 @@ export default function ScriptHeatmap({
           const x = i * barWidthPx
           ctx.fillRect(x, 0, Math.max(1, barWidthPx), heightPx)
         }
+      } else if (actions.length === 1 && duration > 0) {
+        ctx.fillStyle = speedToColor(0)
+        ctx.globalAlpha = 0.45
+        ctx.fillRect(0, 0, widthPx, heightPx)
+        ctx.globalAlpha = 1
       }
 
       baseCanvasStateRef.current = {

@@ -144,6 +144,31 @@ export default function ScriptTimeline({
         ctx.arc(x, y, 3, 0, Math.PI * 2)
         ctx.fill()
       }
+    } else if (visibleActions.length === 1) {
+      const action = visibleActions[0]
+      const x = padding.left + ((action.at - startMs) / (endMs - startMs)) * plotW
+      const y = padding.top + plotH - (action.pos / 100) * plotH
+
+      ctx.strokeStyle = COLORS.lineGlow
+      ctx.lineWidth = 6
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(w, y)
+      ctx.stroke()
+
+      ctx.strokeStyle = COLORS.line
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(w, y)
+      ctx.stroke()
+
+      if (x >= 0 && x <= w) {
+        ctx.fillStyle = COLORS.dot
+        ctx.beginPath()
+        ctx.arc(x, y, 3, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
 
     // Playhead

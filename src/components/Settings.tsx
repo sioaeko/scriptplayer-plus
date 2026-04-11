@@ -31,6 +31,8 @@ interface SettingsProps {
   onClose: () => void
   settings: AppSettings
   onSettingsChange: (settings: AppSettings) => void
+  autoNextPlayEnabled: boolean
+  onAutoNextPlayChange: (enabled: boolean) => void
   initialSection?: SettingsSection
 }
 
@@ -309,9 +311,13 @@ function AppearanceSection({
 function PlaybackSection({
   settings,
   onChange,
+  autoNextPlayEnabled,
+  onAutoNextPlayChange,
 }: {
   settings: AppSettings
   onChange: (s: AppSettings) => void
+  autoNextPlayEnabled: boolean
+  onAutoNextPlayChange: (enabled: boolean) => void
 }) {
   const { t } = useTranslation()
   const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
@@ -323,6 +329,18 @@ function PlaybackSection({
   return (
     <div>
       <SectionHeading>{t('settings.playback')}</SectionHeading>
+
+      <FieldRow
+        label={t('settings.autoNextPlay')}
+        description={t('settings.autoNextPlayDesc')}
+      >
+        <Toggle
+          checked={autoNextPlayEnabled}
+          onChange={onAutoNextPlayChange}
+        />
+      </FieldRow>
+
+      <Divider />
 
       <FieldRow
         label={t('settings.noScriptRandomStroke')}
@@ -807,6 +825,8 @@ export default function Settings({
   onClose,
   settings,
   onSettingsChange,
+  autoNextPlayEnabled,
+  onAutoNextPlayChange,
   initialSection = 'general',
 }: SettingsProps) {
   const { t } = useTranslation()
@@ -850,7 +870,14 @@ export default function Settings({
       case 'general':
         return <GeneralSection settings={settings} onChange={handleChange} />
       case 'playback':
-        return <PlaybackSection settings={settings} onChange={handleChange} />
+        return (
+          <PlaybackSection
+            settings={settings}
+            onChange={handleChange}
+            autoNextPlayEnabled={autoNextPlayEnabled}
+            onAutoNextPlayChange={onAutoNextPlayChange}
+          />
+        )
       case 'appearance':
         return <AppearanceSection settings={settings} onChange={handleChange} />
       case 'timeline':

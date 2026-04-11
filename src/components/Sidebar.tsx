@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions } from 'lucide-react'
-import { OsrSerialPortInfo, ScriptAxisId, VideoFile } from '../types'
+import { OsrSerialPortInfo, ScriptAxisId, ScriptVariantOption, VideoFile } from '../types'
 import { ButtplugDevice, ButtplugFeature } from '../services/buttplug'
 import { groupVideoFiles, VideoSortState } from '../services/mediaOrder'
 import { getScriptAxisDefinition } from '../services/multiaxis'
@@ -55,6 +55,11 @@ interface SidebarProps {
   onManualSubtitleSelect: (file: VideoFile) => void | Promise<void>
   onClearManualScript: (file: VideoFile) => void | Promise<void>
   onClearManualSubtitle: (file: VideoFile) => void | Promise<void>
+  scriptVariants: ScriptVariantOption[]
+  currentScriptSource: string | null
+  scriptVariantOverrideActive: boolean
+  onScriptVariantSelect: (scriptPath: string) => void | Promise<void>
+  onScriptVariantReset: () => void | Promise<void>
   manualScriptPaths: Set<string>
   manualSubtitlePaths: Set<string>
   deviceProvider: DeviceProvider
@@ -145,6 +150,11 @@ export default function Sidebar({
   onManualSubtitleSelect,
   onClearManualScript,
   onClearManualSubtitle,
+  scriptVariants,
+  currentScriptSource,
+  scriptVariantOverrideActive,
+  onScriptVariantSelect,
+  onScriptVariantReset,
   manualScriptPaths,
   manualSubtitlePaths,
   deviceProvider,
@@ -207,6 +217,7 @@ export default function Sidebar({
     () => folderGroups.flatMap((group) => group.files),
     [folderGroups]
   )
+  const showScriptVariantPanel = Boolean(currentFile) && (scriptVariants.length > 1 || scriptVariantOverrideActive)
   const hasSubfolders = folderGroups.length > 1 || (folderGroups.length === 1 && folderGroups[0].folder !== '')
   const activeDeviceConnected = deviceProvider === 'handy'
     ? handyConnected
@@ -485,6 +496,55 @@ export default function Sidebar({
                 {videoSort.direction === 'asc' ? t('sidebar.sortAscShort') : t('sidebar.sortDescShort')}
               </button>
             </div>
+            {showScriptVariantPanel && (
+              <div className="px-2 pb-2">
+                <div className="rounded border border-surface-100/30 bg-surface-300/60 p-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
+                      {t('sidebar.scriptVariants')}
+                    </div>
+                    {scriptVariantOverrideActive && (
+                      <button
+                        onClick={() => void onScriptVariantReset()}
+                        className="rounded border border-surface-100/30 px-2 py-1 text-[10px] text-text-secondary transition-colors hover:text-text-primary"
+                      >
+                        {t('sidebar.useAutoScript')}
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    {scriptVariants.map((variant) => {
+                      const active = currentScriptSource === variant.path
+                      const meta = [
+                        variant.source === 'local'
+                          ? t('sidebar.scriptSourceLocal')
+                          : t('sidebar.scriptSourceFolder'),
+                        variant.axes.join(' / '),
+                      ].join(' · ')
+
+                      return (
+                        <button
+                          key={variant.path}
+                          onClick={() => void onScriptVariantSelect(variant.path)}
+                          className={`w-full rounded border px-2.5 py-2 text-left transition-colors ${
+                            active
+                              ? 'border-accent/40 bg-accent/10 text-accent'
+                              : 'border-surface-100/30 bg-surface-200/40 text-text-secondary hover:text-text-primary'
+                          }`}
+                        >
+                          <div className="truncate text-xs font-medium">
+                            {variant.isDefault ? t('sidebar.scriptDefaultVariant') : variant.label}
+                          </div>
+                          <div className={`truncate text-[10px] ${active ? 'text-accent/80' : 'text-text-muted'}`}>
+                            {meta}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto px-1" onScroll={hideHoverPreview}>
               {filteredFiles.length === 0 ? (
                 <div className="text-text-muted text-xs text-center py-8">

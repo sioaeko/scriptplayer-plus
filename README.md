@@ -47,8 +47,8 @@
 
 ## Why ScriptPlayer+
 
-ScriptPlayer+ is for people who already have local media and scripts, but want a player that feels current instead of patched together.
-The point is straightforward: cleaner playback, cleaner device control, and a library workflow that does not waste time.
+ScriptPlayer+ is for people who already have local media and scripts and want a player that feels current.
+The focus is straightforward: clean playback, clean device control, and an efficient library workflow that does not waste time.
 
 <table>
   <tr>

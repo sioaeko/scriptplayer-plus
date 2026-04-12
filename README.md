@@ -103,6 +103,31 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
   </tr>
 </table>
 
+## New In v0.1.8
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/readme-media/script-variant-panel.png" alt="Script variants panel" width="100%">
+    </td>
+    <td width="50%">
+      <a href="docs/readme-media/pattern-preset-demo.mp4">
+        <img src="docs/readme-media/pattern-preset-demo.png" alt="Pattern preset demo" width="100%">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>Script Variants Panel</b><br>
+      When a title has multiple matching script bundles, switch between the default script and alternates like <code>Soft</code> directly from the sidebar.
+    </td>
+    <td align="center">
+      <b>Pattern Preset Demo</b><br>
+      The refreshed random fallback presets now separate the base tease motion from the stronger tease preset, and the new short clip shows that flow.
+    </td>
+  </tr>
+</table>
+
 ## Inside The App
 
 <table>
@@ -111,7 +136,7 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
       <img src="docs/screenshots/device_settings_v014.png" alt="Device settings" width="100%">
     </td>
     <td width="50%">
-      <img src="docs/readme-media/keyboard-shortcuts.jpg" alt="Keyboard shortcuts" width="100%">
+      <img src="docs/readme-media/keyboard-shortcuts-v018.png" alt="Keyboard shortcuts" width="100%">
     </td>
   </tr>
   <tr>
@@ -132,11 +157,12 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
 
 - Plays local video files: `MP4`, `MKV`, `AVI`, `WebM`, `MOV`, `WMV`
 - Plays local audio files: `MP3`, `WAV`, `FLAC`, `M4A`, `AAC`, `OGG`, `OPUS`, `WMA`
-- Detects matching bundled funscripts and supports separate script folders
+- Detects matching bundled funscripts, supports separate script folders, and can auto-pick unique fallback matches
+- Shows a quick script variant panel when multiple matching script bundles are available
 - Detects matching external subtitle files and lets you load subtitles manually
 - Shows hover video preview inside the file list
 - Sorts the library by path, file name, or last modified time
-- Supports sequential playback, shuffle playback, and adjustable playback rate
+- Separates repeat-current-media, `Auto Next Play`, shuffle playback, and adjustable playback rate
 - Supports drag and drop for opening media directly
 - Automatically picks matching cover art for audio playback when available
 
@@ -158,12 +184,13 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
 - In-app `EroScripts` login, browsing, searching, and downloading
 - Session persistence for EroScripts login on the local machine
 
-## What's New In v0.1.7
+## What's New In v0.1.8
 
-- Fullscreen `FIT` behavior was refreshed so playback can fill the screen more naturally
-- Fullscreen controls were reworked for better readability and cleaner overlay behavior
-- Funscript `inverted` metadata is now respected more reliably for Intiface / Buttplug playback
-- Release assets are now published for Windows, macOS, and Linux from GitHub Actions
+- Added a quick script variant panel for media that has multiple matching funscript variants, including labels such as `Soft`
+- Restored the Repeat button to loop the current media only, and split next-file playback into a separate `Auto Next Play` setting
+- Fixed the late end-of-track duration expansion in the player time display
+- Reduced folder-open freezes by making scans lighter, invalidating stale scan caches, and ignoring late folder-load results
+- Clarified random fallback stroke naming so the stronger preset and the base tease pattern are no longer labeled the same
 
 ## Download
 
@@ -178,14 +205,14 @@ The point is straightforward: cleaner playback, cleaner device control, and a li
 | Type | Formats |
 | --- | --- |
 | Media | `mp4`, `mkv`, `avi`, `webm`, `mov`, `wmv`, `mp3`, `wav`, `flac`, `m4a`, `aac`, `ogg`, `opus`, `wma` |
-| Scripts | `.funscript`, `.json` |
+| Scripts | `.funscript`, `.json`, `.csv` |
 | External subtitles | `.srt`, `.vtt`, `.txt` |
 
 ## Current Notes
 
 - Embedded subtitle tracks inside video containers are not parsed yet. Use external subtitle files for now.
 - Linux release output currently targets `x64 AppImage`.
-- The localized READMEs under [`docs/`](docs) have not been refreshed to the same level as this main README yet.
+- The Japanese and Chinese READMEs under [`docs/`](docs) have not been refreshed to the same level as this main README yet.
 
 ## Build From Source
 

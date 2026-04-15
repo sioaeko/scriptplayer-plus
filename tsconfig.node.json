@@ -3,17 +3,13 @@
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
     "isolatedModules": true,
-    "composite": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true
   },
   "include": [
     "vite.config.ts",
-    "electron",
-    "src/types.ts",
-    "src/services/multiaxis.ts",
-    "src/services/subtitles.ts"
+    "electron"
   ]
 }

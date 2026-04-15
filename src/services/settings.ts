@@ -35,6 +35,7 @@ export interface AppSettings {
   timeOffset: number // ms, -500 to 500
 
   // Playback
+  handyAutoPlayAfterSync: boolean
   noScriptRandomStrokeEnabled: boolean
   noScriptRandomMinSpeed: number // strokes/min, 30-240
   noScriptRandomMaxSpeed: number // strokes/min, 30-240
@@ -67,6 +68,7 @@ function createDefaultSettings(): AppSettings {
     strokeRangeMax: 100,
     invertStroke: false,
     timeOffset: 0,
+    handyAutoPlayAfterSync: true,
     noScriptRandomStrokeEnabled: false,
     noScriptRandomMinSpeed: 72,
     noScriptRandomMaxSpeed: 140,

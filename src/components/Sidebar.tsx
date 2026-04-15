@@ -196,6 +196,7 @@ export default function Sidebar({
   const { t } = useTranslation()
   const [tab, setTab] = useState<'files' | 'search' | 'device'>('files')
   const [filter, setFilter] = useState('')
+  const [multiAxisOnly, setMultiAxisOnly] = useState(false)
   const [handyKey, setHandyKey] = useState(() => localStorage.getItem('handyKey') || '')
   const [connecting, setConnecting] = useState(false)
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
@@ -208,9 +209,11 @@ export default function Sidebar({
   const hoverPreviewRequestId = useRef(0)
   const hoverPreviewUrlCache = useRef(new Map<string, string>())
 
-  const filteredFiles = files.filter((f) =>
-    (f.relativePath || f.name).toLowerCase().includes(filter.toLowerCase())
-  )
+  const filteredFiles = files.filter((file) => {
+    const matchesText = (file.relativePath || file.name).toLowerCase().includes(filter.toLowerCase())
+    const matchesAxes = !multiAxisOnly || file.scriptAxes.length > 1
+    return matchesText && matchesAxes
+  })
 
   const folderGroups = useMemo(() => groupVideoFiles(filteredFiles, videoSort), [filteredFiles, videoSort])
   const orderedVisibleFiles = useMemo(
@@ -475,6 +478,19 @@ export default function Sidebar({
                 onChange={(e) => setFilter(e.target.value)}
                 className="w-full bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 focus:border-accent/50 outline-none placeholder:text-text-muted"
               />
+            </div>
+            <div className="px-2 pb-2">
+              <button
+                onClick={() => setMultiAxisOnly((value) => !value)}
+                className={`w-full rounded border px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] transition-colors ${
+                  multiAxisOnly
+                    ? 'border-accent/40 bg-accent/10 text-accent'
+                    : 'border-surface-100/30 bg-surface-300 text-text-secondary hover:text-text-primary'
+                }`}
+                type="button"
+              >
+                {t('sidebar.multiAxisOnly')}
+              </button>
             </div>
             <div className="px-2 pb-2 flex gap-2">
               <select

@@ -48,6 +48,7 @@ export interface VideoFile {
   type: MediaType
   hasScript: boolean
   autoScriptPath?: string
+  scriptAxes: ScriptAxisId[]
   hasSubtitles: boolean
   modifiedAt: number
   relativePath?: string

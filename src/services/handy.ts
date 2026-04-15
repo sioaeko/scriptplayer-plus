@@ -2,6 +2,8 @@ import { FunscriptAction } from '../types'
 
 const HANDY_API = 'https://www.handyfeeling.com/api/handy/v2'
 const SCRIPT_API = 'https://scripts01.handyfeeling.com/api/script/v0'
+const HSSP_PLAY_MIN_LEAD_MS = 150
+const HSSP_PLAY_RETRY_DELAY_MS = 200
 
 export type HandyUploadStatus = 'idle' | 'uploading' | 'setting-up' | 'ready' | 'error'
 
@@ -13,6 +15,12 @@ interface HandyApiResult {
   url?: string
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
 export class HandyService {
   private connectionKey: string = ''
   private connected: boolean = false
@@ -22,6 +30,8 @@ export class HandyService {
   private _uploadStatus: HandyUploadStatus = 'idle'
   private _uploadError: string | null = null
   private _onStatusChange: ((status: HandyUploadStatus, error: string | null) => void) | null = null
+  private uploadController: AbortController | null = null
+  private playController: AbortController | null = null
 
   get isConnected() {
     return this.connected
@@ -51,6 +61,49 @@ export class HandyService {
     this._uploadStatus = status
     this._uploadError = error
     this._onStatusChange?.(status, error)
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return (error instanceof DOMException && error.name === 'AbortError')
+      || (error instanceof Error && error.name === 'AbortError')
+  }
+
+  private replaceController(kind: 'upload' | 'play'): AbortSignal {
+    const controller = new AbortController()
+
+    if (kind === 'upload') {
+      this.uploadController?.abort()
+      this.uploadController = controller
+    } else {
+      this.playController?.abort()
+      this.playController = controller
+    }
+
+    return controller.signal
+  }
+
+  private clearController(kind: 'upload' | 'play', signal: AbortSignal) {
+    if (kind === 'upload') {
+      if (this.uploadController?.signal === signal) {
+        this.uploadController = null
+      }
+      return
+    }
+
+    if (this.playController?.signal === signal) {
+      this.playController = null
+    }
+  }
+
+  cancelPendingRequests(options?: { resetUploadStatus?: boolean }) {
+    this.uploadController?.abort()
+    this.uploadController = null
+    this.playController?.abort()
+    this.playController = null
+
+    if (options?.resetUploadStatus !== false && (this._uploadStatus === 'uploading' || this._uploadStatus === 'setting-up')) {
+      this.setUploadStatus('idle')
+    }
   }
 
   private async readResponseData(response: Response): Promise<HandyApiResult> {
@@ -91,6 +144,7 @@ export class HandyService {
   }
 
   disconnect() {
+    this.cancelPendingRequests()
     this.connected = false
     this.connectionKey = ''
     this.setUploadStatus('idle')
@@ -133,11 +187,17 @@ export class HandyService {
     return Date.now() + this.serverTimeOffset
   }
 
-  async setMode(mode: number): Promise<boolean> {
+  private getHsspPlayLeadMs(): number {
+    const halfPing = Number.isFinite(this.lastPing) ? Math.round((this.lastPing ?? 0) / 2) : 0
+    return Math.max(HSSP_PLAY_MIN_LEAD_MS, halfPing + 80)
+  }
+
+  async setMode(mode: number, signal?: AbortSignal): Promise<boolean> {
     if (!this.connected) return false
     try {
       const response = await fetch(`${HANDY_API}/mode`, {
         method: 'PUT',
+        signal,
         headers: {
           'X-Connection-Key': this.connectionKey,
           'Content-Type': 'application/json',
@@ -148,18 +208,24 @@ export class HandyService {
       console.log('[Handy] setMode response:', data)
       return response.ok && this.isSuccessfulResult(data)
     } catch (e) {
+      if (this.isAbortError(e) || signal?.aborted) {
+        return false
+      }
       console.error('[Handy] setMode error:', e)
       return false
     }
   }
 
-  async setHSSP(url: string): Promise<boolean> {
+  async setHSSP(url: string, signal?: AbortSignal): Promise<boolean> {
     if (!this.connected) return false
     try {
       this.setUploadStatus('setting-up')
 
       // Set HSSP mode (mode 1)
-      const modeOk = await this.setMode(1)
+      const modeOk = await this.setMode(1, signal)
+      if (signal?.aborted) {
+        return false
+      }
       if (!modeOk) {
         this.setUploadStatus('error', 'Failed to set HSSP mode')
         return false
@@ -167,6 +233,7 @@ export class HandyService {
 
       const response = await fetch(`${HANDY_API}/hssp/setup`, {
         method: 'PUT',
+        signal,
         headers: {
           'X-Connection-Key': this.connectionKey,
           'Content-Type': 'application/json',
@@ -176,6 +243,10 @@ export class HandyService {
       const data = await this.readResponseData(response)
       console.log('[Handy] setHSSP response:', data)
 
+      if (signal?.aborted) {
+        return false
+      }
+
       if (response.ok && this.isSuccessfulResult(data)) {
         this.setUploadStatus('ready')
         return true
@@ -184,6 +255,9 @@ export class HandyService {
         return false
       }
     } catch (e) {
+      if (this.isAbortError(e) || signal?.aborted) {
+        return false
+      }
       console.error('[Handy] setHSSP error:', e)
       this.setUploadStatus('error', `HSSP setup error: ${e}`)
       return false
@@ -192,26 +266,53 @@ export class HandyService {
 
   async hsspPlay(serverTime: number, startTime: number): Promise<boolean> {
     if (!this.connected) return false
+    const signal = this.replaceController('play')
     try {
-      const modeOk = await this.setMode(1)
+      const modeOk = await this.setMode(1, signal)
+      if (signal.aborted) {
+        return false
+      }
       if (!modeOk) {
         this.setUploadStatus('error', 'Failed to switch Handy to HSSP mode')
         return false
       }
 
-      const response = await fetch(`${HANDY_API}/hssp/play`, {
-        method: 'PUT',
-        headers: {
-          'X-Connection-Key': this.connectionKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          estimatedServerTime: serverTime + 100,
-          startTime,
-        }),
-      })
-      const data = await this.readResponseData(response)
-      console.log('[Handy] hsspPlay response:', data)
+      const attemptPlay = async (estimatedServerTime: number) => {
+        const payload = {
+          estimatedServerTime: Math.max(0, Math.round(estimatedServerTime + this.getHsspPlayLeadMs())),
+          startTime: Math.max(0, Math.round(startTime)),
+        }
+        const response = await fetch(`${HANDY_API}/hssp/play`, {
+          method: 'PUT',
+          signal,
+          headers: {
+            'X-Connection-Key': this.connectionKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        })
+        const data = await this.readResponseData(response)
+        return { response, data, payload }
+      }
+
+      let { response, data, payload } = await attemptPlay(serverTime)
+      console.log('[Handy] hsspPlay response:', data, 'status:', response.status, 'payload:', payload)
+
+      if (signal.aborted) {
+        return false
+      }
+
+      if (!response.ok && response.status === 400) {
+        await this.syncServerTime()
+        await wait(HSSP_PLAY_RETRY_DELAY_MS)
+        ;({ response, data, payload } = await attemptPlay(this.getServerTime()))
+        console.log('[Handy] hsspPlay retry response:', data, 'status:', response.status, 'payload:', payload)
+      }
+
+      if (signal.aborted) {
+        return false
+      }
+
       if (response.ok && this.isSuccessfulResult(data)) {
         this.setUploadStatus('ready')
         return true
@@ -220,9 +321,14 @@ export class HandyService {
       this.setUploadStatus('error', `HSSP play failed: ${data.error || data.result || response.status}`)
       return false
     } catch (e) {
+      if (this.isAbortError(e) || signal.aborted) {
+        return false
+      }
       console.error('[Handy] hsspPlay error:', e)
       this.setUploadStatus('error', `HSSP play error: ${e}`)
       return false
+    } finally {
+      this.clearController('play', signal)
     }
   }
 
@@ -250,6 +356,7 @@ export class HandyService {
 
   /** Upload script CSV to Handy script server and get URL, then set up HSSP */
   async uploadAndSetup(actions: FunscriptAction[]): Promise<string | null> {
+    const signal = this.replaceController('upload')
     this.setUploadStatus('uploading')
     const csv = HandyService.actionsToCSV(actions)
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -261,9 +368,14 @@ export class HandyService {
       console.log(`[Handy] uploading script (${actions.length} actions) to ${SCRIPT_API}/temp/upload ...`)
       const response = await fetch(`${SCRIPT_API}/temp/upload`, {
         method: 'POST',
+        signal,
         headers: { 'accept': 'application/json' },
         body: formData,
       })
+
+      if (signal.aborted) {
+        return null
+      }
 
       if (!response.ok) {
         const text = await response.text()
@@ -291,16 +403,21 @@ export class HandyService {
       console.log('[Handy] script uploaded to:', url)
 
       // Now set up HSSP with the uploaded script
-      const setupOk = await this.setHSSP(url)
+      const setupOk = await this.setHSSP(url, signal)
       if (!setupOk) {
         return null // setHSSP already set error status
       }
 
       return url
     } catch (e) {
+      if (this.isAbortError(e) || signal.aborted) {
+        return null
+      }
       console.error('[Handy] upload error:', e)
       this.setUploadStatus('error', `Upload error: ${e}`)
       return null
+    } finally {
+      this.clearController('upload', signal)
     }
   }
 }

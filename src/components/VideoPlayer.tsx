@@ -52,6 +52,8 @@ const PLAYER_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'volumeDown',
   'toggleMute',
   'toggleFullscreen',
+  'decreaseStrokeRange',
+  'increaseStrokeRange',
 ]
 
 interface VideoPlayerProps {
@@ -97,7 +99,11 @@ interface VideoPlayerProps {
   subtitleFontSize?: number
 }
 
-const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const PLAYBACK_RATE_MIN = 0.5
+const PLAYBACK_RATE_MAX = 2
+const PLAYBACK_RATE_STEP = 0.1
+const PLAYBACK_RATE_PRESETS = [0.75, 1, 1.25, 1.5] as const
+const STROKE_RANGE_SHORTCUT_SPAN_STEP = 10
 const TOP_NAV_TRIGGER_HEIGHT_PX = 84
 
 export default function VideoPlayer({
@@ -147,10 +153,12 @@ export default function VideoPlayer({
   const [playing, setPlaying] = useState(false)
   const [showDeviceOverlay, setShowDeviceOverlay] = useState(false)
   const [showStrokeControls, setShowStrokeControls] = useState(false)
+  const [showPlaybackRatePopover, setShowPlaybackRatePopover] = useState(false)
   const [showHeatmap, setShowHeatmap] = useState(defaultShowHeatmap)
   const [showTimeline, setShowTimeline] = useState(defaultShowTimeline)
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const strokeControlsRef = useRef<HTMLDivElement>(null)
+  const playbackRateControlsRef = useRef<HTMLDivElement>(null)
   const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoRevealedScriptUrl = useRef<string | null>(null)
   const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
@@ -325,6 +333,10 @@ export default function VideoPlayer({
     onPlaybackModeChange(playbackMode === 'shuffle' ? 'none' : 'shuffle')
   }, [onPlaybackModeChange, playbackMode])
 
+  const adjustPlaybackRate = useCallback((delta: number) => {
+    onPlaybackRateChange(clampPlaybackRate(playbackRate + delta))
+  }, [onPlaybackRateChange, playbackRate])
+
   const clearStrokeCommitTimer = useCallback(() => {
     if (!strokeCommitTimer.current) return
     clearTimeout(strokeCommitTimer.current)
@@ -370,6 +382,22 @@ export default function VideoPlayer({
       return next
     })
   }, [scheduleStrokeRangeCommit])
+
+  const adjustStrokeRangeBySpan = useCallback((spanDelta: number) => {
+    if (!onStrokeRangeChange) return
+
+    const currentSpan = Math.max(0, strokeRangeMax - strokeRangeMin)
+    const nextSpan = Math.max(0, Math.min(100, currentSpan + spanDelta))
+    const center = (strokeRangeMin + strokeRangeMax) / 2
+    const nextMin = clampPercent(center - (nextSpan / 2))
+    const nextMax = clampPercent(center + (nextSpan / 2))
+
+    setStrokeDraft({
+      min: nextMin,
+      max: nextMax,
+    })
+    commitStrokeRange(nextMin, nextMax)
+  }, [commitStrokeRange, onStrokeRangeChange, strokeRangeMax, strokeRangeMin])
 
   const clearHideControlsTimer = useCallback(() => {
     if (hideControlsTimer.current) {
@@ -475,6 +503,18 @@ export default function VideoPlayer({
   }, [commitStrokeRange, showStrokeControls, strokeDraft.max, strokeDraft.min])
 
   useEffect(() => {
+    if (!showPlaybackRatePopover) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (playbackRateControlsRef.current?.contains(event.target as Node)) return
+      setShowPlaybackRatePopover(false)
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    return () => window.removeEventListener('mousedown', handlePointerDown)
+  }, [showPlaybackRatePopover])
+
+  useEffect(() => {
     return () => {
       if (playbackFrameRef.current !== null) {
         cancelAnimationFrame(playbackFrameRef.current)
@@ -537,11 +577,18 @@ export default function VideoPlayer({
         case 'toggleFullscreen':
           toggleFullscreen()
           break
+        case 'decreaseStrokeRange':
+          adjustStrokeRangeBySpan(-STROKE_RANGE_SHORTCUT_SPAN_STEP)
+          break
+        case 'increaseStrokeRange':
+          adjustStrokeRangeBySpan(STROKE_RANGE_SHORTCUT_SPAN_STEP)
+          break
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
+    adjustStrokeRangeBySpan,
     duration,
     handleSeek,
     handleVolumeChange,
@@ -626,6 +673,7 @@ export default function VideoPlayer({
     setShowControls(true)
     setShowTopNav(false)
     setShowStrokeControls(false)
+    setShowPlaybackRatePopover(false)
     setShowHeatmap(defaultShowHeatmap)
     setShowTimeline(defaultShowTimeline)
   }, [videoUrl, defaultShowHeatmap, defaultShowTimeline])
@@ -724,11 +772,86 @@ export default function VideoPlayer({
 
     handledAutoPlayRequest.current = autoPlayRequestId
 
-    const frame = requestAnimationFrame(() => {
-      void media.play()
-    })
+    let cancelled = false
+    let frame: number | null = null
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let retryIntervalId: ReturnType<typeof setInterval> | null = null
 
-    return () => cancelAnimationFrame(frame)
+    const cleanup = () => {
+      cancelled = true
+      media.autoplay = false
+      media.removeEventListener('loadedmetadata', handleReady)
+      media.removeEventListener('loadeddata', handleReady)
+      media.removeEventListener('canplay', handleReady)
+      media.removeEventListener('canplaythrough', handleReady)
+      media.removeEventListener('play', handleStarted)
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+        frame = null
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
+      if (retryIntervalId) {
+        clearInterval(retryIntervalId)
+        retryIntervalId = null
+      }
+    }
+
+    const handleStarted = () => {
+      cleanup()
+    }
+
+    const requestPlay = () => {
+      if (cancelled || !media.paused) {
+        cleanup()
+        return
+      }
+
+      media.autoplay = true
+      if (media.readyState === 0) {
+        media.load()
+      }
+
+      const playPromise = media.play()
+      if (!playPromise || typeof playPromise.then !== 'function') {
+        if (!media.paused) {
+          cleanup()
+        }
+        return
+      }
+
+      void playPromise
+        .then(() => {
+          cleanup()
+        })
+        .catch((error) => {
+          console.warn('[VideoPlayer] autoplay play() failed', error)
+        })
+    }
+
+    const handleReady = () => {
+      requestPlay()
+    }
+
+    media.addEventListener('loadedmetadata', handleReady)
+    media.addEventListener('loadeddata', handleReady)
+    media.addEventListener('canplay', handleReady)
+    media.addEventListener('canplaythrough', handleReady)
+    media.addEventListener('play', handleStarted)
+
+    frame = requestAnimationFrame(() => {
+      requestPlay()
+    })
+    retryIntervalId = setInterval(() => {
+      requestPlay()
+    }, 250)
+    timeoutId = setTimeout(() => {
+      cleanup()
+    }, 5000)
+
+    return cleanup
   }, [autoPlayRequestId, mediaRef, videoUrl])
 
   useEffect(() => {
@@ -757,8 +880,10 @@ export default function VideoPlayer({
           mediaType === 'audio' ? (
             <>
               <audio
+                key={videoUrl}
                 ref={(node) => { mediaRef.current = node }}
                 src={videoUrl}
+                preload="auto"
                 className="hidden"
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={syncDurationFromMedia}
@@ -812,8 +937,10 @@ export default function VideoPlayer({
             </>
           ) : (
             <video
+              key={videoUrl}
               ref={(node) => { mediaRef.current = node }}
               src={videoUrl}
+              preload="auto"
               className={videoClassName}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={syncDurationFromMedia}
@@ -960,6 +1087,7 @@ export default function VideoPlayer({
           {showHeatmap && (
             <div className="h-8">
               <ScriptHeatmap
+                key={`heatmap-inline-${videoUrl ?? 'none'}`}
                 actions={actions}
                 duration={duration}
                 currentTime={effectiveCurrentTime}
@@ -970,6 +1098,7 @@ export default function VideoPlayer({
           {showTimeline && (
             <div style={{ height: timelineHeight }}>
               <ScriptTimeline
+                key={`timeline-inline-${videoUrl ?? 'none'}`}
                 actions={actions}
                 currentTime={effectiveCurrentTime}
                 duration={duration}
@@ -991,6 +1120,7 @@ export default function VideoPlayer({
             {showHeatmap && (
               <div className="h-8">
                 <ScriptHeatmap
+                  key={`heatmap-fullscreen-${videoUrl ?? 'none'}`}
                   actions={actions}
                   duration={duration}
                   currentTime={effectiveCurrentTime}
@@ -1001,6 +1131,7 @@ export default function VideoPlayer({
             {showTimeline && (
               <div style={{ height: timelineHeight }}>
                 <ScriptTimeline
+                  key={`timeline-fullscreen-${videoUrl ?? 'none'}`}
                   actions={actions}
                   currentTime={effectiveCurrentTime}
                   duration={duration}
@@ -1099,22 +1230,72 @@ export default function VideoPlayer({
                   onClick={(e) => e.stopPropagation()}
                   className="w-20 h-1"
                 />
-                <select
-                  value={playbackRate.toString()}
-                  onChange={(e) => {
-                    e.stopPropagation()
-                    onPlaybackRateChange(parseFloat(e.target.value))
-                  }}
+                <div
+                  ref={playbackRateControlsRef}
+                  className="relative -mt-0.5 ml-0.5 flex items-center gap-0.5"
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-surface-300/80 text-text-secondary text-[10px] px-2 py-1 rounded border border-surface-100/30 outline-none hover:text-text-primary"
                   title={t('player.playbackSpeed')}
                 >
-                  {PLAYBACK_RATE_OPTIONS.map((rate) => (
-                    <option key={rate} value={rate}>
-                      {formatPlaybackRate(rate)}
-                    </option>
-                  ))}
-                </select>
+                  {showPlaybackRatePopover && (
+                    <div className="absolute bottom-full right-0 mb-3 flex items-center gap-1 rounded-xl border border-surface-100/20 bg-surface-300/95 p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+                      {PLAYBACK_RATE_PRESETS.map((rate) => {
+                        const active = Math.abs(playbackRate - rate) < 0.001
+                        return (
+                          <button
+                            key={rate}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onPlaybackRateChange(rate)
+                              setShowPlaybackRatePopover(false)
+                            }}
+                            className={`rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
+                              active
+                                ? 'bg-accent/15 text-accent'
+                                : 'text-text-secondary hover:bg-surface-100/10 hover:text-text-primary'
+                            }`}
+                          >
+                            {formatPlaybackRate(rate)}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      adjustPlaybackRate(-PLAYBACK_RATE_STEP)
+                    }}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-[13px] font-semibold leading-none text-text-secondary transition-colors hover:bg-surface-100/10 hover:text-text-primary"
+                    aria-label="Decrease playback speed"
+                  >
+                    -
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowPlaybackRatePopover((value) => !value)
+                    }}
+                    className="min-w-[3rem] rounded-md border border-surface-100/15 bg-surface-300/35 px-1.5 py-1 text-[10px] font-semibold text-text-primary transition-colors hover:bg-surface-100/10"
+                    aria-label="Playback speed presets"
+                  >
+                    {formatPlaybackRate(playbackRate)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      adjustPlaybackRate(PLAYBACK_RATE_STEP)
+                    }}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-[13px] font-semibold leading-none text-text-secondary transition-colors hover:bg-surface-100/10 hover:text-text-primary"
+                    aria-label="Increase playback speed"
+                  >
+                    +
+                  </button>
+                </div>
 
                 {actions.length > 0 && onStrokeRangeChange && (
                   <div ref={strokeControlsRef} className="relative">
@@ -1325,20 +1506,13 @@ function formatTime(seconds: number): string {
 
 function getStableDisplayDuration(previousDuration: number, nextDuration: number, currentTime: number): number {
   const normalizedNextDuration = Math.ceil(nextDuration)
+  const minimumVisibleDuration = Math.ceil(Math.max(0, currentTime))
+
   if (!Number.isFinite(normalizedNextDuration) || normalizedNextDuration <= 0) {
-    return previousDuration
+    return Math.max(previousDuration, minimumVisibleDuration)
   }
 
-  if (previousDuration <= 0) {
-    return normalizedNextDuration
-  }
-
-  const playbackProgress = previousDuration > 0 ? currentTime / previousDuration : 0
-  if (currentTime >= 1 && playbackProgress >= 0.9) {
-    return previousDuration
-  }
-
-  return normalizedNextDuration
+  return Math.max(normalizedNextDuration, minimumVisibleDuration)
 }
 
 function getFileNameFromPath(filePath: string): string {
@@ -1347,6 +1521,17 @@ function getFileNameFromPath(filePath: string): string {
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(Number.isFinite(value) ? value : 0)))
+}
+
+function clampPlaybackRate(value: number): number {
+  const normalized = Number.isFinite(value) ? value : 1
+  return Math.max(
+    PLAYBACK_RATE_MIN,
+    Math.min(
+      PLAYBACK_RATE_MAX,
+      Number(normalized.toFixed(2))
+    )
+  )
 }
 
 function formatPlaybackRate(rate: number): string {

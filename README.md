@@ -103,7 +103,7 @@ The focus is straightforward: clean playback, clean device control, and an effic
   </tr>
 </table>
 
-## New In v0.1.8
+## Feature Preview
 
 <table>
   <tr>
@@ -184,13 +184,13 @@ The focus is straightforward: clean playback, clean device control, and an effic
 - In-app `EroScripts` login, browsing, searching, and downloading
 - Session persistence for EroScripts login on the local machine
 
-## What's New In v0.1.8
+## What's New In v0.1.9
 
-- Added a quick script variant panel for media that has multiple matching funscript variants, including labels such as `Soft`
-- Restored the Repeat button to loop the current media only, and split next-file playback into a separate `Auto Next Play` setting
-- Fixed the late end-of-track duration expansion in the player time display
-- Reduced folder-open freezes by making scans lighter, invalidating stale scan caches, and ignoring late folder-load results
-- Clarified random fallback stroke naming so the stronger preset and the base tease pattern are no longer labeled the same
+- Improved Handy HSSP playback start reliability by switching back to HSSP mode before play, using ping-aware lead time, retrying after server resync on `400`, and cancelling stale upload/play requests
+- Added `Auto Play After Handy Sync` so media can start automatically once Handy upload and sync finish
+- Added a `Multi-Axis Only` sidebar filter so titles with more than one detected script axis are easier to find
+- Added stroke range shortcut bindings and a compact playback speed stepper / preset popover in the player controls
+- Hardened autoplay and media readiness handling when opening, dropping, or switching media with Handy connected
 
 ## Download
 

@@ -58,6 +58,10 @@ const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
 
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
+type BundledScriptAxisIndex = Map<string, Map<string, Set<ScriptAxisId>>>
+
 function normalizePathKey(targetPath: string): string {
   return process.platform === 'win32' ? targetPath.toLowerCase() : targetPath
 }
@@ -143,6 +147,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: false,
+      autoplayPolicy: 'no-user-gesture-required',
     },
   })
 
@@ -240,6 +245,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
       type: 'video' | 'audio'
       hasScript: boolean
       autoScriptPath?: string
+      scriptAxes: ScriptAxisId[]
       hasSubtitles: boolean
       modifiedAt: number
       relativePath: string
@@ -255,6 +261,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
     }> = []
     const bundledScriptLocations = new Map<string, Map<string, { path: string; topLevelGroup: string }>>()
     const bundledScriptAliasLocations = new Map<string, Map<string, { path: string; topLevelGroup: string }>>()
+    const bundledScriptAxes = new Map<string, Map<string, Set<ScriptAxisId>>>()
     let scannedEntries = 0
     const visitedDirectories = new Set<string>()
 
@@ -297,7 +304,8 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase()
           if (FUNSCRIPT_EXTS.includes(ext)) {
-            const scriptBaseName = normalizeBundledScriptBaseName(path.basename(entry.name, ext))
+            const stem = path.basename(entry.name, ext)
+            const scriptBaseName = normalizeBundledScriptBaseName(stem)
             if (scriptBaseName) {
               let locationMap = bundledScriptLocations.get(scriptBaseName)
               if (!locationMap) {
@@ -320,6 +328,21 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
                   aliasLocationMap.set(dir, { path: fullPath, topLevelGroup })
                 }
               }
+
+              const axisId = inferAxisIdFromStem(stem) ?? 'L0'
+              const normalizedDir = normalizePathKey(dir)
+              let dirAxisMap = bundledScriptAxes.get(scriptBaseName)
+              if (!dirAxisMap) {
+                dirAxisMap = new Map<string, Set<ScriptAxisId>>()
+                bundledScriptAxes.set(scriptBaseName, dirAxisMap)
+              }
+
+              let axes = dirAxisMap.get(normalizedDir)
+              if (!axes) {
+                axes = new Set<ScriptAxisId>()
+                dirAxisMap.set(normalizedDir, axes)
+              }
+              axes.add(axisId)
             }
           }
 
@@ -369,11 +392,13 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
           bundledScriptLocations,
           bundledScriptAliasLocations
         )
+      const scriptAxes = collectMediaScanScriptAxes(mediaFile.path, fallbackScriptPath, bundledScriptAxes)
 
       files.push({
         ...mediaFile,
         hasScript: hasLocalBundle || Boolean(fallbackScriptPath),
         autoScriptPath: fallbackScriptPath ?? undefined,
+        scriptAxes,
       })
     }
 
@@ -539,6 +564,64 @@ function hasBundledScriptCandidateInDirectory(
   }
 
   return false
+}
+
+function collectIndexedBundledScriptAxes(
+  bundledScriptAxes: BundledScriptAxisIndex,
+  dirPath: string,
+  baseName: string
+): ScriptAxisId[] {
+  const normalizedBaseName = normalizeBundledScriptBaseName(baseName)
+  if (!normalizedBaseName) {
+    return []
+  }
+
+  const dirAxisMap = bundledScriptAxes.get(normalizedBaseName)
+  if (!dirAxisMap) {
+    return []
+  }
+
+  const axes = dirAxisMap.get(normalizePathKey(dirPath))
+  if (!axes || axes.size === 0) {
+    return []
+  }
+
+  return SCRIPT_AXIS_DEFINITIONS
+    .map((definition) => definition.id)
+    .filter((axisId) => axes.has(axisId))
+}
+
+function collectMediaScanScriptAxes(
+  mediaPath: string,
+  fallbackScriptPath: string | null | undefined,
+  bundledScriptAxes: BundledScriptAxisIndex
+): ScriptAxisId[] {
+  const axisIds = new Set<ScriptAxisId>()
+  const mediaDir = path.dirname(mediaPath)
+  const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
+
+  for (const axisId of collectIndexedBundledScriptAxes(bundledScriptAxes, mediaDir, mediaBaseName)) {
+    axisIds.add(axisId)
+  }
+
+  if (fallbackScriptPath) {
+    const fallbackDir = path.dirname(fallbackScriptPath)
+    const fallbackStem = stripKnownAxisSuffixPreserveCase(path.basename(fallbackScriptPath, path.extname(fallbackScriptPath)))
+    const fallbackAxisId = inferAxisIdFromFilePath(fallbackScriptPath)
+    if (fallbackAxisId) {
+      axisIds.add(fallbackAxisId)
+    }
+
+    for (const baseName of [fallbackStem, mediaBaseName]) {
+      for (const axisId of collectIndexedBundledScriptAxes(bundledScriptAxes, fallbackDir, baseName)) {
+        axisIds.add(axisId)
+      }
+    }
+  }
+
+  return SCRIPT_AXIS_DEFINITIONS
+    .map((definition) => definition.id)
+    .filter((axisId) => axisIds.has(axisId))
 }
 
 function pickUniqueBundledScriptCandidate(

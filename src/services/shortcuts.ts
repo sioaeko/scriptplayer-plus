@@ -12,6 +12,8 @@ export const SHORTCUT_ACTION_IDS = [
   'volumeDown',
   'toggleMute',
   'toggleFullscreen',
+  'decreaseStrokeRange',
+  'increaseStrokeRange',
   'openFolder',
   'openSettings',
 ] as const
@@ -60,6 +62,8 @@ export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBindings = {
   volumeDown: { code: 'ArrowDown', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   toggleMute: { code: 'KeyM', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   toggleFullscreen: { code: 'KeyF', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  decreaseStrokeRange: { code: 'BracketLeft', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  increaseStrokeRange: { code: 'BracketRight', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   openFolder: { code: 'KeyO', ctrlKey: true, altKey: false, shiftKey: false, metaKey: false },
   openSettings: { code: 'Comma', ctrlKey: true, altKey: false, shiftKey: false, metaKey: false },
 }

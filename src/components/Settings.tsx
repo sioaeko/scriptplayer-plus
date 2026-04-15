@@ -343,6 +343,18 @@ function PlaybackSection({
       <Divider />
 
       <FieldRow
+        label={t('settings.handyAutoPlayAfterSync')}
+        description={t('settings.handyAutoPlayAfterSyncDesc')}
+      >
+        <Toggle
+          checked={settings.handyAutoPlayAfterSync}
+          onChange={(value) => update('handyAutoPlayAfterSync', value)}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
         label={t('settings.noScriptRandomStroke')}
         description={t('settings.noScriptRandomStrokeDesc')}
       >
@@ -694,6 +706,13 @@ function ShortcutsSection({
       title: t('settings.view'),
       items: [
         { id: 'toggleFullscreen' as const, action: t('settings.toggleFullscreen') },
+      ],
+    },
+    {
+      title: t('settings.device'),
+      items: [
+        { id: 'decreaseStrokeRange' as const, action: t('settings.decreaseStrokeRange') },
+        { id: 'increaseStrokeRange' as const, action: t('settings.increaseStrokeRange') },
       ],
     },
     {

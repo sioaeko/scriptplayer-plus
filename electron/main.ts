@@ -58,6 +58,14 @@ const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
 
+if (!app.isPackaged) {
+  const sharedUserDataPath = path.join(app.getPath('appData'), 'scriptplayer-plus')
+  const targetUserDataPath = process.env.SCRIPTPLAYER_USE_SHARED_PROFILE === '1'
+    ? sharedUserDataPath
+    : `${sharedUserDataPath}-dev`
+  app.setPath('userData', targetUserDataPath)
+}
+
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 type BundledScriptAxisIndex = Map<string, Map<string, Set<ScriptAxisId>>>

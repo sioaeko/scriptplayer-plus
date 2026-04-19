@@ -77,6 +77,7 @@ const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
 const DEFAULT_OSR_SERIAL_BAUD_RATE = 115200
 const DEFAULT_OSR_SERIAL_UPDATE_RATE = 50
 const HANDY_SEEK_SETTLE_TIMEOUT_MS = 500
+const HANDY_AUTOPLAY_REQUEST_BUFFER_MS = 220
 const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
 const AUTO_SKIP_COOLDOWN_MS = 1000
 const AUTO_SKIP_TARGET_EPSILON_MS = 250
@@ -217,9 +218,22 @@ function getPlaybackTimeScale(playbackRate: number): number {
   return 1 / (Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1)
 }
 
-function getHandyStartTime(mediaTimeSeconds: number, playbackRate: number, timeOffset: number): number {
-  const baseTime = mediaTimeSeconds * 1000 * getPlaybackTimeScale(playbackRate)
-  return Math.max(0, Math.round(baseTime + timeOffset))
+function getHandySyncTarget(mediaTimeSeconds: number, playbackRate: number, timeOffset: number): {
+  startTime: number
+  extraServerDelayMs: number
+} {
+  const targetTime = mediaTimeSeconds * 1000 * getPlaybackTimeScale(playbackRate) + timeOffset
+  if (targetTime >= 0) {
+    return {
+      startTime: Math.round(targetTime),
+      extraServerDelayMs: 0,
+    }
+  }
+
+  return {
+    startTime: 0,
+    extraServerDelayMs: Math.round(-targetTime),
+  }
 }
 
 function waitForMediaSeekSettled(media: HTMLMediaElement, timeoutMs = HANDY_SEEK_SETTLE_TIMEOUT_MS): Promise<number> {
@@ -289,6 +303,16 @@ function waitForMediaReady(media: HTMLMediaElement, timeoutMs = 5000): Promise<b
     media.addEventListener('canplaythrough', handleReady, { once: true })
     media.addEventListener('error', handleError, { once: true })
     timeoutId = setTimeout(() => finalize(media.readyState >= 2), timeoutMs)
+  })
+}
+
+function waitForDelay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (ms <= 0) {
+      resolve()
+      return
+    }
+    setTimeout(resolve, ms)
   })
 }
 
@@ -575,6 +599,17 @@ export default function App() {
     }
     return primaryAxis ? runtimeAxisActions[primaryAxis] ?? [] : []
   }, [primaryAxis, runtimeAxisActions])
+  const waitingForGeneratedHandyScript = useMemo(() => (
+    settings.noScriptRandomStrokeEnabled
+    && !funscriptBundle
+    && Boolean(currentFile)
+    && (!Number.isFinite(mediaDurationSeconds) || mediaDurationSeconds <= 0)
+  ), [
+    currentFile,
+    funscriptBundle,
+    mediaDurationSeconds,
+    settings.noScriptRandomStrokeEnabled,
+  ])
   const availableScriptAxes = useMemo(
     () => SCRIPT_AXIS_IDS.filter((axisId) => Boolean(displayAxisActions[axisId]?.length)),
     [displayAxisActions]
@@ -633,6 +668,15 @@ export default function App() {
   useEffect(() => {
     pendingAutoPlayAfterHandyUploadRef.current = pendingAutoPlayAfterHandyUpload
   }, [pendingAutoPlayAfterHandyUpload])
+
+  const resetHandyAutoPlayState = useCallback(() => {
+    handyAutoPlayRunId.current += 1
+    pendingAutoPlayAfterHandyUploadRef.current = false
+    setPendingAutoPlayAfterHandyUpload(false)
+    setHandyAutoPlayStatusText(null)
+    setHandyAutoPlayStatusTone(null)
+    skipNextHandyPlaySyncRef.current = false
+  }, [])
 
   useEffect(() => {
     handyService.onStatusChange = (status, error) => {
@@ -1047,12 +1091,12 @@ export default function App() {
 
   const syncHandyPlayback = useCallback(async (mediaTimeSeconds: number) => {
     if (!handyService.isConnected || !scriptUploadUrl) return
-    const startTime = getHandyStartTime(mediaTimeSeconds, playbackRate, settings.timeOffset || 0)
-    await handyService.hsspPlay(handyService.getServerTime(), startTime)
+    const { startTime, extraServerDelayMs } = getHandySyncTarget(mediaTimeSeconds, playbackRate, settings.timeOffset || 0)
+    await handyService.hsspPlay(handyService.getServerTime() + extraServerDelayMs, startTime)
   }, [playbackRate, scriptUploadUrl, settings.timeOffset])
 
   const syncHandyAndPlayMedia = useCallback(async () => {
-    const runId = ++handySyncRunId.current
+    const runId = handyAutoPlayRunId.current
     const media = mediaRef.current
     if (!media || !handyService.isConnected) {
       setHandyAutoPlayStatusText('Autoplay cancelled')
@@ -1063,7 +1107,7 @@ export default function App() {
     setHandyAutoPlayStatusText('Waiting for media...')
     setHandyAutoPlayStatusTone('busy')
     const mediaReady = await waitForMediaReady(media)
-    if (runId !== handySyncRunId.current) {
+    if (runId !== handyAutoPlayRunId.current) {
       return false
     }
     if (!mediaReady) {
@@ -1072,45 +1116,73 @@ export default function App() {
       return false
     }
 
-    const startTime = getHandyStartTime(media.currentTime, playbackRate, settings.timeOffset || 0)
+    const { startTime, extraServerDelayMs } = getHandySyncTarget(media.currentTime, playbackRate, settings.timeOffset || 0)
+    const autoplayLeadMs = handyService.getRecommendedPlayLeadMs(HANDY_AUTOPLAY_REQUEST_BUFFER_MS)
+    const targetLocalStartAt = Date.now() + autoplayLeadMs
+
     setHandyAutoPlayStatusText('Syncing Handy...')
     setHandyAutoPlayStatusTone('busy')
-    const synced = await handyService.hsspPlay(handyService.getServerTime(), startTime)
-    if (runId !== handySyncRunId.current) {
-      return false
-    }
-    if (!synced) {
-      setHandyAutoPlayStatusText('HSSP sync failed')
-      setHandyAutoPlayStatusTone('error')
-      return false
-    }
-
     skipNextHandyPlaySyncRef.current = true
+    const handySyncPromise = handyService.hsspPlay(
+      handyService.getServerTime() + extraServerDelayMs,
+      startTime,
+      { leadMs: autoplayLeadMs }
+    )
 
-    setHandyAutoPlayStatusText('Starting video...')
-    setHandyAutoPlayStatusTone('busy')
-    const started = await playMediaWithMutedFallback(media)
-    if (runId !== handySyncRunId.current) {
+    const delayMs = Math.max(0, targetLocalStartAt - Date.now())
+    if (delayMs > 0) {
+      setHandyAutoPlayStatusText('Starting video...')
+      await waitForDelay(delayMs)
+    }
+    if (runId !== handyAutoPlayRunId.current) {
       skipNextHandyPlaySyncRef.current = false
       if (!media.paused) {
         media.pause()
       }
       return false
     }
-    if (started) {
-      setHandyAutoPlayStatusText('Video playing')
-      setHandyAutoPlayStatusTone('busy')
-      setTimeout(() => {
-        setHandyAutoPlayStatusText((current) => current === 'Video playing' ? null : current)
-        setHandyAutoPlayStatusTone((current) => current === 'busy' ? null : current)
-      }, 2000)
-      return true
+
+    const started = await playMediaWithMutedFallback(media)
+    if (runId !== handyAutoPlayRunId.current) {
+      skipNextHandyPlaySyncRef.current = false
+      if (!media.paused) {
+        media.pause()
+      }
+      return false
+    }
+    if (!started) {
+      skipNextHandyPlaySyncRef.current = false
+      await handyService.hsspStop()
+      setHandyAutoPlayStatusText('Video play failed')
+      setHandyAutoPlayStatusTone('error')
+      return false
     }
 
-    setHandyAutoPlayStatusText('Video play failed')
-    setHandyAutoPlayStatusTone('error')
-    skipNextHandyPlaySyncRef.current = false
-    return false
+    const synced = await handySyncPromise
+    if (runId !== handyAutoPlayRunId.current) {
+      skipNextHandyPlaySyncRef.current = false
+      if (!media.paused) {
+        media.pause()
+      }
+      return false
+    }
+    if (!synced) {
+      skipNextHandyPlaySyncRef.current = false
+      if (!media.paused) {
+        media.pause()
+      }
+      setHandyAutoPlayStatusText('HSSP sync failed')
+      setHandyAutoPlayStatusTone('error')
+      return false
+    }
+
+    setHandyAutoPlayStatusText('Video playing')
+    setHandyAutoPlayStatusTone('busy')
+    setTimeout(() => {
+      setHandyAutoPlayStatusText((current) => current === 'Video playing' ? null : current)
+      setHandyAutoPlayStatusTone((current) => current === 'busy' ? null : current)
+    }, 2000)
+    return true
   }, [playbackRate, settings.timeOffset])
 
   const syncHandyPlaybackToCurrentMedia = useCallback(async (options?: { stopFirst?: boolean }) => {
@@ -1176,10 +1248,7 @@ export default function App() {
 
     autoSkipSuppressedUntilRef.current = 0
     autoSkipCooldownUntilRef.current = 0
-    setPendingAutoPlayAfterHandyUpload(false)
-    setHandyAutoPlayStatusText(null)
-    setHandyAutoPlayStatusTone(null)
-    skipNextHandyPlaySyncRef.current = false
+    resetHandyAutoPlayState()
     setCurrentFile(filePath)
     setCurrentFileType(resolvedType)
     setMediaDurationSeconds(0)
@@ -1206,14 +1275,15 @@ export default function App() {
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
     if (shouldAutoplay) {
-      const waitForHandyUpload = deviceProvider === 'handy'
+      const handyAutoplayRequiresUpload = deviceProvider === 'handy'
         && handyConnected
         && settings.handyAutoPlayAfterSync
-        && hasBundleScripts(parsedBundle)
+      const waitForHandyUpload = handyAutoplayRequiresUpload
+        && (hasBundleScripts(parsedBundle) || settings.noScriptRandomStrokeEnabled)
 
       if (waitForHandyUpload) {
         setPendingAutoPlayAfterHandyUpload(true)
-      } else {
+      } else if (!handyAutoplayRequiresUpload) {
         setAutoPlayRequestId((prev) => prev + 1)
       }
     }
@@ -1242,6 +1312,7 @@ export default function App() {
     loadScriptVariants,
     loadSubtitleCues,
     osrSerialConnected,
+    resetHandyAutoPlayState,
     settings.handyAutoPlayAfterSync,
     stopButtplugPlayback,
     stopOsrSerialPlayback,
@@ -1356,6 +1427,7 @@ export default function App() {
 
   const handleHandyDisconnect = async () => {
     cancelPendingHandySync()
+    resetHandyAutoPlayState()
     handyService.cancelPendingRequests()
     await handyService.hsspStop()
     handyService.disconnect()
@@ -1425,6 +1497,7 @@ export default function App() {
   const handlePause = useCallback(async () => {
     if (deviceProvider === 'handy' && handyService.isConnected) {
       cancelPendingHandySync()
+      resetHandyAutoPlayState()
       await handyService.hsspStop()
       return
     }
@@ -1437,7 +1510,7 @@ export default function App() {
     if (deviceProvider === 'serial' && osrSerialConnected) {
       await stopOsrSerialPlayback({ homeDevice: true })
     }
-  }, [cancelPendingHandySync, deviceProvider, osrSerialConnected, stopButtplugPlayback, stopOsrSerialPlayback])
+  }, [cancelPendingHandySync, deviceProvider, osrSerialConnected, resetHandyAutoPlayState, stopButtplugPlayback, stopOsrSerialPlayback])
 
   const syncDevicesAfterSeek = useCallback(async () => {
     if (deviceProvider === 'handy' && handyService.isConnected && scriptUploadUrl) {
@@ -1598,11 +1671,25 @@ export default function App() {
   }, [loadFolderFiles, settings.defaultVideoFolder])
 
   useEffect(() => {
-    if (deviceProvider !== 'handy' || !handyConnected || handyActions.length === 0) {
+    if (deviceProvider !== 'handy' || !handyConnected) {
       if (handyService.isConnected) {
         cancelPendingHandySync()
+        resetHandyAutoPlayState()
         handyService.cancelPendingRequests()
         void handyService.hsspStop()
+      }
+      setScriptUploadUrl(null)
+      return
+    }
+
+    if (handyActions.length === 0) {
+      if (!waitingForGeneratedHandyScript) {
+        if (handyService.isConnected) {
+          cancelPendingHandySync()
+          resetHandyAutoPlayState()
+          handyService.cancelPendingRequests()
+          void handyService.hsspStop()
+        }
       }
       setScriptUploadUrl(null)
       return
@@ -1630,7 +1717,15 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [cancelPendingHandySync, deviceProvider, handyActions, handyConnected])
+  }, [
+    cancelPendingHandySync,
+    deviceProvider,
+    handyActions,
+    handyConnected,
+    settings.timeOffset,
+    resetHandyAutoPlayState,
+    waitingForGeneratedHandyScript,
+  ])
 
   useEffect(() => {
     if (
@@ -1732,6 +1827,8 @@ export default function App() {
     if (deviceProvider === 'buttplug') {
       if (handyService.isConnected) {
         cancelPendingHandySync()
+        resetHandyAutoPlayState()
+        handyService.cancelPendingRequests()
         void handyService.hsspStop().finally(() => {
           handyService.disconnect()
           setHandyConnected(false)
@@ -1754,6 +1851,8 @@ export default function App() {
       })
       if (handyService.isConnected) {
         cancelPendingHandySync()
+        resetHandyAutoPlayState()
+        handyService.cancelPendingRequests()
         void handyService.hsspStop().finally(() => {
           handyService.disconnect()
           setHandyConnected(false)
@@ -1761,7 +1860,7 @@ export default function App() {
         })
       }
     }
-  }, [cancelPendingHandySync, deviceProvider, osrSerialConnected, stopButtplugPlayback, stopOsrSerialPlayback])
+  }, [cancelPendingHandySync, deviceProvider, osrSerialConnected, resetHandyAutoPlayState, stopButtplugPlayback, stopOsrSerialPlayback])
 
   useEffect(() => {
     if (

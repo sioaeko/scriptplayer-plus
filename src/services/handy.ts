@@ -24,6 +24,7 @@ function wait(ms: number): Promise<void> {
 export class HandyService {
   private connectionKey: string = ''
   private connected: boolean = false
+  private currentMode: number | null = null
   private serverTimeOffset: number = 0
   private syncCount: number = 0
   private lastPing: number | null = null
@@ -98,12 +99,16 @@ export class HandyService {
   cancelPendingRequests(options?: { resetUploadStatus?: boolean }) {
     this.uploadController?.abort()
     this.uploadController = null
-    this.playController?.abort()
-    this.playController = null
+    this.cancelPendingPlay()
 
     if (options?.resetUploadStatus !== false && (this._uploadStatus === 'uploading' || this._uploadStatus === 'setting-up')) {
       this.setUploadStatus('idle')
     }
+  }
+
+  cancelPendingPlay() {
+    this.playController?.abort()
+    this.playController = null
   }
 
   private async readResponseData(response: Response): Promise<HandyApiResult> {
@@ -132,6 +137,7 @@ export class HandyService {
       const data = await this.readResponseData(response)
       console.log('[Handy] connect response:', data)
       this.connected = data.connected === true
+      this.currentMode = null
       if (this.connected) {
         await this.syncServerTime()
       }
@@ -139,6 +145,7 @@ export class HandyService {
     } catch (e) {
       console.error('[Handy] connect error:', e)
       this.connected = false
+      this.currentMode = null
       return false
     }
   }
@@ -146,6 +153,7 @@ export class HandyService {
   disconnect() {
     this.cancelPendingRequests()
     this.connected = false
+    this.currentMode = null
     this.connectionKey = ''
     this.setUploadStatus('idle')
   }
@@ -187,9 +195,9 @@ export class HandyService {
     return Date.now() + this.serverTimeOffset
   }
 
-  private getHsspPlayLeadMs(): number {
+  getRecommendedPlayLeadMs(extraLeadMs = 0): number {
     const halfPing = Number.isFinite(this.lastPing) ? Math.round((this.lastPing ?? 0) / 2) : 0
-    return Math.max(HSSP_PLAY_MIN_LEAD_MS, halfPing + 80)
+    return Math.max(HSSP_PLAY_MIN_LEAD_MS, halfPing + 80 + Math.max(0, Math.round(extraLeadMs)))
   }
 
   async setMode(mode: number, signal?: AbortSignal): Promise<boolean> {
@@ -206,7 +214,11 @@ export class HandyService {
       })
       const data = await this.readResponseData(response)
       console.log('[Handy] setMode response:', data)
-      return response.ok && this.isSuccessfulResult(data)
+      const ok = response.ok && this.isSuccessfulResult(data)
+      if (ok) {
+        this.currentMode = mode
+      }
+      return ok
     } catch (e) {
       if (this.isAbortError(e) || signal?.aborted) {
         return false
@@ -264,22 +276,27 @@ export class HandyService {
     }
   }
 
-  async hsspPlay(serverTime: number, startTime: number): Promise<boolean> {
+  async hsspPlay(serverTime: number, startTime: number, options?: { leadMs?: number }): Promise<boolean> {
     if (!this.connected) return false
     const signal = this.replaceController('play')
     try {
-      const modeOk = await this.setMode(1, signal)
-      if (signal.aborted) {
-        return false
-      }
-      if (!modeOk) {
-        this.setUploadStatus('error', 'Failed to switch Handy to HSSP mode')
-        return false
+      if (this.currentMode !== 1) {
+        const modeOk = await this.setMode(1, signal)
+        if (signal.aborted) {
+          return false
+        }
+        if (!modeOk) {
+          this.setUploadStatus('error', 'Failed to switch Handy to HSSP mode')
+          return false
+        }
       }
 
       const attemptPlay = async (estimatedServerTime: number) => {
+        const leadMs = Number.isFinite(options?.leadMs)
+          ? Math.max(0, Math.round(options?.leadMs ?? 0))
+          : this.getRecommendedPlayLeadMs()
         const payload = {
-          estimatedServerTime: Math.max(0, Math.round(estimatedServerTime + this.getHsspPlayLeadMs())),
+          estimatedServerTime: Math.max(0, Math.round(estimatedServerTime + leadMs)),
           startTime: Math.max(0, Math.round(startTime)),
         }
         const response = await fetch(`${HANDY_API}/hssp/play`, {
@@ -334,6 +351,7 @@ export class HandyService {
 
   async hsspStop(): Promise<boolean> {
     if (!this.connected) return false
+    this.cancelPendingPlay()
     try {
       const response = await fetch(`${HANDY_API}/hssp/stop`, {
         method: 'PUT',
@@ -350,8 +368,24 @@ export class HandyService {
 
   /** Convert funscript actions to CSV for Handy upload */
   static actionsToCSV(actions: FunscriptAction[]): string {
-    const lines = actions.map((a) => `${Math.round(a.at)},${Math.round(a.pos)}`)
+    const normalizedActions = HandyService.normalizeActionsForUpload(actions)
+    const lines = normalizedActions.map((a) => `${Math.round(a.at)},${Math.round(a.pos)}`)
     return '#Created by ScriptPlayer+\n' + lines.join('\n')
+  }
+
+  private static normalizeActionsForUpload(actions: FunscriptAction[]): FunscriptAction[] {
+    if (actions.length === 0) {
+      return actions
+    }
+
+    const firstAction = actions[0]
+    if (!Number.isFinite(firstAction.at) || firstAction.at <= 0) {
+      return actions
+    }
+
+    // Local playback holds the first known position before the first timestamp.
+    // Prepend that same position at 0ms so Handy HSSP doesn't appear to skip the intro.
+    return [{ at: 0, pos: firstAction.pos }, ...actions]
   }
 
   /** Upload script CSV to Handy script server and get URL, then set up HSSP */

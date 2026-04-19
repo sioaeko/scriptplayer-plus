@@ -67,7 +67,7 @@ function createDefaultSettings(): AppSettings {
     strokeRangeMin: 0,
     strokeRangeMax: 100,
     invertStroke: false,
-    timeOffset: 0,
+    timeOffset: -200,
     handyAutoPlayAfterSync: true,
     noScriptRandomStrokeEnabled: false,
     noScriptRandomMinSpeed: 72,

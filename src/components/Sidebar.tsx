@@ -26,6 +26,17 @@ function saveHandyHistory(history: HandyHistoryEntry[]) {
   localStorage.setItem('handyHistory', JSON.stringify(history.slice(0, 5)))
 }
 
+function loadInitialHandyKey(): string {
+  try {
+    const storedKey = localStorage.getItem('handyKey')
+    if (storedKey) return storedKey
+  } catch {
+    // Ignore storage failures
+  }
+
+  return loadHandyHistory()[0]?.key || ''
+}
+
 function addToHandyHistory(key: string) {
   const history = loadHandyHistory()
   const existing = history.find(h => h.key === key)
@@ -197,7 +208,7 @@ export default function Sidebar({
   const [tab, setTab] = useState<'files' | 'search' | 'device'>('files')
   const [filter, setFilter] = useState('')
   const [multiAxisOnly, setMultiAxisOnly] = useState(false)
-  const [handyKey, setHandyKey] = useState(() => localStorage.getItem('handyKey') || '')
+  const [handyKey, setHandyKey] = useState(loadInitialHandyKey)
   const [connecting, setConnecting] = useState(false)
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
   const [handyHistory, setHandyHistory] = useState<HandyHistoryEntry[]>(loadHandyHistory)
@@ -352,6 +363,24 @@ export default function Sidebar({
       autoConnectAttempted.current = false
     }
   }, [deviceProvider])
+
+  useEffect(() => {
+    if (handyKey || handyHistory.length === 0) {
+      return
+    }
+
+    const fallbackKey = handyHistory[0]?.key || ''
+    if (!fallbackKey) {
+      return
+    }
+
+    setHandyKey(fallbackKey)
+    try {
+      localStorage.setItem('handyKey', fallbackKey)
+    } catch {
+      // Ignore storage failures
+    }
+  }, [handyHistory, handyKey])
 
   useEffect(() => {
     if (

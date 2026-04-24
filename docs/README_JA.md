@@ -131,10 +131,10 @@ npm run build:mac
 
 ## ライセンス
 
-PolyForm-Noncommercial-1.0.0
+ScriptPlayer+ End User License Agreement
 
-このプロジェクトは、非商用利用のみを認める source-available ソフトウェアとして提供されています。
-商用利用には著作権者の別途許可が必要です。
+ScriptPlayer+ は [`LICENSE`](../LICENSE) に記載された EULA の条件で配布されるプロプライエタリソフトウェアです。
+商用利用、再配布、変更、プロジェクトメディアの再利用には、著作権者の別途書面による許可が必要です。
 
 ---
 

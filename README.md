@@ -18,7 +18,7 @@
     <img alt="Downloads" src="https://img.shields.io/github/downloads/sioaeko/scriptplayer-plus/total?label=Downloads">
   </a>
   <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-1f2937">
-  <img alt="License" src="https://img.shields.io/badge/License-PolyForm--Noncommercial-111827">
+  <img alt="License" src="https://img.shields.io/badge/License-EULA-111827">
 </p>
 
 <p align="center">
@@ -270,7 +270,7 @@ npm run build:linux
 
 ## License
 
-`PolyForm-Noncommercial-1.0.0`
+`ScriptPlayer+ End User License Agreement`
 
-This project is source-available for noncommercial use.
-Commercial use requires separate permission from the copyright holder.
+ScriptPlayer+ is proprietary software distributed under the terms in [`LICENSE`](LICENSE).
+Commercial use, redistribution, modification, and reuse of project media require separate written permission from the copyright holder.

@@ -2,8 +2,9 @@
   "name": "scriptplayer-plus",
   "version": "0.2.0",
   "description": "ScriptPlayer+ - Funscript video player with Handy, Intiface, and FunOSR support",
+  "private": true,
   "author": "sioaeko <grade0422@gmail.com>",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "dist-electron/main.js",
   "engines": {
     "node": "20.x"
@@ -51,7 +52,8 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "LICENSE"
     ],
     "win": {
       "target": [

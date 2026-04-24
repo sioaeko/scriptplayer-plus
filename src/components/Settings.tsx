@@ -11,7 +11,15 @@ import {
   FolderOpen,
 } from 'lucide-react'
 import { APP_VERSION } from '../constants/app'
-import { AppSettings, UI_SCALE_OPTIONS } from '../services/settings'
+import {
+  AppSettings,
+  MOTION_SPEED_LIMIT_MAX,
+  MOTION_SPEED_LIMIT_MIN,
+  MOTION_SPEED_LIMIT_PRESET_VALUES,
+  MOTION_SPEED_LIMIT_PRESETS,
+  MOTION_SPEED_LIMIT_STEP,
+  UI_SCALE_OPTIONS,
+} from '../services/settings'
 import {
   getNoScriptStrokePatternForPreset,
   NO_SCRIPT_STROKE_PATTERNS,
@@ -286,6 +294,18 @@ function AppearanceSection({
             </option>
           ))}
         </select>
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.alwaysOnTop')}
+        description={t('settings.alwaysOnTopDesc')}
+      >
+        <Toggle
+          checked={settings.alwaysOnTop}
+          onChange={(value) => update('alwaysOnTop', value)}
+        />
       </FieldRow>
 
       <Divider />
@@ -597,6 +617,33 @@ function DeviceSection({
   const { t } = useTranslation()
   const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
     onChange({ ...settings, [key]: val })
+  const motionSpeedLimitCustom = settings.motionSpeedLimitPreset === 'custom'
+  const updateMotionSpeedLimitPreset = (preset: AppSettings['motionSpeedLimitPreset']) => {
+    if (preset === 'off') {
+      onChange({
+        ...settings,
+        motionSpeedLimitPreset: preset,
+        motionSpeedLimitEnabled: false,
+      })
+      return
+    }
+
+    if (preset === 'custom') {
+      onChange({
+        ...settings,
+        motionSpeedLimitPreset: preset,
+        motionSpeedLimitEnabled: true,
+      })
+      return
+    }
+
+    onChange({
+      ...settings,
+      motionSpeedLimitPreset: preset,
+      motionSpeedLimitEnabled: true,
+      motionSpeedLimit: MOTION_SPEED_LIMIT_PRESET_VALUES[preset],
+    })
+  }
 
   return (
     <div>
@@ -666,6 +713,58 @@ function DeviceSection({
           className="w-36"
         />
       </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.motionSpeedLimit')}
+        description={t('settings.motionSpeedLimitDesc')}
+      >
+        <select
+          value={settings.motionSpeedLimitPreset}
+          onChange={(e) => updateMotionSpeedLimitPreset(e.target.value as AppSettings['motionSpeedLimitPreset'])}
+          className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[160px] focus:border-accent/50"
+        >
+          {MOTION_SPEED_LIMIT_PRESETS.map((preset) => (
+            <option key={preset} value={preset}>
+              {t(`settings.motionSpeedLimitPreset.${preset}`)}
+            </option>
+          ))}
+        </select>
+      </FieldRow>
+
+      <FieldRow
+        label={t('settings.motionSpeedLimitValue')}
+        description={`${formatSpeedLabel(settings.motionSpeedLimit)} • ${t('settings.motionSpeedLimitValueDesc')}`}
+      >
+        <input
+          type="range"
+          min={MOTION_SPEED_LIMIT_MIN}
+          max={MOTION_SPEED_LIMIT_MAX}
+          step={MOTION_SPEED_LIMIT_STEP}
+          disabled={!motionSpeedLimitCustom}
+          value={settings.motionSpeedLimit}
+          onChange={(e) => onChange({
+            ...settings,
+            motionSpeedLimitPreset: 'custom',
+            motionSpeedLimitEnabled: true,
+            motionSpeedLimit: Number(e.target.value),
+          })}
+          className={`w-36 ${!motionSpeedLimitCustom ? 'opacity-40 cursor-not-allowed' : ''}`}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.showScriptDebugInfo')}
+        description={t('settings.showScriptDebugInfoDesc')}
+      >
+        <Toggle
+          checked={settings.showScriptDebugInfo}
+          onChange={(v) => update('showScriptDebugInfo', v)}
+        />
+      </FieldRow>
     </div>
   )
 }
@@ -713,6 +812,9 @@ function ShortcutsSection({
       items: [
         { id: 'decreaseStrokeRange' as const, action: t('settings.decreaseStrokeRange') },
         { id: 'increaseStrokeRange' as const, action: t('settings.increaseStrokeRange') },
+        { id: 'decreaseScriptOffset' as const, action: t('settings.decreaseScriptOffset') },
+        { id: 'increaseScriptOffset' as const, action: t('settings.increaseScriptOffset') },
+        { id: 'resetScriptOffset' as const, action: t('settings.resetScriptOffset') },
       ],
     },
     {

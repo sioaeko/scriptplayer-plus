@@ -11,10 +11,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Display
   setZoomFactor: (factor: number) => webFrame.setZoomFactor(factor),
 
+  // System utilities
+  writeClipboardText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
+  showItemInFolder: (filePath: string) => ipcRenderer.invoke('shell:showItemInFolder', filePath),
+
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  setAlwaysOnTop: (enabled: boolean) => ipcRenderer.invoke('window:setAlwaysOnTop', enabled),
 
   // Dialogs
   openVideo: () => ipcRenderer.invoke('dialog:openVideo'),
@@ -24,12 +29,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDroppedFilePath: (file: File) => webUtils.getPathForFile(file),
 
   // File system
-  readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
+  readDir: (path: string, scriptFolder?: string) => ipcRenderer.invoke('fs:readDir', path, scriptFolder),
   readFunscript: (videoPath: string, scriptFolder?: string) => ipcRenderer.invoke('fs:readFunscript', videoPath, scriptFolder),
   readFunscriptBundle: (videoPath: string, scriptFolder?: string, preferredScriptPath?: string) =>
     ipcRenderer.invoke('fs:readFunscriptBundle', videoPath, scriptFolder, preferredScriptPath),
   listScriptVariants: (videoPath: string, scriptFolder?: string) =>
     ipcRenderer.invoke('fs:listScriptVariants', videoPath, scriptFolder),
+  findMediaForScript: (scriptPath: string, candidateMediaPaths?: string[], preferredMediaPath?: string) =>
+    ipcRenderer.invoke('fs:findMediaForScript', scriptPath, candidateMediaPaths, preferredMediaPath),
+  listMediaMatchesForScript: (scriptPath: string, candidateMediaPaths?: string[], preferredMediaPath?: string) =>
+    ipcRenderer.invoke('fs:listMediaMatchesForScript', scriptPath, candidateMediaPaths, preferredMediaPath),
   readFunscriptFile: (filePath: string) => ipcRenderer.invoke('fs:readFunscriptFile', filePath),
   saveFunscript: (videoPath: string, data: string) => ipcRenderer.invoke('fs:saveFunscript', videoPath, data),
   getVideoUrl: (filePath: string) => ipcRenderer.invoke('fs:getVideoUrl', filePath),

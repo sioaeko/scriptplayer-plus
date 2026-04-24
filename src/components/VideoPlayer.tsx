@@ -17,6 +17,11 @@ import {
   Loader2,
   Music4,
   SlidersHorizontal,
+  Clock3,
+  RotateCcw,
+  RefreshCw,
+  Copy,
+  FolderOpen,
 } from 'lucide-react'
 import { FunscriptAction, MediaType, PlaybackMode, SubtitleCue } from '../types'
 import { useTranslation } from '../i18n'
@@ -38,6 +43,15 @@ interface DeviceOverlayInfo {
   statusTone?: 'busy' | 'error' | null
 }
 
+export interface ScriptDebugInfo {
+  enabled: boolean
+  sourcePath: string | null
+  sourceLabel: string
+  axes: string[]
+  offsetMs: number
+  offsetScope: string
+}
+
 const PLAYER_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'playPause',
   'seekBackward',
@@ -54,15 +68,20 @@ const PLAYER_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'toggleFullscreen',
   'decreaseStrokeRange',
   'increaseStrokeRange',
+  'decreaseScriptOffset',
+  'increaseScriptOffset',
+  'resetScriptOffset',
 ]
 
 interface VideoPlayerProps {
+  mediaSessionKey: number
   videoUrl: string | null
   mediaType: MediaType | null
   currentFileName: string | null
   artworkUrl: string | null
   actions: FunscriptAction[]
   scriptSource?: string | null
+  scriptDebugInfo?: ScriptDebugInfo | null
   subtitleCues: SubtitleCue[]
   onTimeUpdate: (time: number) => void
   onPlay: () => void | Promise<void>
@@ -90,6 +109,9 @@ interface VideoPlayerProps {
   invertStroke?: boolean
   onStrokeRangeChange?: (min: number, max: number) => void
   onInvertStrokeChange?: (invert: boolean) => void
+  scriptOffset?: number
+  onScriptOffsetChange?: (offsetMs: number) => void
+  onReloadScriptSource?: (scriptPath: string) => void | Promise<void>
   onOpenDeviceSettings?: () => void
   defaultShowHeatmap?: boolean
   defaultShowTimeline?: boolean
@@ -104,15 +126,21 @@ const PLAYBACK_RATE_MAX = 2
 const PLAYBACK_RATE_STEP = 0.1
 const PLAYBACK_RATE_PRESETS = [0.75, 1, 1.25, 1.5] as const
 const STROKE_RANGE_SHORTCUT_SPAN_STEP = 10
+const SCRIPT_OFFSET_MIN_MS = -5000
+const SCRIPT_OFFSET_MAX_MS = 5000
+const SCRIPT_OFFSET_SMALL_STEP_MS = 50
+const SCRIPT_OFFSET_LARGE_STEP_MS = 250
 const TOP_NAV_TRIGGER_HEIGHT_PX = 84
 
 export default function VideoPlayer({
+  mediaSessionKey,
   videoUrl,
   mediaType,
   currentFileName,
   artworkUrl,
   actions,
   scriptSource = null,
+  scriptDebugInfo = null,
   subtitleCues,
   onTimeUpdate,
   onPlay,
@@ -140,6 +168,9 @@ export default function VideoPlayer({
   invertStroke = false,
   onStrokeRangeChange,
   onInvertStrokeChange,
+  scriptOffset = 0,
+  onScriptOffsetChange,
+  onReloadScriptSource,
   onOpenDeviceSettings,
   defaultShowHeatmap = false,
   defaultShowTimeline = false,
@@ -153,14 +184,18 @@ export default function VideoPlayer({
   const [playing, setPlaying] = useState(false)
   const [showDeviceOverlay, setShowDeviceOverlay] = useState(false)
   const [showStrokeControls, setShowStrokeControls] = useState(false)
+  const [showScriptOffsetControls, setShowScriptOffsetControls] = useState(false)
   const [showPlaybackRatePopover, setShowPlaybackRatePopover] = useState(false)
   const [showHeatmap, setShowHeatmap] = useState(defaultShowHeatmap)
   const [showTimeline, setShowTimeline] = useState(defaultShowTimeline)
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scriptOffsetFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const strokeControlsRef = useRef<HTMLDivElement>(null)
   const playbackRateControlsRef = useRef<HTMLDivElement>(null)
+  const scriptOffsetControlsRef = useRef<HTMLDivElement>(null)
   const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const autoRevealedScriptUrl = useRef<string | null>(null)
+  const autoRevealedScriptKey = useRef<string | null>(null)
+  const initializedMediaStateKey = useRef<string | null>(null)
   const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
   const fullscreenControlsOverlayRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -180,6 +215,10 @@ export default function VideoPlayer({
   const [showControls, setShowControls] = useState(true)
   const [showTopNav, setShowTopNav] = useState(false)
   const [showSubtitles, setShowSubtitles] = useState(subtitleCues.length > 0)
+  const [scriptOffsetFeedback, setScriptOffsetFeedback] = useState<number | null>(null)
+  const [scriptPathCopied, setScriptPathCopied] = useState(false)
+  const scriptOffsetRef = useRef(scriptOffset)
+  const scriptPathCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [strokeDraft, setStrokeDraft] = useState(() => ({
     min: strokeRangeMin,
     max: strokeRangeMax,
@@ -219,6 +258,9 @@ export default function VideoPlayer({
   const controlsPanelClass = isFullscreen
     ? 'rounded-2xl border border-white/14 bg-black px-3 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.6)]'
     : ''
+  const mediaStateKey = `${mediaSessionKey}:${videoUrl ?? 'none'}`
+  const debugScriptPathCandidate = scriptDebugInfo?.sourcePath ?? null
+  const debugScriptPath = isRealScriptSource(debugScriptPathCandidate) ? debugScriptPathCandidate : null
   const progressBarWrapClass = isFullscreen
     ? 'mb-3'
     : 'mb-2'
@@ -336,6 +378,45 @@ export default function VideoPlayer({
   const adjustPlaybackRate = useCallback((delta: number) => {
     onPlaybackRateChange(clampPlaybackRate(playbackRate + delta))
   }, [onPlaybackRateChange, playbackRate])
+
+  const showScriptOffsetFeedback = useCallback((offsetMs: number) => {
+    setScriptOffsetFeedback(offsetMs)
+    if (scriptOffsetFeedbackTimer.current) clearTimeout(scriptOffsetFeedbackTimer.current)
+    scriptOffsetFeedbackTimer.current = setTimeout(() => {
+      scriptOffsetFeedbackTimer.current = null
+      setScriptOffsetFeedback(null)
+    }, 1200)
+  }, [])
+
+  const setScriptOffsetValue = useCallback((offsetMs: number, showFeedback = true) => {
+    if (!onScriptOffsetChange) return
+    const nextOffset = clampScriptOffset(offsetMs)
+    scriptOffsetRef.current = nextOffset
+    onScriptOffsetChange(nextOffset)
+    if (showFeedback) {
+      showScriptOffsetFeedback(nextOffset)
+    }
+  }, [onScriptOffsetChange, showScriptOffsetFeedback])
+
+  const adjustScriptOffset = useCallback((deltaMs: number, showFeedback = true) => {
+    setScriptOffsetValue(scriptOffsetRef.current + deltaMs, showFeedback)
+  }, [setScriptOffsetValue])
+
+  const copyScriptPath = useCallback(async (scriptPath: string) => {
+    const ok = await window.electronAPI.writeClipboardText(scriptPath)
+    if (!ok) return
+
+    setScriptPathCopied(true)
+    if (scriptPathCopiedTimer.current) clearTimeout(scriptPathCopiedTimer.current)
+    scriptPathCopiedTimer.current = setTimeout(() => {
+      scriptPathCopiedTimer.current = null
+      setScriptPathCopied(false)
+    }, 1200)
+  }, [])
+
+  const openScriptFolder = useCallback(async (scriptPath: string) => {
+    await window.electronAPI.showItemInFolder(scriptPath)
+  }, [])
 
   const clearStrokeCommitTimer = useCallback(() => {
     if (!strokeCommitTimer.current) return
@@ -480,13 +561,19 @@ export default function VideoPlayer({
   }, [strokeRangeMax, strokeRangeMin])
 
   useEffect(() => {
+    scriptOffsetRef.current = scriptOffset
+  }, [scriptOffset])
+
+  useEffect(() => {
     if (showControls) return
     setShowStrokeControls(false)
+    setShowScriptOffsetControls(false)
   }, [showControls])
 
   useEffect(() => {
     if (actions.length > 0) return
     setShowStrokeControls(false)
+    setShowScriptOffsetControls(false)
   }, [actions.length])
 
   useEffect(() => {
@@ -515,6 +602,18 @@ export default function VideoPlayer({
   }, [showPlaybackRatePopover])
 
   useEffect(() => {
+    if (!showScriptOffsetControls) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (scriptOffsetControlsRef.current?.contains(event.target as Node)) return
+      setShowScriptOffsetControls(false)
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    return () => window.removeEventListener('mousedown', handlePointerDown)
+  }, [showScriptOffsetControls])
+
+  useEffect(() => {
     return () => {
       if (playbackFrameRef.current !== null) {
         cancelAnimationFrame(playbackFrameRef.current)
@@ -522,6 +621,8 @@ export default function VideoPlayer({
       clearHideControlsTimer()
       clearStrokeCommitTimer()
       if (deviceOverlayTimer.current) clearTimeout(deviceOverlayTimer.current)
+      if (scriptOffsetFeedbackTimer.current) clearTimeout(scriptOffsetFeedbackTimer.current)
+      if (scriptPathCopiedTimer.current) clearTimeout(scriptPathCopiedTimer.current)
     }
   }, [clearHideControlsTimer, clearStrokeCommitTimer])
 
@@ -583,12 +684,22 @@ export default function VideoPlayer({
         case 'increaseStrokeRange':
           adjustStrokeRangeBySpan(STROKE_RANGE_SHORTCUT_SPAN_STEP)
           break
+        case 'decreaseScriptOffset':
+          adjustScriptOffset(-SCRIPT_OFFSET_SMALL_STEP_MS)
+          break
+        case 'increaseScriptOffset':
+          adjustScriptOffset(SCRIPT_OFFSET_SMALL_STEP_MS)
+          break
+        case 'resetScriptOffset':
+          setScriptOffsetValue(0)
+          break
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
     adjustStrokeRangeBySpan,
+    adjustScriptOffset,
     duration,
     handleSeek,
     handleVolumeChange,
@@ -597,6 +708,7 @@ export default function VideoPlayer({
     shortcutBindings,
     shortcutsEnabled,
     skip,
+    setScriptOffsetValue,
     toggleFullscreen,
     toggleMute,
     togglePlay,
@@ -611,14 +723,14 @@ export default function VideoPlayer({
     const media = mediaRef.current
     if (!media || !videoUrl) return
     media.volume = volume
-  }, [mediaRef, videoUrl, volume])
+  }, [mediaRef, mediaStateKey, videoUrl, volume])
 
   useEffect(() => {
     const media = mediaRef.current
     if (!media || !videoUrl) return
     media.defaultPlaybackRate = playbackRate
     media.playbackRate = playbackRate
-  }, [mediaRef, playbackRate, videoUrl])
+  }, [mediaRef, mediaStateKey, playbackRate, videoUrl])
 
   useEffect(() => {
     const cancelFrame = () => {
@@ -659,9 +771,14 @@ export default function VideoPlayer({
     }
 
     return cancelFrame
-  }, [mediaRef, playing, syncCurrentTimeFromMedia, videoUrl])
+  }, [mediaRef, mediaStateKey, playing, syncCurrentTimeFromMedia, videoUrl])
 
   useEffect(() => {
+    if (initializedMediaStateKey.current === mediaStateKey) {
+      return
+    }
+
+    initializedMediaStateKey.current = mediaStateKey
     setCurrentTime(0)
     setProgressPreviewTime(null)
     setIsProgressScrubbing(false)
@@ -676,7 +793,7 @@ export default function VideoPlayer({
     setShowPlaybackRatePopover(false)
     setShowHeatmap(defaultShowHeatmap)
     setShowTimeline(defaultShowTimeline)
-  }, [videoUrl, defaultShowHeatmap, defaultShowTimeline])
+  }, [defaultShowHeatmap, defaultShowTimeline, mediaStateKey])
 
   useEffect(() => {
     setShowSubtitles(subtitleCues.length > 0)
@@ -852,20 +969,20 @@ export default function VideoPlayer({
     }, 5000)
 
     return cleanup
-  }, [autoPlayRequestId, mediaRef, videoUrl])
+  }, [autoPlayRequestId, mediaRef, mediaStateKey, videoUrl])
 
   useEffect(() => {
     if (!videoUrl || actions.length === 0 || showHeatmap || showTimeline) {
       return
     }
 
-    if (autoRevealedScriptUrl.current === videoUrl) {
+    if (autoRevealedScriptKey.current === mediaStateKey) {
       return
     }
 
-    autoRevealedScriptUrl.current = videoUrl
+    autoRevealedScriptKey.current = mediaStateKey
     setShowTimeline(true)
-  }, [actions.length, showHeatmap, showTimeline, videoUrl])
+  }, [actions.length, mediaStateKey, showHeatmap, showTimeline, videoUrl])
 
   return (
     <div
@@ -880,7 +997,7 @@ export default function VideoPlayer({
           mediaType === 'audio' ? (
             <>
               <audio
-                key={videoUrl}
+                key={mediaStateKey}
                 ref={(node) => { mediaRef.current = node }}
                 src={videoUrl}
                 preload="auto"
@@ -937,7 +1054,7 @@ export default function VideoPlayer({
             </>
           ) : (
             <video
-              key={videoUrl}
+              key={mediaStateKey}
               ref={(node) => { mediaRef.current = node }}
               src={videoUrl}
               preload="auto"
@@ -981,8 +1098,85 @@ export default function VideoPlayer({
           </div>
         )}
 
+        {scriptDebugInfo?.enabled && actions.length > 0 && (
+          <div className="absolute top-3 left-3 z-10 max-w-[min(34rem,calc(100%-1.5rem))] rounded-lg border border-white/10 bg-black/72 px-3 py-2 text-[10px] text-white/82 shadow-[0_12px_36px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="font-semibold uppercase tracking-[0.18em] text-accent">
+                {t('player.scriptDebug')}
+              </span>
+              <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[9px] text-white/70">
+                {scriptDebugInfo.sourceLabel}
+              </span>
+            </div>
+            <div className="truncate font-mono text-white/80">
+              {scriptDebugInfo.sourcePath || t('player.scriptDebugGenerated')}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-white/62">
+              <span>{t('player.scriptDebugAxes')}: {scriptDebugInfo.axes.length > 0 ? scriptDebugInfo.axes.join(', ') : '-'}</span>
+              <span>{t('player.scriptDebugOffset')}: {formatScriptOffset(scriptDebugInfo.offsetMs)}</span>
+              <span>{scriptDebugInfo.offsetScope}</span>
+            </div>
+            {debugScriptPath && (
+              <div className="mt-2 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void copyScriptPath(debugScriptPath)
+                  }}
+                  className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
+                  title={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
+                  aria-label={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
+                >
+                  <Copy size={11} />
+                  {scriptPathCopied ? t('player.scriptPathCopiedShort') : t('player.copyScriptPathShort')}
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void openScriptFolder(debugScriptPath)
+                  }}
+                  className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
+                  title={t('player.openScriptFolder')}
+                  aria-label={t('player.openScriptFolder')}
+                >
+                  <FolderOpen size={11} />
+                  {t('player.openScriptFolderShort')}
+                </button>
+                {onReloadScriptSource && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void onReloadScriptSource(debugScriptPath)
+                    }}
+                    className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
+                    title={t('player.reloadScriptSource')}
+                    aria-label={t('player.reloadScriptSource')}
+                  >
+                    <RefreshCw size={11} />
+                    {t('player.reloadScriptSourceShort')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {scriptOffsetFeedback !== null && actions.length > 0 && (
+          <div className="pointer-events-none absolute left-1/2 top-14 z-20 -translate-x-1/2 rounded-lg border border-accent/30 bg-black/78 px-4 py-2 text-center shadow-[0_12px_36px_rgba(0,0,0,0.4)] backdrop-blur-sm animate-fade-in">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">
+              {t('player.scriptOffset')}
+            </div>
+            <div className="mt-0.5 font-mono text-lg font-semibold text-white">
+              {formatScriptOffset(scriptOffsetFeedback)}
+            </div>
+          </div>
+        )}
+
         {/* Device connection overlay */}
-        {showDeviceOverlay && deviceInfo && (
+        {showDeviceOverlay && deviceInfo && !scriptDebugInfo?.enabled && (
           <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5 animate-fade-in">
             <div className="flex items-center gap-2 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2">
               <div
@@ -1087,7 +1281,7 @@ export default function VideoPlayer({
           {showHeatmap && (
             <div className="h-8">
               <ScriptHeatmap
-                key={`heatmap-inline-${videoUrl ?? 'none'}`}
+                key={`heatmap-inline-${mediaStateKey}`}
                 actions={actions}
                 duration={duration}
                 currentTime={effectiveCurrentTime}
@@ -1098,7 +1292,7 @@ export default function VideoPlayer({
           {showTimeline && (
             <div style={{ height: timelineHeight }}>
               <ScriptTimeline
-                key={`timeline-inline-${videoUrl ?? 'none'}`}
+                key={`timeline-inline-${mediaStateKey}`}
                 actions={actions}
                 currentTime={effectiveCurrentTime}
                 duration={duration}
@@ -1120,7 +1314,7 @@ export default function VideoPlayer({
             {showHeatmap && (
               <div className="h-8">
                 <ScriptHeatmap
-                  key={`heatmap-fullscreen-${videoUrl ?? 'none'}`}
+                  key={`heatmap-fullscreen-${mediaStateKey}`}
                   actions={actions}
                   duration={duration}
                   currentTime={effectiveCurrentTime}
@@ -1131,7 +1325,7 @@ export default function VideoPlayer({
             {showTimeline && (
               <div style={{ height: timelineHeight }}>
                 <ScriptTimeline
-                  key={`timeline-fullscreen-${videoUrl ?? 'none'}`}
+                  key={`timeline-fullscreen-${mediaStateKey}`}
                   actions={actions}
                   currentTime={effectiveCurrentTime}
                   duration={duration}
@@ -1424,6 +1618,81 @@ export default function VideoPlayer({
                   </div>
                 )}
 
+                {actions.length > 0 && onScriptOffsetChange && (
+                  <div ref={scriptOffsetControlsRef} className="relative">
+                    {showScriptOffsetControls && (
+                      <div
+                        className="absolute bottom-full right-0 mb-3 w-72 rounded-2xl border border-surface-100/20 bg-surface-300/95 p-4 shadow-[0_28px_100px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="mb-3 flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                              {t('player.scriptOffset')}
+                            </div>
+                            <div className="mt-1 font-mono text-xl font-semibold text-text-primary">
+                              {formatScriptOffset(scriptOffset)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setScriptOffsetValue(0)
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-surface-100/20 bg-surface-200/70 text-text-secondary transition-colors hover:text-text-primary"
+                            title={t('player.resetScriptOffset')}
+                            aria-label={t('player.resetScriptOffset')}
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            -SCRIPT_OFFSET_LARGE_STEP_MS,
+                            -SCRIPT_OFFSET_SMALL_STEP_MS,
+                            SCRIPT_OFFSET_SMALL_STEP_MS,
+                            SCRIPT_OFFSET_LARGE_STEP_MS,
+                          ].map((delta) => (
+                            <button
+                              key={delta}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                adjustScriptOffset(delta)
+                              }}
+                              className="rounded-lg border border-surface-100/20 bg-surface-200/60 px-2 py-2 font-mono text-[11px] font-semibold text-text-secondary transition-colors hover:border-accent/30 hover:bg-accent/10 hover:text-accent"
+                            >
+                              {formatScriptOffset(delta)}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 text-[10px] leading-relaxed text-text-muted">
+                          {t('player.scriptOffsetDesc')}
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowScriptOffsetControls((value) => !value)
+                      }}
+                      className={`p-1.5 flex items-center gap-1 rounded transition-colors ${
+                        showScriptOffsetControls || scriptOffset !== 0
+                          ? 'text-accent bg-accent/10'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                      title={t('player.scriptOffset')}
+                    >
+                      <Clock3 size={16} />
+                      <span className="text-[10px] font-medium">{formatScriptOffset(scriptOffset)}</span>
+                    </button>
+                  </div>
+                )}
+
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleLoopCurrentMedia() }}
                   className={`p-1.5 rounded transition-colors ${loopCurrentMedia ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
@@ -1519,6 +1788,10 @@ function getFileNameFromPath(filePath: string): string {
   return filePath.split(/[\\/]/).pop() || filePath
 }
 
+function isRealScriptSource(sourcePath: string | null): sourcePath is string {
+  return Boolean(sourcePath && !sourcePath.startsWith('generated://'))
+}
+
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(Number.isFinite(value) ? value : 0)))
 }
@@ -1532,6 +1805,16 @@ function clampPlaybackRate(value: number): number {
       Number(normalized.toFixed(2))
     )
   )
+}
+
+function clampScriptOffset(value: number): number {
+  const normalized = Number.isFinite(value) ? value : 0
+  return Math.max(SCRIPT_OFFSET_MIN_MS, Math.min(SCRIPT_OFFSET_MAX_MS, Math.round(normalized)))
+}
+
+function formatScriptOffset(value: number): string {
+  const rounded = Math.round(Number.isFinite(value) ? value : 0)
+  return `${rounded >= 0 ? '+' : ''}${rounded}ms`
 }
 
 function formatPlaybackRate(rate: number): string {

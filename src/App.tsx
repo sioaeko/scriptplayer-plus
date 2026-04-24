@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
-import VideoPlayer from './components/VideoPlayer'
+import ScriptMatchDialog from './components/ScriptMatchDialog'
+import VideoPlayer, { type ScriptDebugInfo } from './components/VideoPlayer'
 import Settings, { type SettingsSection } from './components/Settings'
 import {
   Funscript,
@@ -12,12 +13,18 @@ import {
   OsrSerialPortInfo,
   PlaybackMode,
   ScriptAxisId,
+  ScriptMediaMatchCandidate,
   ScriptVariantOption,
   SubtitleCue,
   SubtitleFile,
   VideoFile,
 } from './types'
-import { parseFunscript, transformFunscriptActions } from './services/funscript'
+import {
+  limitFunscriptMotionSpeed,
+  parseFunscript,
+  strokesPerMinuteToUnitsPerSecond,
+  transformFunscriptActions,
+} from './services/funscript'
 import { handyService, HandyUploadStatus } from './services/handy'
 import {
   ButtplugConnectionState,
@@ -61,6 +68,7 @@ import { useTranslation } from './i18n'
 
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
 const AUDIO_EXTS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wma']
+const SCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const PLAYBACK_MODE_STORAGE_KEY = 'scriptplayer-playback-mode'
 const PLAYBACK_MODE_MIGRATION_KEY = 'scriptplayer-playback-mode-default-v2'
 const LOOP_CURRENT_MEDIA_STORAGE_KEY = 'scriptplayer-loop-current-media'
@@ -73,6 +81,9 @@ const OSR_SERIAL_PORT_PATH_STORAGE_KEY = 'scriptplayer-osr-serial-port-path'
 const OSR_SERIAL_UPDATE_RATE_STORAGE_KEY = 'scriptplayer-osr-serial-update-rate'
 const VIDEO_SORT_FIELD_STORAGE_KEY = 'scriptplayer-video-sort-field'
 const VIDEO_SORT_DIRECTION_STORAGE_KEY = 'scriptplayer-video-sort-direction'
+const SCRIPT_OFFSET_STORAGE_KEY = 'scriptplayer-script-offsets-v1'
+const SCRIPT_OFFSET_MIN_MS = -5000
+const SCRIPT_OFFSET_MAX_MS = 5000
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
 const DEFAULT_OSR_SERIAL_BAUD_RATE = 115200
 const DEFAULT_OSR_SERIAL_UPDATE_RATE = 50
@@ -86,11 +97,21 @@ const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
 type StoredButtplugFeatureMapping = ButtplugFeatureMapping
 
+interface PendingScriptMatchState {
+  scriptPath: string
+  candidates: ScriptMediaMatchCandidate[]
+}
+
 function getMediaTypeFromPath(filePath: string): MediaType | null {
   const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
   if (VIDEO_EXTS.includes(ext)) return 'video'
   if (AUDIO_EXTS.includes(ext)) return 'audio'
   return null
+}
+
+function isScriptFilePath(filePath: string): boolean {
+  const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
+  return SCRIPT_EXTS.includes(ext)
 }
 
 function loadPlaybackMode(): PlaybackMode {
@@ -214,6 +235,86 @@ function loadVideoSort(): VideoSortState {
   }
 }
 
+function clampScriptOffset(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+
+  return Math.max(SCRIPT_OFFSET_MIN_MS, Math.min(SCRIPT_OFFSET_MAX_MS, Math.round(value)))
+}
+
+function loadScriptOffsets(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(SCRIPT_OFFSET_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
+
+    const next: Record<string, number> = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!key || typeof value !== 'number') continue
+      const offset = clampScriptOffset(value)
+      if (offset !== 0) {
+        next[key] = offset
+      }
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+function saveScriptOffsets(offsets: Record<string, number>) {
+  try {
+    localStorage.setItem(SCRIPT_OFFSET_STORAGE_KEY, JSON.stringify(offsets))
+  } catch {
+    // Ignore storage failures
+  }
+}
+
+function normalizeOffsetPathKey(filePath: string): string {
+  return window.electronAPI.platform === 'win32' ? filePath.toLowerCase() : filePath
+}
+
+function buildScriptOffsetKey(mediaPath: string | null, scriptSource: string | null): string | null {
+  if (!mediaPath) {
+    return null
+  }
+
+  if (scriptSource && !scriptSource.startsWith('generated://')) {
+    return `script:${normalizeOffsetPathKey(scriptSource)}`
+  }
+
+  return `media:${normalizeOffsetPathKey(mediaPath)}`
+}
+
+function getScriptSourceLabel(sourcePath: string | null, currentMediaPath: string | null, manualScriptPath?: string): string {
+  if (!sourcePath) {
+    return 'none'
+  }
+
+  if (sourcePath.startsWith('generated://')) {
+    return 'generated'
+  }
+
+  if (manualScriptPath && normalizeOffsetPathKey(sourcePath) === normalizeOffsetPathKey(manualScriptPath)) {
+    return 'manual'
+  }
+
+  if (currentMediaPath && normalizeOffsetPathKey(pathDirnameLike(sourcePath)) === normalizeOffsetPathKey(pathDirnameLike(currentMediaPath))) {
+    return 'local'
+  }
+
+  return 'scriptFolder'
+}
+
+function pathDirnameLike(filePath: string): string {
+  const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+  return lastSlash >= 0 ? filePath.slice(0, lastSlash) : ''
+}
+
 function getPlaybackTimeScale(playbackRate: number): number {
   return 1 / (Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1)
 }
@@ -313,6 +414,37 @@ function waitForDelay(ms: number): Promise<void> {
       return
     }
     setTimeout(resolve, ms)
+  })
+}
+
+function waitForMediaElement(
+  mediaRef: React.MutableRefObject<HTMLMediaElement | null>,
+  timeoutMs = 2000
+): Promise<HTMLMediaElement | null> {
+  return new Promise((resolve) => {
+    const existing = mediaRef.current
+    if (existing) {
+      resolve(existing)
+      return
+    }
+
+    const startedAt = Date.now()
+
+    const poll = () => {
+      if (mediaRef.current) {
+        resolve(mediaRef.current)
+        return
+      }
+
+      if (Date.now() - startedAt >= timeoutMs) {
+        resolve(null)
+        return
+      }
+
+      requestAnimationFrame(poll)
+    }
+
+    requestAnimationFrame(poll)
   })
 }
 
@@ -460,7 +592,7 @@ function findAutoSkipTargetMs(
 }
 
 export default function App() {
-  const { locale, setLocale } = useTranslation()
+  const { locale, setLocale, t } = useTranslation()
   const [files, setFiles] = useState<VideoFile[]>([])
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
@@ -491,9 +623,13 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
   const [settings, setSettings] = useState<AppSettings>(loadSettings)
   const [manualScriptPaths, setManualScriptPaths] = useState<Record<string, string>>({})
+  const [scriptOffsets, setScriptOffsets] = useState<Record<string, number>>(loadScriptOffsets)
+  const [scriptMatchDialog, setScriptMatchDialog] = useState<PendingScriptMatchState | null>(null)
   const [scriptVariants, setScriptVariants] = useState<ScriptVariantOption[]>([])
+  const [scriptFolderRescanning, setScriptFolderRescanning] = useState(false)
   const [manualSubtitleFiles, setManualSubtitleFiles] = useState<Record<string, SubtitleFile>>({})
   const [mediaDurationSeconds, setMediaDurationSeconds] = useState(0)
+  const [mediaSessionKey, setMediaSessionKey] = useState(0)
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(loadPlaybackMode)
   const [loopCurrentMedia, setLoopCurrentMedia] = useState<boolean>(loadLoopCurrentMedia)
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
@@ -502,10 +638,14 @@ export default function App() {
   const [pendingAutoPlayAfterHandyUpload, setPendingAutoPlayAfterHandyUpload] = useState(false)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const currentFileRef = useRef<string | null>(null)
+  const currentFolderPathRef = useRef<string | null>(null)
+  const manualScriptPathsRef = useRef<Record<string, string>>(manualScriptPaths)
+  const scriptFolderRef = useRef<string>(settings.scriptFolder)
   const pendingAutoPlayAfterHandyUploadRef = useRef(false)
   const skipNextHandyPlaySyncRef = useRef(false)
   const handyUploadRequestId = useRef(0)
   const handyAutoPlayRunId = useRef(0)
+  const handyAutoPlaySyncInProgressRef = useRef(false)
   const handySyncRunId = useRef(0)
   const openMediaRequestId = useRef(0)
   const folderLoadRequestId = useRef(0)
@@ -580,10 +720,18 @@ export default function App() {
     [effectiveFunscriptBundle?.scripts, settings.invertStroke, settings.strokeRangeMax, settings.strokeRangeMin]
   )
   const runtimeAxisActions = useMemo(
-    () => buildAxisActionMap(displayAxisActions, (_axisId, actions) =>
-      transformFunscriptActions(actions, { timeScale: getPlaybackTimeScale(playbackRate) })
-    ),
-    [displayAxisActions, playbackRate]
+    () => buildAxisActionMap(displayAxisActions, (_axisId, actions) => {
+      const scaledActions = transformFunscriptActions(actions, { timeScale: getPlaybackTimeScale(playbackRate) })
+      if (!settings.motionSpeedLimitEnabled) {
+        return scaledActions
+      }
+
+      return limitFunscriptMotionSpeed(
+        scaledActions,
+        strokesPerMinuteToUnitsPerSecond(settings.motionSpeedLimit)
+      )
+    }),
+    [displayAxisActions, playbackRate, settings.motionSpeedLimit, settings.motionSpeedLimitEnabled]
   )
   const displayActions = useMemo(
     () => (primaryAxis ? displayAxisActions[primaryAxis] ?? [] : []),
@@ -593,6 +741,15 @@ export default function App() {
     () => (primaryAxis ? effectiveFunscriptBundle?.sources[primaryAxis] ?? null : null),
     [effectiveFunscriptBundle, primaryAxis]
   )
+  const scriptOffsetKey = useMemo(
+    () => buildScriptOffsetKey(currentFile, primaryScriptSource),
+    [currentFile, primaryScriptSource]
+  )
+  const scriptOffset = useMemo(
+    () => scriptOffsetKey ? scriptOffsets[scriptOffsetKey] ?? 0 : 0,
+    [scriptOffsetKey, scriptOffsets]
+  )
+  const effectiveDeviceTimeOffset = (settings.timeOffset || 0) + scriptOffset
   const handyActions = useMemo(() => {
     if (runtimeAxisActions.L0 && runtimeAxisActions.L0.length > 0) {
       return runtimeAxisActions.L0
@@ -614,6 +771,32 @@ export default function App() {
     () => SCRIPT_AXIS_IDS.filter((axisId) => Boolean(displayAxisActions[axisId]?.length)),
     [displayAxisActions]
   )
+  const scriptDebugInfo = useMemo<ScriptDebugInfo | null>(() => {
+    if (!settings.showScriptDebugInfo || !currentFile) {
+      return null
+    }
+
+    const manualScriptPath = manualScriptPaths[currentFile]
+    return {
+      enabled: true,
+      sourcePath: primaryScriptSource,
+      sourceLabel: getScriptSourceLabel(primaryScriptSource, currentFile, manualScriptPath),
+      axes: availableScriptAxes,
+      offsetMs: scriptOffset,
+      offsetScope: scriptOffsetKey?.startsWith('script:')
+        ? t('player.scriptDebugScriptScope')
+        : t('player.scriptDebugMediaScope'),
+    }
+  }, [
+    availableScriptAxes,
+    currentFile,
+    manualScriptPaths,
+    primaryScriptSource,
+    scriptOffset,
+    scriptOffsetKey,
+    settings.showScriptDebugInfo,
+    t,
+  ])
   const allScriptActionTimes = useMemo(
     () => collectSortedActionTimes(displayAxisActions),
     [displayAxisActions]
@@ -629,6 +812,10 @@ export default function App() {
   const orderedFiles = useMemo(
     () => orderVideoFiles(displayFiles, videoSort),
     [displayFiles, videoSort]
+  )
+  const fileEntryByPath = useMemo(
+    () => new Map(orderedFiles.map((file) => [file.path, file])),
+    [orderedFiles]
   )
   const previousSequentialFile = useMemo(
     () => getAdjacentVideoFile(orderedFiles, currentFile, 'previous'),
@@ -664,6 +851,14 @@ export default function App() {
   useEffect(() => {
     currentFileRef.current = currentFile
   }, [currentFile])
+
+  useEffect(() => {
+    manualScriptPathsRef.current = manualScriptPaths
+  }, [manualScriptPaths])
+
+  useEffect(() => {
+    scriptFolderRef.current = settings.scriptFolder
+  }, [settings.scriptFolder])
 
   useEffect(() => {
     pendingAutoPlayAfterHandyUploadRef.current = pendingAutoPlayAfterHandyUpload
@@ -765,6 +960,10 @@ export default function App() {
   }, [settings.uiScale])
 
   useEffect(() => {
+    void window.electronAPI.setAlwaysOnTop(settings.alwaysOnTop)
+  }, [settings.alwaysOnTop])
+
+  useEffect(() => {
     try {
       localStorage.setItem(PLAYBACK_MODE_STORAGE_KEY, playbackMode)
       localStorage.setItem(PLAYBACK_MODE_MIGRATION_KEY, '1')
@@ -819,6 +1018,10 @@ export default function App() {
     saveSettings(newSettings)
   }, [])
 
+  const closeScriptMatchDialog = useCallback(() => {
+    setScriptMatchDialog(null)
+  }, [])
+
   const patchSettings = useCallback((patch: Partial<AppSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...patch }
@@ -828,6 +1031,7 @@ export default function App() {
   }, [])
 
   const openSettingsSection = useCallback((section: SettingsSection) => {
+    setScriptMatchDialog(null)
     setSettingsSection(section)
     setSettingsOpen(true)
   }, [])
@@ -842,6 +1046,24 @@ export default function App() {
   const handleQuickInvertStrokeChange = useCallback((invert: boolean) => {
     patchSettings({ invertStroke: invert })
   }, [patchSettings])
+
+  const handleScriptOffsetChange = useCallback((offsetMs: number) => {
+    if (!scriptOffsetKey) {
+      return
+    }
+
+    const nextOffset = clampScriptOffset(offsetMs)
+    setScriptOffsets((prev) => {
+      const next = { ...prev }
+      if (nextOffset === 0) {
+        delete next[scriptOffsetKey]
+      } else {
+        next[scriptOffsetKey] = nextOffset
+      }
+      saveScriptOffsets(next)
+      return next
+    })
+  }, [scriptOffsetKey])
 
   const handleAutoNextPlayChange = useCallback((enabled: boolean) => {
     setPlaybackMode((current) => {
@@ -957,7 +1179,7 @@ export default function App() {
 
       const intervalMs = buttplugService.getRecommendedCommandInterval(selectedButtplugDevice.index)
       const effectivePlaybackRate = currentMedia.playbackRate > 0 ? currentMedia.playbackRate : playbackRate
-      const currentTimeMs = currentMedia.currentTime * 1000 + (settings.timeOffset || 0)
+      const currentTimeMs = currentMedia.currentTime * 1000 + effectiveDeviceTimeOffset
       const targetTimeMs = currentTimeMs + intervalMs * effectivePlaybackRate
       const command = buildButtplugTransportCommand(
         selectedButtplugDevice,
@@ -986,7 +1208,7 @@ export default function App() {
     runtimeAxisActions,
     selectedButtplugDevice,
     selectedButtplugFeatureMappings,
-    settings.timeOffset,
+    effectiveDeviceTimeOffset,
   ])
 
   const stopOsrSerialPlayback = useCallback(async (options?: { homeDevice?: boolean }) => {
@@ -1026,7 +1248,7 @@ export default function App() {
 
       const intervalMs = Math.max(5, Math.round(1000 / Math.max(1, osrSerialUpdateRate)))
       const effectivePlaybackRate = currentMedia.playbackRate > 0 ? currentMedia.playbackRate : playbackRate
-      const currentTimeMs = currentMedia.currentTime * 1000 + (settings.timeOffset || 0)
+      const currentTimeMs = currentMedia.currentTime * 1000 + effectiveDeviceTimeOffset
       const targetTimeMs = currentTimeMs + intervalMs * effectivePlaybackRate
       const command = buildTCodeCommand(runtimeAxisActions, targetTimeMs, {
         axisIds: OSR_SERIAL_AXIS_ORDER,
@@ -1051,7 +1273,7 @@ export default function App() {
     osrSerialUpdateRate,
     playbackRate,
     runtimeAxisActions,
-    settings.timeOffset,
+    effectiveDeviceTimeOffset,
   ])
 
   const loadSubtitleCues = useCallback(async (mediaPath: string, mediaType: MediaType) => {
@@ -1091,99 +1313,105 @@ export default function App() {
 
   const syncHandyPlayback = useCallback(async (mediaTimeSeconds: number) => {
     if (!handyService.isConnected || !scriptUploadUrl) return
-    const { startTime, extraServerDelayMs } = getHandySyncTarget(mediaTimeSeconds, playbackRate, settings.timeOffset || 0)
+    const { startTime, extraServerDelayMs } = getHandySyncTarget(mediaTimeSeconds, playbackRate, effectiveDeviceTimeOffset)
     await handyService.hsspPlay(handyService.getServerTime() + extraServerDelayMs, startTime)
-  }, [playbackRate, scriptUploadUrl, settings.timeOffset])
+  }, [effectiveDeviceTimeOffset, playbackRate, scriptUploadUrl])
 
   const syncHandyAndPlayMedia = useCallback(async () => {
     const runId = handyAutoPlayRunId.current
-    const media = mediaRef.current
-    if (!media || !handyService.isConnected) {
-      setHandyAutoPlayStatusText('Autoplay cancelled')
-      setHandyAutoPlayStatusTone('error')
-      return false
-    }
+    const media = await waitForMediaElement(mediaRef)
+    handyAutoPlaySyncInProgressRef.current = true
 
-    setHandyAutoPlayStatusText('Waiting for media...')
-    setHandyAutoPlayStatusTone('busy')
-    const mediaReady = await waitForMediaReady(media)
-    if (runId !== handyAutoPlayRunId.current) {
-      return false
-    }
-    if (!mediaReady) {
-      setHandyAutoPlayStatusText('Media not ready')
-      setHandyAutoPlayStatusTone('error')
-      return false
-    }
-
-    const { startTime, extraServerDelayMs } = getHandySyncTarget(media.currentTime, playbackRate, settings.timeOffset || 0)
-    const autoplayLeadMs = handyService.getRecommendedPlayLeadMs(HANDY_AUTOPLAY_REQUEST_BUFFER_MS)
-    const targetLocalStartAt = Date.now() + autoplayLeadMs
-
-    setHandyAutoPlayStatusText('Syncing Handy...')
-    setHandyAutoPlayStatusTone('busy')
-    skipNextHandyPlaySyncRef.current = true
-    const handySyncPromise = handyService.hsspPlay(
-      handyService.getServerTime() + extraServerDelayMs,
-      startTime,
-      { leadMs: autoplayLeadMs }
-    )
-
-    const delayMs = Math.max(0, targetLocalStartAt - Date.now())
-    if (delayMs > 0) {
-      setHandyAutoPlayStatusText('Starting video...')
-      await waitForDelay(delayMs)
-    }
-    if (runId !== handyAutoPlayRunId.current) {
-      skipNextHandyPlaySyncRef.current = false
-      if (!media.paused) {
-        media.pause()
+    try {
+      if (!media || !handyService.isConnected) {
+        setHandyAutoPlayStatusText('Autoplay cancelled')
+        setHandyAutoPlayStatusTone('error')
+        return false
       }
-      return false
-    }
 
-    const started = await playMediaWithMutedFallback(media)
-    if (runId !== handyAutoPlayRunId.current) {
-      skipNextHandyPlaySyncRef.current = false
-      if (!media.paused) {
-        media.pause()
+      setHandyAutoPlayStatusText('Waiting for media...')
+      setHandyAutoPlayStatusTone('busy')
+      const mediaReady = await waitForMediaReady(media)
+      if (runId !== handyAutoPlayRunId.current) {
+        return false
       }
-      return false
-    }
-    if (!started) {
-      skipNextHandyPlaySyncRef.current = false
-      await handyService.hsspStop()
-      setHandyAutoPlayStatusText('Video play failed')
-      setHandyAutoPlayStatusTone('error')
-      return false
-    }
+      if (!mediaReady) {
+        setHandyAutoPlayStatusText('Media not ready')
+        setHandyAutoPlayStatusTone('error')
+        return false
+      }
 
-    const synced = await handySyncPromise
-    if (runId !== handyAutoPlayRunId.current) {
-      skipNextHandyPlaySyncRef.current = false
-      if (!media.paused) {
-        media.pause()
-      }
-      return false
-    }
-    if (!synced) {
-      skipNextHandyPlaySyncRef.current = false
-      if (!media.paused) {
-        media.pause()
-      }
-      setHandyAutoPlayStatusText('HSSP sync failed')
-      setHandyAutoPlayStatusTone('error')
-      return false
-    }
+      const { startTime, extraServerDelayMs } = getHandySyncTarget(media.currentTime, playbackRate, effectiveDeviceTimeOffset)
+      const autoplayLeadMs = handyService.getRecommendedPlayLeadMs(HANDY_AUTOPLAY_REQUEST_BUFFER_MS)
+      const targetLocalStartAt = Date.now() + autoplayLeadMs
 
-    setHandyAutoPlayStatusText('Video playing')
-    setHandyAutoPlayStatusTone('busy')
-    setTimeout(() => {
-      setHandyAutoPlayStatusText((current) => current === 'Video playing' ? null : current)
-      setHandyAutoPlayStatusTone((current) => current === 'busy' ? null : current)
-    }, 2000)
-    return true
-  }, [playbackRate, settings.timeOffset])
+      setHandyAutoPlayStatusText('Syncing Handy...')
+      setHandyAutoPlayStatusTone('busy')
+      skipNextHandyPlaySyncRef.current = true
+      const handySyncPromise = handyService.hsspPlay(
+        handyService.getServerTime() + extraServerDelayMs,
+        startTime,
+        { leadMs: autoplayLeadMs }
+      )
+
+      const delayMs = Math.max(0, targetLocalStartAt - Date.now())
+      if (delayMs > 0) {
+        setHandyAutoPlayStatusText('Starting video...')
+        await waitForDelay(delayMs)
+      }
+      if (runId !== handyAutoPlayRunId.current) {
+        skipNextHandyPlaySyncRef.current = false
+        if (!media.paused) {
+          media.pause()
+        }
+        return false
+      }
+
+      const started = await playMediaWithMutedFallback(media)
+      if (runId !== handyAutoPlayRunId.current) {
+        skipNextHandyPlaySyncRef.current = false
+        if (!media.paused) {
+          media.pause()
+        }
+        return false
+      }
+      if (!started) {
+        skipNextHandyPlaySyncRef.current = false
+        await handyService.hsspStop()
+        setHandyAutoPlayStatusText('Video play failed')
+        setHandyAutoPlayStatusTone('error')
+        return false
+      }
+
+      const synced = await handySyncPromise
+      if (runId !== handyAutoPlayRunId.current) {
+        skipNextHandyPlaySyncRef.current = false
+        if (!media.paused) {
+          media.pause()
+        }
+        return false
+      }
+      if (!synced) {
+        skipNextHandyPlaySyncRef.current = false
+        if (!media.paused) {
+          media.pause()
+        }
+        setHandyAutoPlayStatusText('HSSP sync failed')
+        setHandyAutoPlayStatusTone('error')
+        return false
+      }
+
+      setHandyAutoPlayStatusText('Video playing')
+      setHandyAutoPlayStatusTone('busy')
+      setTimeout(() => {
+        setHandyAutoPlayStatusText((current) => current === 'Video playing' ? null : current)
+        setHandyAutoPlayStatusTone((current) => current === 'busy' ? null : current)
+      }, 2000)
+      return true
+    } finally {
+      handyAutoPlaySyncInProgressRef.current = false
+    }
+  }, [effectiveDeviceTimeOffset, playbackRate])
 
   const syncHandyPlaybackToCurrentMedia = useCallback(async (options?: { stopFirst?: boolean }) => {
     const media = mediaRef.current
@@ -1202,13 +1430,15 @@ export default function App() {
     await syncHandyPlayback(settledTime)
   }, [scriptUploadUrl, syncHandyPlayback])
 
-  const loadFolderFiles = useCallback(async (folderPath: string) => {
+  const loadFolderFiles = useCallback(async (folderPath: string): Promise<VideoFile[] | null> => {
     const requestId = ++folderLoadRequestId.current
-    const mediaFiles = await window.electronAPI.readDir(folderPath)
+    const mediaFiles = await window.electronAPI.readDir(folderPath, scriptFolderRef.current || undefined)
     if (requestId !== folderLoadRequestId.current) {
-      return
+      return null
     }
+    currentFolderPathRef.current = folderPath
     setFiles(mediaFiles)
+    return mediaFiles
   }, [])
 
   const handleOpenFolder = useCallback(async () => {
@@ -1216,6 +1446,39 @@ export default function App() {
     if (!folderPath) return
     await loadFolderFiles(folderPath)
   }, [loadFolderFiles])
+
+  const handleRescanScriptFolder = useCallback(async () => {
+    if (scriptFolderRescanning || !scriptFolderRef.current) {
+      return
+    }
+
+    setScriptFolderRescanning(true)
+    try {
+      const folderPath = currentFolderPathRef.current
+      const mediaPath = currentFileRef.current
+      const refreshedFiles = folderPath ? await loadFolderFiles(folderPath) : null
+
+      if (!mediaPath) {
+        return
+      }
+
+      const refreshedFile = refreshedFiles?.find((file) => file.path === mediaPath)
+      const preferredScriptPath = manualScriptPathsRef.current[mediaPath] ?? refreshedFile?.autoScriptPath
+
+      await refreshCurrentScriptBundle(mediaPath, preferredScriptPath)
+      const nextScriptVariants = await loadScriptVariants(mediaPath)
+      if (currentFileRef.current === mediaPath) {
+        setScriptVariants(nextScriptVariants)
+      }
+    } finally {
+      setScriptFolderRescanning(false)
+    }
+  }, [
+    loadFolderFiles,
+    loadScriptVariants,
+    refreshCurrentScriptBundle,
+    scriptFolderRescanning,
+  ])
 
   const openMediaFile = useCallback(async (
     filePath: string,
@@ -1249,6 +1512,7 @@ export default function App() {
     autoSkipSuppressedUntilRef.current = 0
     autoSkipCooldownUntilRef.current = 0
     resetHandyAutoPlayState()
+    setScriptMatchDialog(null)
     setCurrentFile(filePath)
     setCurrentFileType(resolvedType)
     setMediaDurationSeconds(0)
@@ -1271,6 +1535,9 @@ export default function App() {
       return
     }
 
+    if (currentFileRef.current === filePath) {
+      setMediaSessionKey((prev) => prev + 1)
+    }
     setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
@@ -1316,6 +1583,56 @@ export default function App() {
     settings.handyAutoPlayAfterSync,
     stopButtplugPlayback,
     stopOsrSerialPlayback,
+  ])
+
+  const applyDroppedScriptToMedia = useCallback(async (
+    scriptPath: string,
+    matchedMediaPath: string,
+    shouldAutoplay: boolean
+  ) => {
+    const matchedMediaType = getMediaTypeFromPath(matchedMediaPath)
+    if (!matchedMediaType) {
+      return false
+    }
+
+    setManualScriptPaths((prev) => ({ ...prev, [matchedMediaPath]: scriptPath }))
+    if (matchedMediaPath === currentFileRef.current) {
+      await refreshCurrentScriptBundle(matchedMediaPath, scriptPath)
+      void loadScriptVariants(matchedMediaPath)
+        .then((nextScriptVariants) => {
+          if (currentFileRef.current !== matchedMediaPath) {
+            return
+          }
+
+          setScriptVariants(nextScriptVariants)
+        })
+        .catch(() => {})
+      return true
+    }
+
+    await openMediaFile(matchedMediaPath, matchedMediaType, {
+      autoplay: shouldAutoplay,
+      preferredScriptPath: scriptPath,
+    })
+    return true
+  }, [loadScriptVariants, openMediaFile, refreshCurrentScriptBundle])
+
+  const handleScriptMatchDialogSelect = useCallback(async (mediaPath: string) => {
+    const pendingMatch = scriptMatchDialog
+    if (!pendingMatch) {
+      return
+    }
+
+    closeScriptMatchDialog()
+    const shouldAutoplay = settings.handyAutoPlayAfterSync && deviceProvider === 'handy' && handyConnected
+    await applyDroppedScriptToMedia(pendingMatch.scriptPath, mediaPath, shouldAutoplay)
+  }, [
+    applyDroppedScriptToMedia,
+    closeScriptMatchDialog,
+    deviceProvider,
+    handyConnected,
+    scriptMatchDialog,
+    settings.handyAutoPlayAfterSync,
   ])
 
   const handleFileSelect = useCallback(async (file: VideoFile) => {
@@ -1406,6 +1723,19 @@ export default function App() {
 
     await refreshCurrentScriptBundle(file.path, file.autoScriptPath)
   }, [currentSidebarFile, refreshCurrentScriptBundle])
+
+  const handleCurrentScriptReload = useCallback(async (scriptPath: string) => {
+    const mediaPath = currentFileRef.current
+    if (!mediaPath || !scriptPath || scriptPath.startsWith('generated://')) {
+      return
+    }
+
+    await refreshCurrentScriptBundle(mediaPath, scriptPath)
+    const nextScriptVariants = await loadScriptVariants(mediaPath)
+    if (currentFileRef.current === mediaPath) {
+      setScriptVariants(nextScriptVariants)
+    }
+  }, [loadScriptVariants, refreshCurrentScriptBundle])
 
   const handleClearManualSubtitle = useCallback(async (file: VideoFile) => {
     setManualSubtitleFiles((prev) => {
@@ -1560,6 +1890,7 @@ export default function App() {
       !media
       || media.paused
       || media.seeking
+      || handyAutoPlaySyncInProgressRef.current
       || !settings.autoSkipScriptGaps
       || allScriptActionTimes.length === 0
     ) {
@@ -1605,7 +1936,14 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (scriptMatchDialog && e.key === 'Escape') {
+        e.preventDefault()
+        closeScriptMatchDialog()
+        return
+      }
+
       if (isEditableShortcutTarget(e.target)) return
+      if (scriptMatchDialog) return
 
       const action = findMatchingShortcutAction(e, settings.keyboardShortcuts, APP_SHORTCUT_ACTIONS)
       if (!action) return
@@ -1632,7 +1970,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleOpenFolder, openSettingsSection, settings.keyboardShortcuts, settingsOpen])
+  }, [closeScriptMatchDialog, handleOpenFolder, openSettingsSection, scriptMatchDialog, settings.keyboardShortcuts, settingsOpen])
 
   useEffect(() => {
     const handleDrop = async (e: DragEvent) => {
@@ -1641,13 +1979,49 @@ export default function App() {
       if (!droppedFiles || droppedFiles.length === 0) return
 
       const file = droppedFiles[0]
-      const mediaType = getMediaTypeFromPath(file.name)
-      if (!mediaType) return
-
       const path = window.electronAPI.getDroppedFilePath(file) || (file as any).path as string
-      if (path) {
-        await openMediaFile(path, mediaType, {
-          autoplay: settings.handyAutoPlayAfterSync && deviceProvider === 'handy' && handyConnected,
+      if (!path) return
+
+      const shouldAutoplay = settings.handyAutoPlayAfterSync && deviceProvider === 'handy' && handyConnected
+      const mediaType = getMediaTypeFromPath(path)
+      if (mediaType) {
+        setScriptMatchDialog(null)
+        await openMediaFile(path, mediaType, { autoplay: shouldAutoplay })
+        return
+      }
+
+      if (!isScriptFilePath(path)) return
+
+      const candidateMediaPaths = Array.from(new Set([
+        ...files.map((entry) => entry.path),
+        currentFileRef.current,
+      ].filter((value): value is string => Boolean(value))))
+      const matchedMediaPath = await window.electronAPI.findMediaForScript(
+        path,
+        candidateMediaPaths,
+        currentFileRef.current || undefined
+      )
+      if (matchedMediaPath) {
+        setScriptMatchDialog(null)
+        await applyDroppedScriptToMedia(path, matchedMediaPath, shouldAutoplay)
+        return
+      }
+
+      const matchCandidates = await window.electronAPI.listMediaMatchesForScript(
+        path,
+        candidateMediaPaths,
+        currentFileRef.current || undefined
+      )
+      if (matchCandidates.length === 1) {
+        setScriptMatchDialog(null)
+        await applyDroppedScriptToMedia(path, matchCandidates[0].path, shouldAutoplay)
+        return
+      }
+
+      if (matchCandidates.length > 1) {
+        setScriptMatchDialog({
+          scriptPath: path,
+          candidates: matchCandidates.slice(0, 6),
         })
       }
     }
@@ -1662,13 +2036,54 @@ export default function App() {
       window.removeEventListener('drop', handleDrop)
       window.removeEventListener('dragover', handleDragOver)
     }
-  }, [deviceProvider, handyConnected, openMediaFile, settings.handyAutoPlayAfterSync])
+  }, [
+    applyDroppedScriptToMedia,
+    deviceProvider,
+    files,
+    handyConnected,
+    openMediaFile,
+    settings.handyAutoPlayAfterSync,
+  ])
 
   useEffect(() => {
     if (settings.defaultVideoFolder) {
       void loadFolderFiles(settings.defaultVideoFolder)
     }
   }, [loadFolderFiles, settings.defaultVideoFolder])
+
+  useEffect(() => {
+    const currentFolderPath = currentFolderPathRef.current
+    if (!currentFolderPath) {
+      return
+    }
+
+    void loadFolderFiles(currentFolderPath)
+  }, [loadFolderFiles, settings.scriptFolder])
+
+  useEffect(() => {
+    const mediaPath = currentFileRef.current
+    if (!mediaPath) {
+      return
+    }
+
+    const preferredScriptPath = manualScriptPathsRef.current[mediaPath]
+    let cancelled = false
+
+    void refreshCurrentScriptBundle(mediaPath, preferredScriptPath)
+    void loadScriptVariants(mediaPath)
+      .then((nextScriptVariants) => {
+        if (cancelled || currentFileRef.current !== mediaPath) {
+          return
+        }
+
+        setScriptVariants(nextScriptVariants)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadScriptVariants, refreshCurrentScriptBundle, settings.scriptFolder])
 
   useEffect(() => {
     if (deviceProvider !== 'handy' || !handyConnected) {
@@ -1720,9 +2135,9 @@ export default function App() {
   }, [
     cancelPendingHandySync,
     deviceProvider,
+    effectiveDeviceTimeOffset,
     handyActions,
     handyConnected,
-    settings.timeOffset,
     resetHandyAutoPlayState,
     waitingForGeneratedHandyScript,
   ])
@@ -1775,6 +2190,29 @@ export default function App() {
     if (!media || media.paused) return
     void syncHandyPlaybackToCurrentMedia()
   }, [deviceProvider, handyConnected, scriptUploadUrl, syncHandyPlaybackToCurrentMedia])
+
+  const scriptMatchDialogItems = useMemo(() => {
+    if (!scriptMatchDialog) {
+      return []
+    }
+
+    return scriptMatchDialog.candidates.map((candidate) => {
+      const matchingFile = fileEntryByPath.get(candidate.path)
+      const subtitle = matchingFile?.relativePath && matchingFile.relativePath !== matchingFile.name
+        ? matchingFile.relativePath
+        : candidate.path
+      const badge = candidate.path === currentFile
+        ? t('scriptMatch.currentMedia')
+        : (candidate.sourcePriority >= 2 ? t('scriptMatch.sameFolder') : t('scriptMatch.library'))
+
+      return {
+        path: candidate.path,
+        title: getFileName(candidate.path),
+        subtitle,
+        badge,
+      }
+    })
+  }, [currentFile, fileEntryByPath, scriptMatchDialog, t])
 
   useEffect(() => {
     if (buttplugDevices.length === 0) {
@@ -2000,6 +2438,7 @@ export default function App() {
           scriptVariantOverrideActive={Boolean(currentFile && manualScriptPaths[currentFile])}
           onScriptVariantSelect={handleQuickScriptVariantSelect}
           onScriptVariantReset={handleQuickScriptVariantReset}
+          onCurrentScriptReload={handleCurrentScriptReload}
           manualScriptPaths={new Set(Object.keys(manualScriptPaths))}
           manualSubtitlePaths={new Set(Object.keys(manualSubtitleFiles))}
           deviceProvider={deviceProvider}
@@ -2035,16 +2474,20 @@ export default function App() {
           onButtplugFeatureMappingChange={setSelectedButtplugFeatureMapping}
           buttplugAvailableAxes={availableScriptAxes}
           scriptFolder={settings.scriptFolder}
+          onRescanScriptFolder={handleRescanScriptFolder}
+          scriptFolderRescanning={scriptFolderRescanning}
           videoSort={videoSort}
           onVideoSortChange={setVideoSort}
         />
         <VideoPlayer
+          mediaSessionKey={mediaSessionKey}
           videoUrl={videoUrl}
           mediaType={currentFileType}
           currentFileName={currentFile ? getFileName(currentFile) : null}
           artworkUrl={artworkUrl}
           actions={displayActions}
           scriptSource={primaryScriptSource}
+          scriptDebugInfo={scriptDebugInfo}
           subtitleCues={subtitleCues}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
@@ -2065,13 +2508,16 @@ export default function App() {
           onPlaybackRateChange={setPlaybackRate}
           onDurationChange={setMediaDurationSeconds}
           shortcutBindings={settings.keyboardShortcuts}
-          shortcutsEnabled={!settingsOpen}
+          shortcutsEnabled={!settingsOpen && !scriptMatchDialog}
           deviceInfo={deviceInfo}
           strokeRangeMin={settings.strokeRangeMin}
           strokeRangeMax={settings.strokeRangeMax}
           invertStroke={settings.invertStroke}
           onStrokeRangeChange={handleQuickStrokeRangeChange}
           onInvertStrokeChange={handleQuickInvertStrokeChange}
+          scriptOffset={scriptOffset}
+          onScriptOffsetChange={scriptOffsetKey ? handleScriptOffsetChange : undefined}
+          onReloadScriptSource={handleCurrentScriptReload}
           onOpenDeviceSettings={() => openSettingsSection('device')}
           defaultShowHeatmap={settings.showHeatmapByDefault}
           defaultShowTimeline={settings.showTimelineByDefault}
@@ -2081,6 +2527,14 @@ export default function App() {
           subtitleFontSize={settings.subtitleFontSize}
         />
       </div>
+
+      <ScriptMatchDialog
+        open={Boolean(scriptMatchDialog)}
+        scriptName={scriptMatchDialog ? getFileName(scriptMatchDialog.scriptPath) : null}
+        items={scriptMatchDialogItems}
+        onSelect={handleScriptMatchDialogSelect}
+        onClose={closeScriptMatchDialog}
+      />
 
       <Settings
         open={settingsOpen}

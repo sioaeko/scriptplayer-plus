@@ -33,6 +33,12 @@ export interface ScriptVariantOption {
   isDefault: boolean
 }
 
+export interface ScriptMediaMatchCandidate {
+  path: string
+  score: number
+  sourcePriority: number
+}
+
 export interface FunscriptBundle {
   primaryAxis: ScriptAxisId | null
   scripts: Partial<Record<ScriptAxisId, Funscript>>
@@ -107,18 +113,31 @@ declare global {
         node: string
       }
       setZoomFactor: (factor: number) => void
+      writeClipboardText: (text: string) => Promise<boolean>
+      showItemInFolder: (filePath: string) => Promise<boolean>
       minimize: () => void
       maximize: () => void
       close: () => void
+      setAlwaysOnTop: (enabled: boolean) => Promise<boolean>
       openVideo: () => Promise<string | null>
       openFolder: () => Promise<string | null>
       openScriptFile: () => Promise<string | null>
       openSubtitleFile: () => Promise<string | null>
       getDroppedFilePath: (file: File) => string
-      readDir: (path: string) => Promise<VideoFile[]>
+      readDir: (path: string, scriptFolder?: string) => Promise<VideoFile[]>
       readFunscript: (videoPath: string, scriptFolder?: string) => Promise<Funscript | null>
       readFunscriptBundle: (videoPath: string, scriptFolder?: string, preferredScriptPath?: string) => Promise<FunscriptBundle | null>
       listScriptVariants: (videoPath: string, scriptFolder?: string) => Promise<ScriptVariantOption[]>
+      findMediaForScript: (
+        scriptPath: string,
+        candidateMediaPaths?: string[],
+        preferredMediaPath?: string
+      ) => Promise<string | null>
+      listMediaMatchesForScript: (
+        scriptPath: string,
+        candidateMediaPaths?: string[],
+        preferredMediaPath?: string
+      ) => Promise<ScriptMediaMatchCandidate[]>
       readFunscriptFile: (filePath: string) => Promise<Funscript | null>
       saveFunscript: (videoPath: string, data: string) => Promise<boolean>
       getVideoUrl: (filePath: string) => Promise<string>

@@ -14,6 +14,9 @@ export const SHORTCUT_ACTION_IDS = [
   'toggleFullscreen',
   'decreaseStrokeRange',
   'increaseStrokeRange',
+  'decreaseScriptOffset',
+  'increaseScriptOffset',
+  'resetScriptOffset',
   'openFolder',
   'openSettings',
 ] as const
@@ -64,6 +67,9 @@ export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBindings = {
   toggleFullscreen: { code: 'KeyF', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   decreaseStrokeRange: { code: 'BracketLeft', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   increaseStrokeRange: { code: 'BracketRight', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  decreaseScriptOffset: { code: 'ArrowLeft', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
+  increaseScriptOffset: { code: 'ArrowRight', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
+  resetScriptOffset: { code: 'Digit0', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
   openFolder: { code: 'KeyO', ctrlKey: true, altKey: false, shiftKey: false, metaKey: false },
   openSettings: { code: 'Comma', ctrlKey: true, altKey: false, shiftKey: false, metaKey: false },
 }

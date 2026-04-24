@@ -184,13 +184,13 @@ The focus is straightforward: clean playback, clean device control, and an effic
 - In-app `EroScripts` login, browsing, searching, and downloading
 - Session persistence for EroScripts login on the local machine
 
-## What's New In v0.1.9
+## What's New In v0.2.0
 
-- Improved Handy HSSP playback start reliability by switching back to HSSP mode before play, using ping-aware lead time, retrying after server resync on `400`, and cancelling stale upload/play requests
-- Added `Auto Play After Handy Sync` so media can start automatically once Handy upload and sync finish
-- Added a `Multi-Axis Only` sidebar filter so titles with more than one detected script axis are easier to find
-- Added stroke range shortcut bindings and a compact playback speed stepper / preset popover in the player controls
-- Hardened autoplay and media readiness handling when opening, dropping, or switching media with Handy connected
+- Added stronger script matching with recursive script-folder scanning, script variants, drag-and-drop script matching, and a manual match dialog
+- Added per-script / per-media offset controls with configurable keyboard shortcuts
+- Added device output smoothing through Motion Speed Limit presets
+- Added script debug tools, including current script path, source, axes, offset, copy path, reveal in Explorer, and reload actions
+- Added script-folder rescan, Always on Top, folder collapse persistence, and improved same-media script variant handling
 
 ## Download
 

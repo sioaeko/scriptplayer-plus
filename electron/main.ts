@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, session } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, session, shell, clipboard } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -7,7 +7,7 @@ import { URL, pathToFileURL } from 'url'
 import { OsrSerialManager } from './osrSerial'
 import { SCRIPT_AXIS_DEFINITIONS, inferAxisIdFromStem, stripKnownAxisSuffix } from '../src/services/multiaxis'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from '../src/services/subtitles'
-import { ScriptAxisId, ScriptVariantOption } from '../src/types'
+import { ScriptAxisId, ScriptMediaMatchCandidate, ScriptVariantOption } from '../src/types'
 
 const isMac = process.platform === 'darwin'
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
@@ -53,6 +53,7 @@ const directoryEntryNameCache = new Map<string, Set<string>>()
 const SCRIPT_DECORATOR_SUFFIX_RE = /(?:[ _.-]+(?:ufotw|ufosa|cyclone|launch|ufo|handy))+$/i
 const SCRIPT_LABEL_SUFFIX_RE = /(?:[ _.-]+funscript(?:\([^)]*\))?)$/i
 const TRAILING_VARIANT_SUFFIX_RE = /(?:[ _.-]*げっぷ音緩和差分|[ _.-]*[（(][^()（）]*(?:差分|少なめ)[^()（）]*[)）])$/i
+const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|variant|edit|edited|fix|fixed|sync|offset))+$/i
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
@@ -69,6 +70,28 @@ if (!app.isPackaged) {
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 type BundledScriptAxisIndex = Map<string, Map<string, Set<ScriptAxisId>>>
+type BundledScriptLocationIndex = Map<string, Map<string, { path: string; topLevelGroup: string }>>
+
+interface FunscriptFileEntry {
+  dir: string
+  name: string
+  path: string
+  topLevelGroup: string
+}
+
+interface BundledScriptIndex {
+  locations: BundledScriptLocationIndex
+  aliasLocations: BundledScriptLocationIndex
+  axes: BundledScriptAxisIndex
+}
+
+function createBundledScriptIndex(): BundledScriptIndex {
+  return {
+    locations: new Map(),
+    aliasLocations: new Map(),
+    axes: new Map(),
+  }
+}
 
 function normalizePathKey(targetPath: string): string {
   return process.platform === 'win32' ? targetPath.toLowerCase() : targetPath
@@ -199,6 +222,29 @@ ipcMain.on('window:maximize', () => {
   }
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+ipcMain.handle('window:setAlwaysOnTop', (_event, enabled: boolean) => {
+  mainWindow?.setAlwaysOnTop(Boolean(enabled))
+  return mainWindow?.isAlwaysOnTop() ?? false
+})
+
+ipcMain.handle('clipboard:writeText', async (_event, text: string) => {
+  if (typeof text !== 'string') return false
+  clipboard.writeText(text)
+  return true
+})
+
+ipcMain.handle('shell:showItemInFolder', async (_event, filePath: string) => {
+  if (typeof filePath !== 'string' || filePath.trim().length === 0) {
+    return false
+  }
+
+  if (!fs.existsSync(filePath)) {
+    return false
+  }
+
+  shell.showItemInFolder(filePath)
+  return true
+})
 
 // File dialogs
 ipcMain.handle('dialog:openVideo', async () => {
@@ -243,9 +289,12 @@ ipcMain.handle('dialog:openSubtitleFile', async () => {
 })
 
 // File system operations
-ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
+ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: string) => {
   try {
     invalidateFsCachesForRoot(dirPath)
+    if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(dirPath)) {
+      invalidateFsCachesForRoot(scriptFolder)
+    }
 
     const files: Array<{
       name: string
@@ -267,9 +316,8 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
       relativePath: string
       topLevelGroup: string
     }> = []
-    const bundledScriptLocations = new Map<string, Map<string, { path: string; topLevelGroup: string }>>()
-    const bundledScriptAliasLocations = new Map<string, Map<string, { path: string; topLevelGroup: string }>>()
-    const bundledScriptAxes = new Map<string, Map<string, Set<ScriptAxisId>>>()
+    const bundledScriptIndex = createBundledScriptIndex()
+    const scriptFolderIndex = createBundledScriptIndex()
     let scannedEntries = 0
     const visitedDirectories = new Set<string>()
 
@@ -312,46 +360,13 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase()
           if (FUNSCRIPT_EXTS.includes(ext)) {
-            const stem = path.basename(entry.name, ext)
-            const scriptBaseName = normalizeBundledScriptBaseName(stem)
-            if (scriptBaseName) {
-              let locationMap = bundledScriptLocations.get(scriptBaseName)
-              if (!locationMap) {
-                locationMap = new Map<string, { path: string; topLevelGroup: string }>()
-                bundledScriptLocations.set(scriptBaseName, locationMap)
-              }
-              const topLevelGroup = prefix.split('/')[0] ?? ''
-              if (!locationMap.has(dir)) {
-                locationMap.set(dir, { path: fullPath, topLevelGroup })
-              }
-
-              const scriptAlias = normalizeBundledScriptFallbackKey(scriptBaseName)
-              if (scriptAlias && scriptAlias !== scriptBaseName) {
-                let aliasLocationMap = bundledScriptAliasLocations.get(scriptAlias)
-                if (!aliasLocationMap) {
-                  aliasLocationMap = new Map<string, { path: string; topLevelGroup: string }>()
-                  bundledScriptAliasLocations.set(scriptAlias, aliasLocationMap)
-                }
-                if (!aliasLocationMap.has(dir)) {
-                  aliasLocationMap.set(dir, { path: fullPath, topLevelGroup })
-                }
-              }
-
-              const axisId = inferAxisIdFromStem(stem) ?? 'L0'
-              const normalizedDir = normalizePathKey(dir)
-              let dirAxisMap = bundledScriptAxes.get(scriptBaseName)
-              if (!dirAxisMap) {
-                dirAxisMap = new Map<string, Set<ScriptAxisId>>()
-                bundledScriptAxes.set(scriptBaseName, dirAxisMap)
-              }
-
-              let axes = dirAxisMap.get(normalizedDir)
-              if (!axes) {
-                axes = new Set<ScriptAxisId>()
-                dirAxisMap.set(normalizedDir, axes)
-              }
-              axes.add(axisId)
-            }
+            indexBundledScriptFile(
+              bundledScriptIndex,
+              dir,
+              prefix.split('/')[0] ?? '',
+              entry.name,
+              fullPath
+            )
           }
 
           if (MEDIA_EXTS.includes(ext)) {
@@ -379,6 +394,58 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
 
     await scanDir(dirPath, '')
 
+    if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(dirPath)) {
+      const visitedScriptFolderDirs = new Set<string>()
+
+      const scanScriptFolderDir = async (dir: string, prefix: string): Promise<void> => {
+        const visitKey = await getDirectoryRealPathKey(dir)
+        if (visitedScriptFolderDirs.has(visitKey)) {
+          return
+        }
+        visitedScriptFolderDirs.add(visitKey)
+
+        let entries: fs.Dirent[]
+        try {
+          entries = await fs.promises.readdir(dir, { withFileTypes: true })
+        } catch {
+          return
+        }
+
+        directoryEntryNameCache.set(
+          normalizePathKey(dir),
+          new Set(entries.map((entry) => entry.name.toLowerCase()))
+        )
+
+        for (const entry of entries) {
+          await maybeYieldDuringScan()
+          const fullPath = path.join(dir, entry.name)
+
+          if (entry.isSymbolicLink()) {
+            continue
+          }
+
+          if (entry.isDirectory()) {
+            await scanScriptFolderDir(fullPath, prefix ? `${prefix}/${entry.name}` : entry.name)
+            continue
+          }
+
+          if (!entry.isFile()) {
+            continue
+          }
+
+          indexBundledScriptFile(
+            scriptFolderIndex,
+            dir,
+            prefix.split('/')[0] ?? '',
+            entry.name,
+            fullPath
+          )
+        }
+      }
+
+      await scanScriptFolderDir(scriptFolder, '')
+    }
+
     const hasRootLevelMedia = pendingMediaFiles.some((mediaFile) => !mediaFile.relativePath.includes('/'))
     const distinctTopLevelMediaGroups = new Set(
       pendingMediaFiles
@@ -390,21 +457,40 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string) => {
     for (const mediaFile of pendingMediaFiles) {
       await maybeYieldDuringScan()
 
-      const hasLocalBundle = hasBundledScriptCandidateInDirectory(mediaFile.path, bundledScriptLocations)
-      const fallbackScriptPath = hasLocalBundle
+      const hasLocalBundle = hasBundledScriptCandidateInDirectory(mediaFile.path, bundledScriptIndex.locations)
+      const bundledFallbackScriptPath = hasLocalBundle
         ? null
         : findUniqueBundledScriptFallback(
           mediaFile.path,
           mediaFile.topLevelGroup,
           restrictFallbackByTopLevelGroup,
-          bundledScriptLocations,
-          bundledScriptAliasLocations
+          bundledScriptIndex.locations,
+          bundledScriptIndex.aliasLocations
         )
-      const scriptAxes = collectMediaScanScriptAxes(mediaFile.path, fallbackScriptPath, bundledScriptAxes)
+      const scriptFolderFallbackPath = hasLocalBundle || !scriptFolder || normalizePathKey(scriptFolder) === normalizePathKey(path.dirname(mediaFile.path))
+        ? null
+        : findUniqueBundledScriptFallback(
+          mediaFile.path,
+          '',
+          false,
+          scriptFolderIndex.locations,
+          scriptFolderIndex.aliasLocations
+        )
+      const fallbackScriptPath = bundledFallbackScriptPath ?? scriptFolderFallbackPath
+      const candidateDirs = [path.dirname(mediaFile.path)]
+      if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(path.dirname(mediaFile.path))) {
+        candidateDirs.push(scriptFolder)
+      }
+      const scriptAxes = collectMediaScanScriptAxes(
+        mediaFile.path,
+        candidateDirs,
+        [fallbackScriptPath],
+        [bundledScriptIndex.axes, scriptFolderIndex.axes]
+      )
 
       files.push({
         ...mediaFile,
-        hasScript: hasLocalBundle || Boolean(fallbackScriptPath),
+        hasScript: hasLocalBundle || Boolean(bundledFallbackScriptPath) || Boolean(scriptFolderFallbackPath),
         autoScriptPath: fallbackScriptPath ?? undefined,
         scriptAxes,
       })
@@ -429,6 +515,20 @@ ipcMain.handle('fs:readFunscriptBundle', async (_event, videoPath: string, scrip
 ipcMain.handle('fs:listScriptVariants', async (_event, videoPath: string, scriptFolder?: string) => {
   return listScriptVariants(videoPath, scriptFolder)
 })
+
+ipcMain.handle(
+  'fs:findMediaForScript',
+  async (_event, scriptPath: string, candidateMediaPaths?: string[], preferredMediaPath?: string) => {
+    return findMediaForScript(scriptPath, candidateMediaPaths, preferredMediaPath)
+  }
+)
+
+ipcMain.handle(
+  'fs:listMediaMatchesForScript',
+  async (_event, scriptPath: string, candidateMediaPaths?: string[], preferredMediaPath?: string) => {
+    return listMediaMatchesForScript(scriptPath, candidateMediaPaths, preferredMediaPath)
+  }
+)
 
 ipcMain.handle('fs:saveFunscript', async (_event, videoPath: string, data: string) => {
   const ext = path.extname(videoPath)
@@ -601,18 +701,26 @@ function collectIndexedBundledScriptAxes(
 
 function collectMediaScanScriptAxes(
   mediaPath: string,
-  fallbackScriptPath: string | null | undefined,
-  bundledScriptAxes: BundledScriptAxisIndex
+  candidateDirs: string[],
+  fallbackScriptPaths: Array<string | null | undefined>,
+  bundledScriptAxesIndexes: BundledScriptAxisIndex[]
 ): ScriptAxisId[] {
   const axisIds = new Set<ScriptAxisId>()
-  const mediaDir = path.dirname(mediaPath)
   const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
 
-  for (const axisId of collectIndexedBundledScriptAxes(bundledScriptAxes, mediaDir, mediaBaseName)) {
-    axisIds.add(axisId)
+  for (const dirPath of candidateDirs) {
+    for (const bundledScriptAxes of bundledScriptAxesIndexes) {
+      for (const axisId of collectIndexedBundledScriptAxes(bundledScriptAxes, dirPath, mediaBaseName)) {
+        axisIds.add(axisId)
+      }
+    }
   }
 
-  if (fallbackScriptPath) {
+  for (const fallbackScriptPath of fallbackScriptPaths) {
+    if (!fallbackScriptPath) {
+      continue
+    }
+
     const fallbackDir = path.dirname(fallbackScriptPath)
     const fallbackStem = stripKnownAxisSuffixPreserveCase(path.basename(fallbackScriptPath, path.extname(fallbackScriptPath)))
     const fallbackAxisId = inferAxisIdFromFilePath(fallbackScriptPath)
@@ -621,8 +729,10 @@ function collectMediaScanScriptAxes(
     }
 
     for (const baseName of [fallbackStem, mediaBaseName]) {
-      for (const axisId of collectIndexedBundledScriptAxes(bundledScriptAxes, fallbackDir, baseName)) {
-        axisIds.add(axisId)
+      for (const bundledScriptAxes of bundledScriptAxesIndexes) {
+        for (const axisId of collectIndexedBundledScriptAxes(bundledScriptAxes, fallbackDir, baseName)) {
+          axisIds.add(axisId)
+        }
       }
     }
   }
@@ -667,6 +777,7 @@ function normalizeBundledScriptBaseName(baseName: string): string {
     .replace(SCRIPT_LABEL_SUFFIX_RE, '')
     .replace(TRAILING_VARIANT_SUFFIX_RE, '')
     .trim()
+    .toLowerCase()
 }
 
 function stripKnownAxisSuffixPreserveCase(stem: string): string {
@@ -706,6 +817,140 @@ function shouldPreferVariantPath(candidatePath: string, currentPath: string): bo
   return NATURAL_SORTER.compare(path.basename(candidatePath), path.basename(currentPath)) < 0
 }
 
+function upsertBundledScriptLocation(
+  index: BundledScriptLocationIndex,
+  baseName: string,
+  dirPath: string,
+  candidate: { path: string; topLevelGroup: string }
+) {
+  let locationMap = index.get(baseName)
+  if (!locationMap) {
+    locationMap = new Map<string, { path: string; topLevelGroup: string }>()
+    index.set(baseName, locationMap)
+  }
+
+  const current = locationMap.get(dirPath)
+  if (!current || shouldPreferVariantPath(candidate.path, current.path)) {
+    locationMap.set(dirPath, candidate)
+  }
+}
+
+function addBundledScriptAxis(index: BundledScriptAxisIndex, baseName: string, dirPath: string, axisId: ScriptAxisId) {
+  let dirAxisMap = index.get(baseName)
+  if (!dirAxisMap) {
+    dirAxisMap = new Map<string, Set<ScriptAxisId>>()
+    index.set(baseName, dirAxisMap)
+  }
+
+  const normalizedDir = normalizePathKey(dirPath)
+  let axes = dirAxisMap.get(normalizedDir)
+  if (!axes) {
+    axes = new Set<ScriptAxisId>()
+    dirAxisMap.set(normalizedDir, axes)
+  }
+
+  axes.add(axisId)
+}
+
+function indexBundledScriptFile(
+  scriptIndex: BundledScriptIndex,
+  dirPath: string,
+  topLevelGroup: string,
+  entryName: string,
+  fullPath: string
+) {
+  const ext = path.extname(entryName).toLowerCase()
+  if (!FUNSCRIPT_EXTS.includes(ext)) {
+    return
+  }
+
+  const stem = path.basename(entryName, ext)
+  const matchKeys = buildBundledScriptMatchKeys(stem)
+  if (matchKeys.length === 0) {
+    return
+  }
+
+  const axisId = inferAxisIdFromStem(stem) ?? 'L0'
+  const candidate = { path: fullPath, topLevelGroup }
+
+  for (const matchKey of matchKeys) {
+    upsertBundledScriptLocation(scriptIndex.locations, matchKey, dirPath, candidate)
+
+    const scriptAlias = normalizeBundledScriptFallbackKey(matchKey)
+    if (scriptAlias && scriptAlias !== matchKey) {
+      upsertBundledScriptLocation(scriptIndex.aliasLocations, scriptAlias, dirPath, candidate)
+    }
+
+    addBundledScriptAxis(scriptIndex.axes, matchKey, dirPath, axisId)
+  }
+}
+
+function listFunscriptFileEntries(rootDir: string, recursive: boolean): FunscriptFileEntry[] {
+  const results: FunscriptFileEntry[] = []
+  const visitedDirectories = new Set<string>()
+  const stack: Array<{ dir: string; prefix: string }> = [{ dir: rootDir, prefix: '' }]
+
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) {
+      continue
+    }
+
+    const visitKey = getDirectoryRealPathKeySync(current.dir)
+    if (visitedDirectories.has(visitKey)) {
+      continue
+    }
+    visitedDirectories.add(visitKey)
+
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(current.dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    directoryEntryNameCache.set(
+      normalizePathKey(current.dir),
+      new Set(entries.map((entry) => entry.name.toLowerCase()))
+    )
+
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        continue
+      }
+
+      const fullPath = path.join(current.dir, entry.name)
+      if (entry.isDirectory()) {
+        if (recursive) {
+          stack.push({
+            dir: fullPath,
+            prefix: current.prefix ? `${current.prefix}/${entry.name}` : entry.name,
+          })
+        }
+        continue
+      }
+
+      if (!entry.isFile()) {
+        continue
+      }
+
+      const ext = path.extname(entry.name).toLowerCase()
+      if (!FUNSCRIPT_EXTS.includes(ext)) {
+        continue
+      }
+
+      results.push({
+        dir: current.dir,
+        name: entry.name,
+        path: fullPath,
+        topLevelGroup: current.prefix.split('/')[0] ?? '',
+      })
+    }
+  }
+
+  return results
+}
+
 function buildScriptVariantLabel(mediaBaseName: string, bundleStem: string): string {
   const trimmedBundleStem = bundleStem.trim()
   if (!trimmedBundleStem) {
@@ -743,18 +988,37 @@ function stripTrailingVariantQualifier(stem: string): string {
   }
 }
 
+function stripTrailingVariantWordSuffix(stem: string): string {
+  return stem.trim().replace(TRAILING_VARIANT_WORD_SUFFIX_RE, '').trim()
+}
+
+function buildBundledScriptMatchKeys(stem: string): string[] {
+  const trimmedStem = stem.trim()
+  if (!trimmedStem) {
+    return []
+  }
+
+  const axisStrippedStem = stripKnownAxisSuffixPreserveCase(trimmedStem) || trimmedStem
+  const candidates = new Set<string>()
+
+  for (const candidate of [
+    trimmedStem,
+    axisStrippedStem,
+    stripTrailingVariantQualifier(axisStrippedStem),
+    stripTrailingVariantWordSuffix(axisStrippedStem),
+    stripTrailingVariantWordSuffix(stripTrailingVariantQualifier(axisStrippedStem)),
+  ]) {
+    const normalized = normalizeBundledScriptBaseName(candidate)
+    if (normalized) {
+      candidates.add(normalized)
+    }
+  }
+
+  return Array.from(candidates)
+}
+
 function matchesScriptVariantMediaBaseName(stem: string, normalizedMediaBaseName: string): boolean {
-  if (normalizeBundledScriptBaseName(stem) === normalizedMediaBaseName) {
-    return true
-  }
-
-  const bundleStem = stripKnownAxisSuffixPreserveCase(stem)
-  const strippedVariantStem = stripTrailingVariantQualifier(bundleStem)
-  if (!strippedVariantStem || strippedVariantStem === bundleStem) {
-    return false
-  }
-
-  return normalizeBundledScriptBaseName(strippedVariantStem) === normalizedMediaBaseName
+  return buildBundledScriptMatchKeys(stem).includes(normalizedMediaBaseName)
 }
 
 function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVariantOption[] {
@@ -765,12 +1029,12 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
   }
 
   const mediaDir = path.dirname(mediaPath)
-  const contexts: Array<{ dir: string; source: ScriptVariantOption['source'] }> = [
-    { dir: mediaDir, source: 'local' },
+  const contexts: Array<{ dir: string; source: ScriptVariantOption['source']; recursive: boolean }> = [
+    { dir: mediaDir, source: 'local', recursive: false },
   ]
 
   if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(mediaDir)) {
-    contexts.push({ dir: scriptFolder, source: 'scriptFolder' })
+    contexts.push({ dir: scriptFolder, source: 'scriptFolder', recursive: true })
   }
 
   const groupedVariants = new Map<string, {
@@ -780,27 +1044,16 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
   }>()
 
   for (const context of contexts) {
-    let entries: fs.Dirent[]
-    try {
-      entries = fs.readdirSync(context.dir, { withFileTypes: true })
-    } catch {
-      continue
-    }
-
-    const dirKey = getDirectoryRealPathKeySync(context.dir)
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-
+    for (const entry of listFunscriptFileEntries(context.dir, context.recursive)) {
       const ext = path.extname(entry.name).toLowerCase()
-      if (!FUNSCRIPT_EXTS.includes(ext)) continue
-
       const stem = path.basename(entry.name, ext)
       if (!matchesScriptVariantMediaBaseName(stem, normalizedMediaBaseName)) continue
 
       const bundleStem = stripKnownAxisSuffixPreserveCase(stem)
+      const dirKey = getDirectoryRealPathKeySync(entry.dir)
       const variantKey = `${dirKey}::${normalizePathKey(bundleStem || stem)}`
       const axisId = inferAxisIdFromStem(stem) ?? 'L0'
-      const filePath = path.join(context.dir, entry.name)
+      const filePath = entry.path
 
       let variant = groupedVariants.get(variantKey)
       if (!variant) {
@@ -1039,6 +1292,205 @@ function addFunscriptToBundle(
 function inferAxisIdFromFilePath(filePath: string): ScriptAxisId | null {
   const stem = path.basename(filePath, path.extname(filePath))
   return inferAxisIdFromStem(stem)
+}
+
+function hasVariantBoundary(value: string, index: number): boolean {
+  const nextChar = value.charAt(index)
+  return nextChar === '' || /[.\s_\-([{（【]/.test(nextChar)
+}
+
+function buildScriptMediaBaseNameCandidates(scriptPath: string): string[] {
+  const ext = path.extname(scriptPath).toLowerCase()
+  if (!FUNSCRIPT_EXTS.includes(ext)) {
+    return []
+  }
+
+  const candidates = new Set<string>()
+  let currentStem = stripKnownAxisSuffixPreserveCase(path.basename(scriptPath, ext))
+  if (!currentStem) {
+    currentStem = path.basename(scriptPath, ext)
+  }
+
+  while (currentStem) {
+    for (const matchKey of buildBundledScriptMatchKeys(currentStem)) {
+      candidates.add(matchKey)
+    }
+
+    const stripped = stripTrailingVariantQualifier(currentStem)
+    if (!stripped || stripped === currentStem) {
+      break
+    }
+    currentStem = stripped
+  }
+
+  return Array.from(candidates)
+}
+
+function getMediaMatchScore(mediaBaseName: string, scriptBaseNames: string[]): number {
+  let bestScore = -1
+
+  for (const scriptBaseName of scriptBaseNames) {
+    if (!scriptBaseName || !mediaBaseName) {
+      continue
+    }
+
+    if (mediaBaseName === scriptBaseName) {
+      bestScore = Math.max(bestScore, 300)
+      continue
+    }
+
+    if (scriptBaseName.startsWith(mediaBaseName) && hasVariantBoundary(scriptBaseName, mediaBaseName.length)) {
+      bestScore = Math.max(bestScore, 200)
+      continue
+    }
+
+    if (mediaBaseName.startsWith(scriptBaseName) && hasVariantBoundary(mediaBaseName, scriptBaseName.length)) {
+      bestScore = Math.max(bestScore, 100)
+    }
+  }
+
+  return bestScore
+}
+
+function collectMediaPathMatches(
+  scriptBaseNames: string[],
+  mediaPaths: string[],
+  sourcePriority = 0
+): Array<{ path: string; score: number; sourcePriority: number }> {
+  const matches: Array<{ path: string; score: number; sourcePriority: number }> = []
+  const seenPaths = new Set<string>()
+
+  for (const mediaPath of mediaPaths) {
+    if (typeof mediaPath !== 'string' || mediaPath.length === 0) {
+      continue
+    }
+
+    const normalizedMediaPath = normalizePathKey(mediaPath)
+    if (seenPaths.has(normalizedMediaPath)) {
+      continue
+    }
+    seenPaths.add(normalizedMediaPath)
+
+    const ext = path.extname(mediaPath).toLowerCase()
+    if (!MEDIA_EXTS.includes(ext)) continue
+
+    const mediaBaseName = normalizeBundledScriptBaseName(path.basename(mediaPath, ext))
+    const score = getMediaMatchScore(mediaBaseName, scriptBaseNames)
+    if (score < 0) continue
+
+    matches.push({
+      path: mediaPath,
+      score,
+      sourcePriority,
+    })
+  }
+
+  matches.sort((a, b) => {
+    if (a.score !== b.score) {
+      return b.score - a.score
+    }
+
+    if (a.sourcePriority !== b.sourcePriority) {
+      return b.sourcePriority - a.sourcePriority
+    }
+
+    return NATURAL_SORTER.compare(path.basename(a.path), path.basename(b.path))
+  })
+
+  return matches
+}
+
+function listMediaPathsInDirectory(dirPath: string): string[] {
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  const mediaPaths: string[] = []
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+
+    const ext = path.extname(entry.name).toLowerCase()
+    if (!MEDIA_EXTS.includes(ext)) continue
+
+    mediaPaths.push(path.join(dirPath, entry.name))
+  }
+
+  return mediaPaths
+}
+
+function listMediaMatchesForScript(
+  scriptPath: string,
+  candidateMediaPaths?: string[],
+  preferredMediaPath?: string
+): ScriptMediaMatchCandidate[] {
+  const scriptBaseNames = buildScriptMediaBaseNameCandidates(scriptPath)
+  if (scriptBaseNames.length === 0) {
+    return []
+  }
+
+  const scriptDir = path.dirname(scriptPath)
+  const rankedMatches = [
+    ...collectMediaPathMatches(scriptBaseNames, listMediaPathsInDirectory(scriptDir), 2),
+    ...collectMediaPathMatches(scriptBaseNames, preferredMediaPath ? [preferredMediaPath] : [], 1),
+    ...collectMediaPathMatches(scriptBaseNames, Array.isArray(candidateMediaPaths) ? candidateMediaPaths : [], 0),
+  ]
+
+  if (rankedMatches.length === 0) {
+    return []
+  }
+
+  const dedupedMatches = new Map<string, ScriptMediaMatchCandidate>()
+  for (const match of rankedMatches) {
+    const key = normalizePathKey(match.path)
+    const current = dedupedMatches.get(key)
+    if (
+      !current
+      || match.score > current.score
+      || (match.score === current.score && match.sourcePriority > current.sourcePriority)
+    ) {
+      dedupedMatches.set(key, match)
+    }
+  }
+
+  return Array.from(dedupedMatches.values())
+    .sort((a, b) => {
+      if (a.score !== b.score) {
+        return b.score - a.score
+      }
+
+      if (a.sourcePriority !== b.sourcePriority) {
+        return b.sourcePriority - a.sourcePriority
+      }
+
+      return NATURAL_SORTER.compare(path.basename(a.path), path.basename(b.path))
+    })
+}
+
+function findMediaForScript(
+  scriptPath: string,
+  candidateMediaPaths?: string[],
+  preferredMediaPath?: string
+): string | null {
+  const sortedMatches = listMediaMatchesForScript(scriptPath, candidateMediaPaths, preferredMediaPath)
+
+  const bestMatch = sortedMatches[0]
+  if (!bestMatch) {
+    return null
+  }
+
+  const isAmbiguousTopMatch = sortedMatches.some((match, index) => (
+    index > 0
+    && match.score === bestMatch.score
+    && match.sourcePriority === bestMatch.sourcePriority
+  ))
+  if (isAmbiguousTopMatch) {
+    return null
+  }
+
+  return bestMatch.path
 }
 
 function readFunscriptJson(filePath: string): unknown | null {

@@ -52,6 +52,64 @@ export function transformFunscriptActions(
   })
 }
 
+export function strokesPerMinuteToUnitsPerSecond(strokesPerMinute: number): number {
+  const safeStrokesPerMinute = Number.isFinite(strokesPerMinute) && strokesPerMinute > 0
+    ? strokesPerMinute
+    : 0
+  return safeStrokesPerMinute * 100 / 60
+}
+
+export function limitFunscriptMotionSpeed(
+  actions: FunscriptAction[],
+  maxUnitsPerSecond: number
+): FunscriptAction[] {
+  if (actions.length < 2 || !Number.isFinite(maxUnitsPerSecond) || maxUnitsPerSecond <= 0) {
+    return actions
+  }
+
+  const limited: FunscriptAction[] = []
+  let previous: FunscriptAction | null = null
+
+  for (const action of actions) {
+    const current: FunscriptAction = {
+      at: Math.max(0, action.at),
+      pos: clampPosition(action.pos),
+    }
+
+    if (!previous) {
+      limited.push(current)
+      previous = current
+      continue
+    }
+
+    const deltaTimeMs = current.at - previous.at
+    if (deltaTimeMs <= 0) {
+      const sameTimeAction: FunscriptAction = {
+        at: current.at,
+        pos: previous.pos,
+      }
+      limited.push(sameTimeAction)
+      previous = sameTimeAction
+      continue
+    }
+
+    const maxDelta = maxUnitsPerSecond * deltaTimeMs / 1000
+    const delta = current.pos - previous.pos
+    const pos = Math.abs(delta) <= maxDelta
+      ? current.pos
+      : previous.pos + Math.sign(delta) * maxDelta
+
+    const limitedAction: FunscriptAction = {
+      at: current.at,
+      pos: clampPosition(pos),
+    }
+    limited.push(limitedAction)
+    previous = limitedAction
+  }
+
+  return limited
+}
+
 /** Get the interpolated position at a given time */
 export function getPositionAtTime(actions: FunscriptAction[], timeMs: number): number {
   if (actions.length === 0) return 50

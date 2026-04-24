@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions } from 'lucide-react'
+import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions, Copy } from 'lucide-react'
 import { OsrSerialPortInfo, ScriptAxisId, ScriptVariantOption, VideoFile } from '../types'
 import { ButtplugDevice, ButtplugFeature } from '../services/buttplug'
 import { groupVideoFiles, VideoSortState } from '../services/mediaOrder'
@@ -14,6 +14,8 @@ interface HandyHistoryEntry {
   label: string
   lastUsed: number
 }
+
+const COLLAPSED_FOLDERS_STORAGE_KEY = 'sidebarCollapsedFolders'
 
 function loadHandyHistory(): HandyHistoryEntry[] {
   try {
@@ -57,6 +59,26 @@ function setAutoConnect(v: boolean) {
   localStorage.setItem('handyAutoConnect', v ? 'true' : 'false')
 }
 
+function loadCollapsedFolders(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_FOLDERS_STORAGE_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return new Set()
+    return new Set(parsed.filter((value): value is string => typeof value === 'string' && value.length > 0))
+  } catch {
+    return new Set()
+  }
+}
+
+function saveCollapsedFolders(folders: Set<string>) {
+  try {
+    localStorage.setItem(COLLAPSED_FOLDERS_STORAGE_KEY, JSON.stringify(Array.from(folders)))
+  } catch {
+    // Ignore storage failures
+  }
+}
+
 interface SidebarProps {
   files: VideoFile[]
   currentFile: string | null
@@ -71,6 +93,7 @@ interface SidebarProps {
   scriptVariantOverrideActive: boolean
   onScriptVariantSelect: (scriptPath: string) => void | Promise<void>
   onScriptVariantReset: () => void | Promise<void>
+  onCurrentScriptReload: (scriptPath: string) => void | Promise<void>
   manualScriptPaths: Set<string>
   manualSubtitlePaths: Set<string>
   deviceProvider: DeviceProvider
@@ -106,6 +129,8 @@ interface SidebarProps {
   onButtplugFeatureMappingChange: (featureId: string, next: { axisId: ScriptAxisId | ''; invert: boolean }) => void
   buttplugAvailableAxes: ScriptAxisId[]
   scriptFolder?: string
+  onRescanScriptFolder: () => void | Promise<void>
+  scriptFolderRescanning?: boolean
   videoSort: VideoSortState
   onVideoSortChange: (sort: VideoSortState) => void
 }
@@ -166,6 +191,7 @@ export default function Sidebar({
   scriptVariantOverrideActive,
   onScriptVariantSelect,
   onScriptVariantReset,
+  onCurrentScriptReload,
   manualScriptPaths,
   manualSubtitlePaths,
   deviceProvider,
@@ -201,6 +227,8 @@ export default function Sidebar({
   onButtplugFeatureMappingChange,
   buttplugAvailableAxes,
   scriptFolder,
+  onRescanScriptFolder,
+  scriptFolderRescanning = false,
   videoSort,
   onVideoSortChange,
 }: SidebarProps) {
@@ -210,13 +238,15 @@ export default function Sidebar({
   const [multiAxisOnly, setMultiAxisOnly] = useState(false)
   const [handyKey, setHandyKey] = useState(loadInitialHandyKey)
   const [connecting, setConnecting] = useState(false)
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(loadCollapsedFolders)
   const [handyHistory, setHandyHistory] = useState<HandyHistoryEntry[]>(loadHandyHistory)
   const [autoConnect, setAutoConnectState] = useState(getAutoConnect)
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null)
   const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null)
+  const [copiedScriptPath, setCopiedScriptPath] = useState<string | null>(null)
   const autoConnectAttempted = useRef(false)
   const hoverPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copiedScriptPathTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hoverPreviewRequestId = useRef(0)
   const hoverPreviewUrlCache = useRef(new Map<string, string>())
 
@@ -227,12 +257,24 @@ export default function Sidebar({
   })
 
   const folderGroups = useMemo(() => groupVideoFiles(filteredFiles, videoSort), [filteredFiles, videoSort])
+  const availableFolderKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const file of files) {
+      const relativePath = file.relativePath || file.name
+      const lastSlash = relativePath.lastIndexOf('/')
+      if (lastSlash <= 0) continue
+      keys.add(relativePath.substring(0, lastSlash))
+    }
+    return keys
+  }, [files])
   const orderedVisibleFiles = useMemo(
     () => folderGroups.flatMap((group) => group.files),
     [folderGroups]
   )
-  const showScriptVariantPanel = Boolean(currentFile) && (scriptVariants.length > 1 || scriptVariantOverrideActive)
+  const currentScriptPath = isRealScriptSource(currentScriptSource) ? currentScriptSource : null
+  const showScriptVariantPanel = Boolean(currentFile) && (scriptVariants.length > 1 || scriptVariantOverrideActive || Boolean(currentScriptPath))
   const hasSubfolders = folderGroups.length > 1 || (folderGroups.length === 1 && folderGroups[0].folder !== '')
+  const hasScriptFolder = Boolean(scriptFolder?.trim())
   const activeDeviceConnected = deviceProvider === 'handy'
     ? handyConnected
     : (deviceProvider === 'serial' ? osrSerialConnected : buttplugConnected)
@@ -304,6 +346,22 @@ export default function Sidebar({
     })
   }
 
+  const copyScriptPath = useCallback(async (scriptPath: string) => {
+    const ok = await window.electronAPI.writeClipboardText(scriptPath)
+    if (!ok) return
+
+    setCopiedScriptPath(scriptPath)
+    if (copiedScriptPathTimer.current) clearTimeout(copiedScriptPathTimer.current)
+    copiedScriptPathTimer.current = setTimeout(() => {
+      copiedScriptPathTimer.current = null
+      setCopiedScriptPath(null)
+    }, 1200)
+  }, [])
+
+  const openScriptFolder = useCallback(async (scriptPath: string) => {
+    await window.electronAPI.showItemInFolder(scriptPath)
+  }, [])
+
   const clearHoverPreviewTimer = useCallback(() => {
     if (!hoverPreviewTimer.current) return
     clearTimeout(hoverPreviewTimer.current)
@@ -357,6 +415,17 @@ export default function Sidebar({
         })
     }, HOVER_PREVIEW_DELAY_MS)
   }, [clearHoverPreviewTimer, currentFile])
+
+  useEffect(() => {
+    saveCollapsedFolders(collapsedFolders)
+  }, [collapsedFolders])
+
+  useEffect(() => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(Array.from(prev).filter((folder) => availableFolderKeys.has(folder)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [availableFolderKeys])
 
   useEffect(() => {
     if (deviceProvider !== 'handy') {
@@ -419,6 +488,12 @@ export default function Sidebar({
   }, [tab, hideHoverPreview])
 
   useEffect(() => clearHoverPreviewTimer, [clearHoverPreviewTimer])
+
+  useEffect(() => () => {
+    if (copiedScriptPathTimer.current) {
+      clearTimeout(copiedScriptPathTimer.current)
+    }
+  }, [])
 
   const tabs = [
     { id: 'files' as const, icon: Film, label: t('sidebar.files') },
@@ -498,6 +573,16 @@ export default function Sidebar({
                 <FolderOpen size={14} />
                 {t('sidebar.openFolder')}
               </button>
+              <button
+                type="button"
+                onClick={() => void onRescanScriptFolder()}
+                disabled={!hasScriptFolder || scriptFolderRescanning}
+                className="flex h-[30px] w-[34px] flex-shrink-0 items-center justify-center rounded border border-surface-100/30 bg-surface-300 text-text-secondary transition-colors hover:border-accent/35 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+                title={hasScriptFolder ? t('sidebar.rescanScriptFolder') : t('sidebar.scriptFolderNotConfigured')}
+                aria-label={hasScriptFolder ? t('sidebar.rescanScriptFolder') : t('sidebar.scriptFolderNotConfigured')}
+              >
+                <RefreshCw size={14} className={scriptFolderRescanning ? 'animate-spin' : ''} />
+              </button>
             </div>
             <div className="px-2 pb-2">
               <input
@@ -548,15 +633,56 @@ export default function Sidebar({
                     <div className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
                       {t('sidebar.scriptVariants')}
                     </div>
-                    {scriptVariantOverrideActive && (
+                    <div className="flex items-center gap-1">
+                      {currentScriptPath && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void copyScriptPath(currentScriptPath)}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-surface-100/30 text-text-muted transition-colors hover:border-accent/35 hover:text-accent"
+                            title={copiedScriptPath === currentScriptPath ? t('sidebar.scriptPathCopied') : t('sidebar.copyScriptPath')}
+                            aria-label={copiedScriptPath === currentScriptPath ? t('sidebar.scriptPathCopied') : t('sidebar.copyScriptPath')}
+                          >
+                            <Copy size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void openScriptFolder(currentScriptPath)}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-surface-100/30 text-text-muted transition-colors hover:border-accent/35 hover:text-accent"
+                            title={t('sidebar.openScriptFolder')}
+                            aria-label={t('sidebar.openScriptFolder')}
+                          >
+                            <FolderOpen size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onCurrentScriptReload(currentScriptPath)}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-surface-100/30 text-text-muted transition-colors hover:border-accent/35 hover:text-accent"
+                            title={t('sidebar.reloadCurrentScript')}
+                            aria-label={t('sidebar.reloadCurrentScript')}
+                          >
+                            <RefreshCw size={12} />
+                          </button>
+                        </>
+                      )}
+                      {scriptVariantOverrideActive && (
                       <button
                         onClick={() => void onScriptVariantReset()}
                         className="rounded border border-surface-100/30 px-2 py-1 text-[10px] text-text-secondary transition-colors hover:text-text-primary"
                       >
                         {t('sidebar.useAutoScript')}
                       </button>
-                    )}
+                      )}
+                    </div>
                   </div>
+                  {currentScriptPath && (
+                    <div
+                      className="mb-2 truncate rounded border border-surface-100/20 bg-surface-200/40 px-2 py-1.5 font-mono text-[10px] text-text-muted"
+                      title={currentScriptPath}
+                    >
+                      {getFileName(currentScriptPath)}
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     {scriptVariants.map((variant) => {
                       const active = currentScriptSource === variant.path
@@ -1125,4 +1251,8 @@ export default function Sidebar({
 
 function getFileName(filePath: string): string {
   return filePath.split(/[\\/]/).pop() || ''
+}
+
+function isRealScriptSource(sourcePath: string | null): sourcePath is string {
+  return Boolean(sourcePath && !sourcePath.startsWith('generated://'))
 }

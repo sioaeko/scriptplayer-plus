@@ -43,8 +43,16 @@ import {
 import {
   buildDefaultTCodeCommand,
   buildTCodeCommand,
-  OSR_SERIAL_AXIS_ORDER,
 } from './services/tcode'
+import {
+  getOsrSerialProfileAxisIds,
+  getOsrSerialTCodeAxisOptions,
+  normalizeOsrSerialAxisConfigs,
+  normalizeOsrSerialProfile,
+  OsrSerialAxisConfig,
+  OsrSerialAxisConfigMap,
+  OsrSerialProfile,
+} from './services/osrSerialConfig'
 import {
   normalizeScriptBundle,
   SCRIPT_AXIS_IDS,
@@ -63,6 +71,12 @@ import {
   orderVideoFiles,
   VideoSortState,
 } from './services/mediaOrder'
+import {
+  getPlaylistNameFromPath,
+  getPlaylistSaveFileName,
+  parsePlaylistContent,
+  serializePlaylist,
+} from './services/playlist'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from './services/subtitles'
 import { useTranslation } from './i18n'
 
@@ -79,14 +93,19 @@ const BUTTPLUG_DEVICE_INDEX_STORAGE_KEY = 'scriptplayer-buttplug-device-index'
 const BUTTPLUG_FEATURE_MAPPINGS_STORAGE_KEY = 'scriptplayer-buttplug-feature-mappings-v1'
 const OSR_SERIAL_PORT_PATH_STORAGE_KEY = 'scriptplayer-osr-serial-port-path'
 const OSR_SERIAL_UPDATE_RATE_STORAGE_KEY = 'scriptplayer-osr-serial-update-rate'
+const OSR_SERIAL_PROFILE_STORAGE_KEY = 'scriptplayer-osr-serial-profile'
+const OSR_SERIAL_AXIS_CONFIGS_STORAGE_KEY = 'scriptplayer-osr-serial-axis-configs-v1'
 const VIDEO_SORT_FIELD_STORAGE_KEY = 'scriptplayer-video-sort-field'
 const VIDEO_SORT_DIRECTION_STORAGE_KEY = 'scriptplayer-video-sort-direction'
 const SCRIPT_OFFSET_STORAGE_KEY = 'scriptplayer-script-offsets-v1'
+const CURRENT_PLAYLIST_STORAGE_KEY = 'scriptplayer-current-playlist-v1'
 const SCRIPT_OFFSET_MIN_MS = -5000
 const SCRIPT_OFFSET_MAX_MS = 5000
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
 const DEFAULT_OSR_SERIAL_BAUD_RATE = 115200
 const DEFAULT_OSR_SERIAL_UPDATE_RATE = 50
+const OSR_SERIAL_NEUTRAL_BURST_COUNT = 3
+const OSR_SERIAL_NEUTRAL_BURST_INTERVAL_MS = 35
 const HANDY_SEEK_SETTLE_TIMEOUT_MS = 500
 const HANDY_AUTOPLAY_REQUEST_BUFFER_MS = 220
 const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
@@ -100,6 +119,13 @@ type StoredButtplugFeatureMapping = ButtplugFeatureMapping
 interface PendingScriptMatchState {
   scriptPath: string
   candidates: ScriptMediaMatchCandidate[]
+}
+
+interface StoredCurrentPlaylist {
+  version: 1
+  name: string
+  filePath?: string
+  files: VideoFile[]
 }
 
 function getMediaTypeFromPath(filePath: string): MediaType | null {
@@ -221,6 +247,23 @@ function loadOsrSerialUpdateRate(): number {
   return DEFAULT_OSR_SERIAL_UPDATE_RATE
 }
 
+function loadOsrSerialProfile(): OsrSerialProfile {
+  try {
+    return normalizeOsrSerialProfile(localStorage.getItem(OSR_SERIAL_PROFILE_STORAGE_KEY))
+  } catch {
+    return 'sr6'
+  }
+}
+
+function loadOsrSerialAxisConfigs(): OsrSerialAxisConfigMap {
+  try {
+    const raw = localStorage.getItem(OSR_SERIAL_AXIS_CONFIGS_STORAGE_KEY)
+    return normalizeOsrSerialAxisConfigs(raw ? JSON.parse(raw) : null)
+  } catch {
+    return normalizeOsrSerialAxisConfigs(null)
+  }
+}
+
 function loadVideoSort(): VideoSortState {
   try {
     const storedField = localStorage.getItem(VIDEO_SORT_FIELD_STORAGE_KEY)
@@ -272,6 +315,73 @@ function saveScriptOffsets(offsets: Record<string, number>) {
   } catch {
     // Ignore storage failures
   }
+}
+
+function loadStoredCurrentPlaylist(): StoredCurrentPlaylist | null {
+  try {
+    const raw = localStorage.getItem(CURRENT_PLAYLIST_STORAGE_KEY)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || parsed.version !== 1 || !Array.isArray(parsed.files)) {
+      return null
+    }
+
+    const files = parsed.files.filter(isStoredVideoFile)
+    if (files.length === 0) {
+      return null
+    }
+
+    return {
+      version: 1,
+      name: typeof parsed.name === 'string' && parsed.name.trim()
+        ? parsed.name.trim()
+        : 'ScriptPlayer+ Playlist',
+      filePath: typeof parsed.filePath === 'string' ? parsed.filePath : undefined,
+      files,
+    }
+  } catch {
+    return null
+  }
+}
+
+function saveStoredCurrentPlaylist(name: string, filePath: string | undefined, files: VideoFile[]) {
+  try {
+    if (files.length === 0) {
+      localStorage.removeItem(CURRENT_PLAYLIST_STORAGE_KEY)
+      return
+    }
+
+    const data: StoredCurrentPlaylist = {
+      version: 1,
+      name: name.trim() || 'ScriptPlayer+ Playlist',
+      filePath,
+      files,
+    }
+    localStorage.setItem(CURRENT_PLAYLIST_STORAGE_KEY, JSON.stringify(data))
+  } catch {
+    // Ignore storage failures
+  }
+}
+
+function clearStoredCurrentPlaylist() {
+  try {
+    localStorage.removeItem(CURRENT_PLAYLIST_STORAGE_KEY)
+  } catch {
+    // Ignore storage failures
+  }
+}
+
+function isStoredVideoFile(value: unknown): value is VideoFile {
+  if (!value || typeof value !== 'object') return false
+
+  const candidate = value as Partial<VideoFile>
+  return typeof candidate.name === 'string'
+    && typeof candidate.path === 'string'
+    && (candidate.type === 'video' || candidate.type === 'audio')
+    && typeof candidate.hasScript === 'boolean'
+    && Array.isArray(candidate.scriptAxes)
+    && typeof candidate.hasSubtitles === 'boolean'
 }
 
 function normalizeOffsetPathKey(filePath: string): string {
@@ -593,7 +703,11 @@ function findAutoSkipTargetMs(
 
 export default function App() {
   const { locale, setLocale, t } = useTranslation()
-  const [files, setFiles] = useState<VideoFile[]>([])
+  const initialStoredPlaylist = useMemo(loadStoredCurrentPlaylist, [])
+  const [files, setFiles] = useState<VideoFile[]>(() => initialStoredPlaylist?.files ?? [])
+  const [playlistMode, setPlaylistMode] = useState(() => Boolean(initialStoredPlaylist))
+  const [playlistName, setPlaylistName] = useState(() => initialStoredPlaylist?.name ?? '')
+  const [playlistFilePath, setPlaylistFilePath] = useState<string | undefined>(() => initialStoredPlaylist?.filePath)
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [currentFileType, setCurrentFileType] = useState<MediaType | null>(null)
@@ -619,6 +733,8 @@ export default function App() {
   const [osrSerialPorts, setOsrSerialPorts] = useState<OsrSerialPortInfo[]>([])
   const [selectedOsrSerialPortPath, setSelectedOsrSerialPortPathState] = useState<string>(loadOsrSerialPortPath)
   const [osrSerialUpdateRate, setOsrSerialUpdateRateState] = useState<number>(loadOsrSerialUpdateRate)
+  const [osrSerialProfile, setOsrSerialProfile] = useState<OsrSerialProfile>(loadOsrSerialProfile)
+  const [osrSerialAxisConfigs, setOsrSerialAxisConfigs] = useState<OsrSerialAxisConfigMap>(loadOsrSerialAxisConfigs)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
   const [settings, setSettings] = useState<AppSettings>(loadSettings)
@@ -844,8 +960,16 @@ export default function App() {
     [buttplugFeatureMappingStore, selectedButtplugDevice]
   )
   const availableOsrSerialAxes = useMemo(
-    () => OSR_SERIAL_AXIS_ORDER.filter((axisId) => Boolean(displayAxisActions[axisId]?.length)),
-    [displayAxisActions]
+    () => getOsrSerialProfileAxisIds(osrSerialProfile, osrSerialAxisConfigs),
+    [osrSerialAxisConfigs, osrSerialProfile]
+  )
+  const osrSerialScriptAxes = useMemo(
+    () => availableOsrSerialAxes.filter((axisId) => Boolean(displayAxisActions[axisId]?.length)),
+    [availableOsrSerialAxes, displayAxisActions]
+  )
+  const osrSerialAxisOutputOptions = useMemo(
+    () => getOsrSerialTCodeAxisOptions(osrSerialAxisConfigs),
+    [osrSerialAxisConfigs]
   )
 
   useEffect(() => {
@@ -1007,11 +1131,35 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem(OSR_SERIAL_PROFILE_STORAGE_KEY, osrSerialProfile)
+    } catch {
+      // Ignore storage failures
+    }
+  }, [osrSerialProfile])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(OSR_SERIAL_AXIS_CONFIGS_STORAGE_KEY, JSON.stringify(osrSerialAxisConfigs))
+    } catch {
+      // Ignore storage failures
+    }
+  }, [osrSerialAxisConfigs])
+
+  useEffect(() => {
+    try {
       localStorage.setItem(BUTTPLUG_FEATURE_MAPPINGS_STORAGE_KEY, JSON.stringify(buttplugFeatureMappingStore))
     } catch {
       // Ignore storage failures
     }
   }, [buttplugFeatureMappingStore])
+
+  useEffect(() => {
+    if (!playlistMode) {
+      return
+    }
+
+    saveStoredCurrentPlaylist(playlistName, playlistFilePath, files)
+  }, [files, playlistFilePath, playlistMode, playlistName])
 
   const handleSettingsChange = useCallback((newSettings: AppSettings) => {
     setSettings(newSettings)
@@ -1101,6 +1249,20 @@ export default function App() {
     } catch {
       // Ignore storage failures
     }
+  }, [])
+
+  const handleOsrSerialProfileChange = useCallback((profile: OsrSerialProfile) => {
+    setOsrSerialProfile(normalizeOsrSerialProfile(profile))
+  }, [])
+
+  const handleOsrSerialAxisConfigChange = useCallback((axisId: ScriptAxisId, patch: Partial<OsrSerialAxisConfig>) => {
+    setOsrSerialAxisConfigs((current) => normalizeOsrSerialAxisConfigs({
+      ...current,
+      [axisId]: {
+        ...current[axisId],
+        ...patch,
+      },
+    }))
   }, [])
 
   const setSelectedButtplugDeviceIndex = useCallback((deviceIndex: number | null) => {
@@ -1219,11 +1381,20 @@ export default function App() {
       return
     }
 
-    const neutralCommand = buildDefaultTCodeCommand(OSR_SERIAL_AXIS_ORDER)
-    if (neutralCommand) {
-      await osrSerialService.writeCommand(neutralCommand)
+    const neutralCommand = buildDefaultTCodeCommand(availableOsrSerialAxes, {
+      axisOutputOptions: osrSerialAxisOutputOptions,
+    })
+    if (!neutralCommand) {
+      return
     }
-  }, [clearOsrSerialStreamTimer, osrSerialConnected])
+
+    for (let i = 0; i < OSR_SERIAL_NEUTRAL_BURST_COUNT; i += 1) {
+      await osrSerialService.writeCommand(neutralCommand)
+      if (i < OSR_SERIAL_NEUTRAL_BURST_COUNT - 1) {
+        await waitForDelay(OSR_SERIAL_NEUTRAL_BURST_INTERVAL_MS)
+      }
+    }
+  }, [availableOsrSerialAxes, clearOsrSerialStreamTimer, osrSerialAxisOutputOptions, osrSerialConnected])
 
   const startOsrSerialPlayback = useCallback(async () => {
     const media = mediaRef.current
@@ -1232,7 +1403,7 @@ export default function App() {
       || media.paused
       || deviceProvider !== 'serial'
       || !osrSerialConnected
-      || availableOsrSerialAxes.length === 0
+      || osrSerialScriptAxes.length === 0
     ) {
       return
     }
@@ -1251,7 +1422,8 @@ export default function App() {
       const currentTimeMs = currentMedia.currentTime * 1000 + effectiveDeviceTimeOffset
       const targetTimeMs = currentTimeMs + intervalMs * effectivePlaybackRate
       const command = buildTCodeCommand(runtimeAxisActions, targetTimeMs, {
-        axisIds: OSR_SERIAL_AXIS_ORDER,
+        axisIds: availableOsrSerialAxes,
+        axisOutputOptions: osrSerialAxisOutputOptions,
       })
 
       if (command) {
@@ -1266,11 +1438,13 @@ export default function App() {
 
     await tick()
   }, [
-    availableOsrSerialAxes.length,
+    availableOsrSerialAxes,
     clearOsrSerialStreamTimer,
     deviceProvider,
     osrSerialConnected,
+    osrSerialAxisOutputOptions,
     osrSerialUpdateRate,
+    osrSerialScriptAxes.length,
     playbackRate,
     runtimeAxisActions,
     effectiveDeviceTimeOffset,
@@ -1430,6 +1604,23 @@ export default function App() {
     await syncHandyPlayback(settledTime)
   }, [scriptUploadUrl, syncHandyPlayback])
 
+  const mergeFilesByPath = useCallback((currentFiles: VideoFile[], incomingFiles: VideoFile[]) => {
+    const seenPaths = new Set(currentFiles.map((file) => normalizeOffsetPathKey(file.path)))
+    const merged = [...currentFiles]
+
+    for (const file of incomingFiles) {
+      const key = normalizeOffsetPathKey(file.path)
+      if (seenPaths.has(key)) {
+        continue
+      }
+
+      seenPaths.add(key)
+      merged.push(file)
+    }
+
+    return merged
+  }, [])
+
   const loadFolderFiles = useCallback(async (folderPath: string): Promise<VideoFile[] | null> => {
     const requestId = ++folderLoadRequestId.current
     const mediaFiles = await window.electronAPI.readDir(folderPath, scriptFolderRef.current || undefined)
@@ -1437,6 +1628,10 @@ export default function App() {
       return null
     }
     currentFolderPathRef.current = folderPath
+    setPlaylistMode(false)
+    setPlaylistName('')
+    setPlaylistFilePath(undefined)
+    clearStoredCurrentPlaylist()
     setFiles(mediaFiles)
     return mediaFiles
   }, [])
@@ -1446,6 +1641,65 @@ export default function App() {
     if (!folderPath) return
     await loadFolderFiles(folderPath)
   }, [loadFolderFiles])
+
+  const handleAddMediaFiles = useCallback(async () => {
+    const selectedPaths = await window.electronAPI.openMediaFiles()
+    if (selectedPaths.length === 0) return
+
+    const mediaFiles = await window.electronAPI.inspectMediaFiles(selectedPaths, scriptFolderRef.current || undefined)
+    if (mediaFiles.length === 0) return
+
+    currentFolderPathRef.current = null
+    setPlaylistMode(true)
+    setPlaylistFilePath(undefined)
+    setPlaylistName((current) => current || t('sidebar.unsavedPlaylist'))
+    setFiles((current) => mergeFilesByPath(current, mediaFiles))
+  }, [mergeFilesByPath, t])
+
+  const handleOpenPlaylistFile = useCallback(async () => {
+    const playlistFile = await window.electronAPI.openPlaylistFile()
+    if (!playlistFile) return
+
+    const parsedPlaylist = parsePlaylistContent(playlistFile.content, playlistFile.path)
+    if (parsedPlaylist.paths.length === 0) return
+
+    const mediaFiles = await window.electronAPI.inspectMediaFiles(parsedPlaylist.paths, scriptFolderRef.current || undefined)
+    if (mediaFiles.length === 0) return
+
+    currentFolderPathRef.current = null
+    setPlaylistMode(true)
+    setPlaylistName(parsedPlaylist.name || getPlaylistNameFromPath(playlistFile.path))
+    setPlaylistFilePath(playlistFile.path)
+    setFiles(mediaFiles)
+  }, [])
+
+  const handleSavePlaylistFile = useCallback(async () => {
+    if (files.length === 0) return
+
+    const name = playlistName || t('sidebar.unsavedPlaylist')
+    const savedPath = await window.electronAPI.savePlaylistFile(
+      getPlaylistSaveFileName(name),
+      serializePlaylist(name, orderedFiles)
+    )
+    if (!savedPath) return
+
+    setPlaylistMode(true)
+    setPlaylistName(getPlaylistNameFromPath(savedPath))
+    setPlaylistFilePath(savedPath)
+  }, [files.length, orderedFiles, playlistName, t])
+
+  const handleClearPlaylist = useCallback(() => {
+    currentFolderPathRef.current = null
+    setPlaylistMode(true)
+    setPlaylistName(t('sidebar.unsavedPlaylist'))
+    setPlaylistFilePath(undefined)
+    setFiles([])
+    clearStoredCurrentPlaylist()
+  }, [t])
+
+  const handleRemovePlaylistFile = useCallback((file: VideoFile) => {
+    setFiles((current) => current.filter((entry) => normalizeOffsetPathKey(entry.path) !== normalizeOffsetPathKey(file.path)))
+  }, [])
 
   const handleRescanScriptFolder = useCallback(async () => {
     if (scriptFolderRescanning || !scriptFolderRef.current) {
@@ -1983,6 +2237,23 @@ export default function App() {
       if (!path) return
 
       const shouldAutoplay = settings.handyAutoPlayAfterSync && deviceProvider === 'handy' && handyConnected
+      const droppedPaths = Array.from(droppedFiles)
+        .map((entry) => window.electronAPI.getDroppedFilePath(entry) || (entry as any).path as string)
+        .filter((value): value is string => Boolean(value))
+      const droppedMediaPaths = droppedPaths.filter((value) => Boolean(getMediaTypeFromPath(value)))
+
+      if (droppedMediaPaths.length > 1) {
+        const mediaFiles = await window.electronAPI.inspectMediaFiles(droppedMediaPaths, scriptFolderRef.current || undefined)
+        if (mediaFiles.length > 0) {
+          currentFolderPathRef.current = null
+          setPlaylistMode(true)
+          setPlaylistFilePath(undefined)
+          setPlaylistName((current) => current || t('sidebar.unsavedPlaylist'))
+          setFiles((current) => mergeFilesByPath(current, mediaFiles))
+        }
+        return
+      }
+
       const mediaType = getMediaTypeFromPath(path)
       if (mediaType) {
         setScriptMatchDialog(null)
@@ -2041,24 +2312,34 @@ export default function App() {
     deviceProvider,
     files,
     handyConnected,
+    mergeFilesByPath,
     openMediaFile,
     settings.handyAutoPlayAfterSync,
+    t,
   ])
 
   useEffect(() => {
+    if (playlistMode) {
+      return
+    }
+
     if (settings.defaultVideoFolder) {
       void loadFolderFiles(settings.defaultVideoFolder)
     }
-  }, [loadFolderFiles, settings.defaultVideoFolder])
+  }, [loadFolderFiles, playlistMode, settings.defaultVideoFolder])
 
   useEffect(() => {
+    if (playlistMode) {
+      return
+    }
+
     const currentFolderPath = currentFolderPathRef.current
     if (!currentFolderPath) {
       return
     }
 
     void loadFolderFiles(currentFolderPath)
-  }, [loadFolderFiles, settings.scriptFolder])
+  }, [loadFolderFiles, playlistMode, settings.scriptFolder])
 
   useEffect(() => {
     const mediaPath = currentFileRef.current
@@ -2328,7 +2609,7 @@ export default function App() {
     if (
       deviceProvider !== 'serial'
       || !osrSerialConnected
-      || availableOsrSerialAxes.length === 0
+      || osrSerialScriptAxes.length === 0
     ) {
       void stopOsrSerialPlayback({ homeDevice: osrSerialConnected })
       return
@@ -2338,10 +2619,10 @@ export default function App() {
     if (!media || media.paused) return
     void startOsrSerialPlayback()
   }, [
-    availableOsrSerialAxes.length,
     deviceProvider,
     osrSerialConnected,
     osrSerialUpdateRate,
+    osrSerialScriptAxes.length,
     startOsrSerialPlayback,
     stopOsrSerialPlayback,
   ])
@@ -2429,6 +2710,14 @@ export default function App() {
           currentFile={currentFile}
           onFileSelect={handleFileSelect}
           onOpenFolder={handleOpenFolder}
+          playlistMode={playlistMode}
+          playlistName={playlistName}
+          playlistFilePath={playlistFilePath}
+          onAddMediaFiles={handleAddMediaFiles}
+          onOpenPlaylist={handleOpenPlaylistFile}
+          onSavePlaylist={handleSavePlaylistFile}
+          onClearPlaylist={handleClearPlaylist}
+          onRemovePlaylistFile={handleRemovePlaylistFile}
           onManualScriptSelect={handleManualScriptSelect}
           onManualSubtitleSelect={handleManualSubtitleSelect}
           onClearManualScript={handleClearManualScript}
@@ -2457,6 +2746,11 @@ export default function App() {
           osrSerialError={osrSerialError}
           osrSerialUpdateRate={osrSerialUpdateRate}
           onOsrSerialUpdateRateChange={setOsrSerialUpdateRate}
+          osrSerialProfile={osrSerialProfile}
+          onOsrSerialProfileChange={handleOsrSerialProfileChange}
+          osrSerialAxisConfigs={osrSerialAxisConfigs}
+          osrSerialActiveAxes={availableOsrSerialAxes}
+          onOsrSerialAxisConfigChange={handleOsrSerialAxisConfigChange}
           buttplugConnected={buttplugConnected}
           buttplugConnecting={buttplugConnectionState === 'connecting'}
           buttplugDevices={buttplugDevices}

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // System utilities
   writeClipboardText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   showItemInFolder: (filePath: string) => ipcRenderer.invoke('shell:showItemInFolder', filePath),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
@@ -23,13 +24,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Dialogs
   openVideo: () => ipcRenderer.invoke('dialog:openVideo'),
+  openMediaFiles: () => ipcRenderer.invoke('dialog:openMediaFiles'),
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   openScriptFile: () => ipcRenderer.invoke('dialog:openScriptFile'),
   openSubtitleFile: () => ipcRenderer.invoke('dialog:openSubtitleFile'),
+  openPlaylistFile: () => ipcRenderer.invoke('dialog:openPlaylistFile'),
+  savePlaylistFile: (defaultName: string, content: string) =>
+    ipcRenderer.invoke('dialog:savePlaylistFile', defaultName, content),
   getDroppedFilePath: (file: File) => webUtils.getPathForFile(file),
 
   // File system
   readDir: (path: string, scriptFolder?: string) => ipcRenderer.invoke('fs:readDir', path, scriptFolder),
+  inspectMediaFiles: (paths: string[], scriptFolder?: string) =>
+    ipcRenderer.invoke('fs:inspectMediaFiles', paths, scriptFolder),
   readFunscript: (videoPath: string, scriptFolder?: string) => ipcRenderer.invoke('fs:readFunscript', videoPath, scriptFolder),
   readFunscriptBundle: (videoPath: string, scriptFolder?: string, preferredScriptPath?: string) =>
     ipcRenderer.invoke('fs:readFunscriptBundle', videoPath, scriptFolder, preferredScriptPath),

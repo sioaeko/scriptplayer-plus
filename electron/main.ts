@@ -7,7 +7,7 @@ import { URL, pathToFileURL } from 'url'
 import { OsrSerialManager } from './osrSerial'
 import { SCRIPT_AXIS_DEFINITIONS, inferAxisIdFromStem, stripKnownAxisSuffix } from '../src/services/multiaxis'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from '../src/services/subtitles'
-import { ScriptAxisId, ScriptMediaMatchCandidate, ScriptVariantOption } from '../src/types'
+import { ScriptAxisId, ScriptMediaMatchCandidate, ScriptVariantOption, VideoFile } from '../src/types'
 
 const isMac = process.platform === 'darwin'
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
@@ -95,6 +95,69 @@ function createBundledScriptIndex(): BundledScriptIndex {
 
 function normalizePathKey(targetPath: string): string {
   return process.platform === 'win32' ? targetPath.toLowerCase() : targetPath
+}
+
+function isLikelyNetworkPath(targetPath?: string | null): boolean {
+  if (!targetPath) return false
+  const trimmed = targetPath.trim()
+  return trimmed.startsWith('\\\\') || trimmed.startsWith('//')
+}
+
+async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string): Promise<VideoFile[]> {
+  const files: VideoFile[] = []
+  const seenPaths = new Set<string>()
+  const useNetworkSafeScriptFolder = isLikelyNetworkPath(scriptFolder)
+
+  for (const rawPath of filePaths) {
+    if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
+      continue
+    }
+
+    const filePath = path.normalize(rawPath)
+    const pathKey = normalizePathKey(filePath)
+    if (seenPaths.has(pathKey)) {
+      continue
+    }
+    seenPaths.add(pathKey)
+
+    const ext = path.extname(filePath).toLowerCase()
+    if (!MEDIA_EXTS.includes(ext)) {
+      continue
+    }
+
+    let stats: fs.Stats
+    try {
+      stats = await fs.promises.stat(filePath)
+      if (!stats.isFile()) {
+        continue
+      }
+    } catch {
+      continue
+    }
+
+    const useNetworkSafeScan = isLikelyNetworkPath(filePath) || useNetworkSafeScriptFolder
+    const bundle = useNetworkSafeScan ? null : readFunscriptBundle(filePath, scriptFolder)
+    const scriptAxes = SCRIPT_AXIS_DEFINITIONS
+      .map((definition) => definition.id)
+      .filter((axisId) => Boolean(bundle?.scripts[axisId]))
+    const primaryScriptPath = bundle?.primaryAxis
+      ? bundle.sources[bundle.primaryAxis]
+      : undefined
+
+    files.push({
+      name: path.basename(filePath),
+      path: filePath,
+      type: VIDEO_EXTS.includes(ext) ? 'video' : 'audio',
+      hasScript: scriptAxes.length > 0,
+      autoScriptPath: primaryScriptPath,
+      scriptAxes,
+      hasSubtitles: useNetworkSafeScan ? false : hasSubtitlesForMediaScan(filePath),
+      modifiedAt: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : 0,
+      relativePath: filePath.replace(/\\/g, '/'),
+    })
+  }
+
+  return files.sort((a, b) => NATURAL_SORTER.compare(a.relativePath || a.path, b.relativePath || b.path))
 }
 
 async function getDirectoryRealPathKey(dirPath: string): Promise<string> {
@@ -246,6 +309,24 @@ ipcMain.handle('shell:showItemInFolder', async (_event, filePath: string) => {
   return true
 })
 
+ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  try {
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      return false
+    }
+
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return false
+    }
+
+    await shell.openExternal(parsed.toString())
+    return true
+  } catch {
+    return false
+  }
+})
+
 // File dialogs
 ipcMain.handle('dialog:openVideo', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
@@ -256,6 +337,17 @@ ipcMain.handle('dialog:openVideo', async () => {
   })
   if (result.canceled) return null
   return result.filePaths[0]
+})
+
+ipcMain.handle('dialog:openMediaFiles', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Media', extensions: MEDIA_EXTS.map((ext) => ext.slice(1)) },
+    ],
+  })
+  if (result.canceled) return []
+  return result.filePaths
 })
 
 ipcMain.handle('dialog:openFolder', async () => {
@@ -288,9 +380,49 @@ ipcMain.handle('dialog:openSubtitleFile', async () => {
   return result.filePaths[0]
 })
 
+ipcMain.handle('dialog:openPlaylistFile', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Playlist', extensions: ['json', 'm3u', 'm3u8', 'txt'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  })
+  if (result.canceled) return null
+
+  const filePath = result.filePaths[0]
+  try {
+    return {
+      path: filePath,
+      content: await fs.promises.readFile(filePath, 'utf-8'),
+    }
+  } catch {
+    return null
+  }
+})
+
+ipcMain.handle('dialog:savePlaylistFile', async (_event, defaultName: string, content: string) => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    defaultPath: defaultName || 'ScriptPlayer+ Playlist.spplaylist.json',
+    filters: [
+      { name: 'ScriptPlayer+ Playlist', extensions: ['json'] },
+      { name: 'JSON', extensions: ['json'] },
+    ],
+  })
+  if (result.canceled || !result.filePath) return null
+
+  try {
+    await fs.promises.writeFile(result.filePath, content, 'utf-8')
+    return result.filePath
+  } catch {
+    return null
+  }
+})
+
 // File system operations
 ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: string) => {
   try {
+    const useNetworkSafeScan = isLikelyNetworkPath(dirPath) || isLikelyNetworkPath(scriptFolder)
     invalidateFsCachesForRoot(dirPath)
     if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(dirPath)) {
       invalidateFsCachesForRoot(scriptFolder)
@@ -377,7 +509,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
               modifiedAt = 0
             }
 
-            const hasSubtitles = hasSubtitlesForMediaScan(fullPath)
+            const hasSubtitles = useNetworkSafeScan ? false : hasSubtitlesForMediaScan(fullPath)
             pendingMediaFiles.push({
               name: entry.name,
               path: fullPath,
@@ -502,17 +634,41 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
   }
 })
 
+ipcMain.handle('fs:inspectMediaFiles', async (_event, filePaths: string[], scriptFolder?: string) => {
+  try {
+    if (!Array.isArray(filePaths)) {
+      return []
+    }
+
+    return inspectMediaFilePaths(filePaths, scriptFolder)
+  } catch {
+    return []
+  }
+})
+
 ipcMain.handle('fs:readFunscript', async (_event, videoPath: string, scriptFolder?: string) => {
+  if (isLikelyNetworkPath(videoPath) || isLikelyNetworkPath(scriptFolder)) {
+    return null
+  }
+
   const bundle = readFunscriptBundle(videoPath, scriptFolder)
   if (!bundle?.primaryAxis) return null
   return bundle.scripts[bundle.primaryAxis] ?? null
 })
 
 ipcMain.handle('fs:readFunscriptBundle', async (_event, videoPath: string, scriptFolder?: string, preferredScriptPath?: string) => {
+  if (!preferredScriptPath && (isLikelyNetworkPath(videoPath) || isLikelyNetworkPath(scriptFolder))) {
+    return null
+  }
+
   return readFunscriptBundle(videoPath, scriptFolder, preferredScriptPath)
 })
 
 ipcMain.handle('fs:listScriptVariants', async (_event, videoPath: string, scriptFolder?: string) => {
+  if (isLikelyNetworkPath(videoPath) || isLikelyNetworkPath(scriptFolder)) {
+    return []
+  }
+
   return listScriptVariants(videoPath, scriptFolder)
 })
 
@@ -548,6 +704,10 @@ ipcMain.handle('fs:getVideoUrl', async (_event, filePath: string) => {
 
 ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {
   try {
+    if (isLikelyNetworkPath(mediaPath)) {
+      return null
+    }
+
     return findArtworkForMedia(mediaPath)
   } catch {
     return null
@@ -556,6 +716,10 @@ ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {
 
 ipcMain.handle('fs:readSubtitles', async (_event, mediaPath: string) => {
   try {
+    if (isLikelyNetworkPath(mediaPath)) {
+      return []
+    }
+
     return findSubtitleFilesForMedia(mediaPath)
       .map((subtitlePath) => {
         try {

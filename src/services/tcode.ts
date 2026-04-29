@@ -7,6 +7,12 @@ export type AxisActionMap = Partial<Record<ScriptAxisId, FunscriptAction[]>>
 export const TCODE_AXIS_ORDER: ScriptAxisId[] = ['L0', 'L1', 'L2', 'R0', 'R1', 'R2', 'V0', 'V1', 'A0', 'A1', 'A2']
 export const OSR_SERIAL_AXIS_ORDER: ScriptAxisId[] = ['L0', 'L1', 'L2', 'R0', 'R1', 'R2']
 
+export interface TCodeAxisOutputOptions {
+  invert?: boolean
+  min?: number
+  max?: number
+}
+
 export function getAxisValueAtTime(axisId: ScriptAxisId, actionMap: AxisActionMap, timeMs: number): number {
   const actions = actionMap[axisId]
   if (!actions || actions.length === 0) {
@@ -16,9 +22,22 @@ export function getAxisValueAtTime(axisId: ScriptAxisId, actionMap: AxisActionMa
   return getPositionAtTime(actions, timeMs) / 100
 }
 
-export function applyAxisMappingValue(axisId: ScriptAxisId, value: number, invert: boolean): number {
+export function applyAxisMappingValue(
+  axisId: ScriptAxisId,
+  value: number,
+  invertOrOptions: boolean | TCodeAxisOutputOptions = false
+): number {
   const safeValue = Number.isFinite(value) ? value : getDefaultAxisValue(axisId)
-  return invert ? 1 - safeValue : safeValue
+  const options = typeof invertOrOptions === 'boolean'
+    ? { invert: invertOrOptions }
+    : invertOrOptions
+  const mappedValue = options.invert ? 1 - safeValue : safeValue
+  const min = clampPercent(options.min ?? 0)
+  const max = clampPercent(options.max ?? 100)
+  const rangeMin = Math.min(min, max)
+  const rangeMax = Math.max(min, max)
+
+  return (rangeMin + mappedValue * (rangeMax - rangeMin)) / 100
 }
 
 export function formatTCodeMagnitude(value: number): string {
@@ -37,10 +56,12 @@ export function buildTCodeCommand(
   options?: {
     axisIds?: ScriptAxisId[]
     invertByAxis?: Partial<Record<ScriptAxisId, boolean>>
+    axisOutputOptions?: Partial<Record<ScriptAxisId, TCodeAxisOutputOptions>>
   }
 ): string | null {
   const axisIds = options?.axisIds ?? TCODE_AXIS_ORDER
   const invertByAxis = options?.invertByAxis ?? {}
+  const axisOutputOptions = options?.axisOutputOptions ?? {}
 
   if (axisIds.length === 0) return null
 
@@ -49,13 +70,29 @@ export function buildTCodeCommand(
     applyAxisMappingValue(
       axisId,
       getAxisValueAtTime(axisId, actionMap, timeMs),
-      invertByAxis[axisId] ?? false
+      {
+        ...axisOutputOptions[axisId],
+        invert: axisOutputOptions[axisId]?.invert ?? invertByAxis[axisId] ?? false,
+      }
     )
   ))
 
   return segments.length > 0 ? segments.join(' ') : null
 }
 
-export function buildDefaultTCodeCommand(axisIds: ScriptAxisId[] = TCODE_AXIS_ORDER): string | null {
-  return buildTCodeCommand({}, 0, { axisIds })
+export function buildDefaultTCodeCommand(
+  axisIds: ScriptAxisId[] = TCODE_AXIS_ORDER,
+  options?: {
+    invertByAxis?: Partial<Record<ScriptAxisId, boolean>>
+    axisOutputOptions?: Partial<Record<ScriptAxisId, TCodeAxisOutputOptions>>
+  }
+): string | null {
+  return buildTCodeCommand({}, 0, {
+    ...options,
+    axisIds,
+  })
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0))
 }

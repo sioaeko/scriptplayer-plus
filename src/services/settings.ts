@@ -1,5 +1,8 @@
 import { createDefaultShortcutBindings, normalizeShortcutBindings, ShortcutBindings } from './shortcuts'
 import {
+  NO_SCRIPT_STROKE_MAX_SPM,
+  NO_SCRIPT_STROKE_MIN_SPM,
+  NO_SCRIPT_STROKE_SPEED_STEP,
   normalizeNoScriptStrokePattern,
   normalizeNoScriptStrokePreset,
   NoScriptStrokePattern,
@@ -52,8 +55,8 @@ export interface AppSettings {
   // Playback
   handyAutoPlayAfterSync: boolean
   noScriptRandomStrokeEnabled: boolean
-  noScriptRandomMinSpeed: number // strokes/min, 30-240
-  noScriptRandomMaxSpeed: number // strokes/min, 30-240
+  noScriptRandomMinSpeed: number // strokes/min, 30-320
+  noScriptRandomMaxSpeed: number // strokes/min, 30-320
   noScriptRandomPreset: NoScriptStrokePreset
   noScriptRandomPattern: NoScriptStrokePattern
   autoSkipScriptGaps: boolean
@@ -129,6 +132,16 @@ function normalizeMotionSpeedLimit(value: unknown): number {
   return clampNumber(stepped, MOTION_SPEED_LIMIT_MIN, MOTION_SPEED_LIMIT_MAX)
 }
 
+function normalizeNoScriptRandomSpeed(value: unknown, fallback: number): number {
+  const requested = Number(value)
+  if (!Number.isFinite(requested)) {
+    return fallback
+  }
+
+  const stepped = Math.round(requested / NO_SCRIPT_STROKE_SPEED_STEP) * NO_SCRIPT_STROKE_SPEED_STEP
+  return clampNumber(stepped, NO_SCRIPT_STROKE_MIN_SPM, NO_SCRIPT_STROKE_MAX_SPM)
+}
+
 function normalizeMotionSpeedLimitPreset(value: unknown): MotionSpeedLimitPreset | null {
   return MOTION_SPEED_LIMIT_PRESETS.includes(value as MotionSpeedLimitPreset)
     ? value as MotionSpeedLimitPreset
@@ -159,6 +172,14 @@ export function loadSettings(): AppSettings {
     const motionSpeedLimitEnabled = Boolean((parsed as { motionSpeedLimitEnabled?: unknown })?.motionSpeedLimitEnabled ?? defaults.motionSpeedLimitEnabled)
     const storedMotionSpeedLimitPreset = normalizeMotionSpeedLimitPreset((parsed as { motionSpeedLimitPreset?: unknown })?.motionSpeedLimitPreset)
     const motionSpeedLimitPreset = storedMotionSpeedLimitPreset ?? inferMotionSpeedLimitPreset(motionSpeedLimitEnabled, motionSpeedLimit)
+    const noScriptRandomMinSpeed = normalizeNoScriptRandomSpeed(
+      (parsed as { noScriptRandomMinSpeed?: unknown })?.noScriptRandomMinSpeed,
+      defaults.noScriptRandomMinSpeed
+    )
+    const noScriptRandomMaxSpeed = normalizeNoScriptRandomSpeed(
+      (parsed as { noScriptRandomMaxSpeed?: unknown })?.noScriptRandomMaxSpeed,
+      defaults.noScriptRandomMaxSpeed
+    )
     return {
       ...defaults,
       ...parsed,
@@ -168,6 +189,8 @@ export function loadSettings(): AppSettings {
       motionSpeedLimit: motionSpeedLimitPreset in MOTION_SPEED_LIMIT_PRESET_VALUES
         ? MOTION_SPEED_LIMIT_PRESET_VALUES[motionSpeedLimitPreset as keyof typeof MOTION_SPEED_LIMIT_PRESET_VALUES]
         : motionSpeedLimit,
+      noScriptRandomMinSpeed: Math.min(noScriptRandomMinSpeed, noScriptRandomMaxSpeed),
+      noScriptRandomMaxSpeed: Math.max(noScriptRandomMinSpeed, noScriptRandomMaxSpeed),
       noScriptRandomPreset: normalizeNoScriptStrokePreset((parsed as { noScriptRandomPreset?: unknown })?.noScriptRandomPreset),
       noScriptRandomPattern: normalizeNoScriptStrokePattern((parsed as { noScriptRandomPattern?: unknown })?.noScriptRandomPattern),
       keyboardShortcuts: normalizeShortcutBindings((parsed as { keyboardShortcuts?: unknown })?.keyboardShortcuts),

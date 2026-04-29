@@ -9,8 +9,10 @@ import {
   Info,
   X,
   FolderOpen,
+  MessageSquare,
 } from 'lucide-react'
 import { APP_VERSION } from '../constants/app'
+import { APP_LINKS, APP_SUPPORT_ICONS } from '../constants/links'
 import {
   AppSettings,
   MOTION_SPEED_LIMIT_MAX,
@@ -22,8 +24,12 @@ import {
 } from '../services/settings'
 import {
   getNoScriptStrokePatternForPreset,
+  NO_SCRIPT_STROKE_MAX_SPM,
+  NO_SCRIPT_STROKE_MIN_SPM,
   NO_SCRIPT_STROKE_PATTERNS,
+  NO_SCRIPT_STROKE_PRESET_SPEED_RANGES,
   NO_SCRIPT_STROKE_PRESETS,
+  NO_SCRIPT_STROKE_SPEED_STEP,
 } from '../services/noScriptStroke'
 import {
   captureShortcutBinding,
@@ -345,6 +351,20 @@ function PlaybackSection({
   const controlsDisabled = !settings.autoSkipScriptGaps
   const randomStrokeControlsDisabled = !settings.noScriptRandomStrokeEnabled
   const resolvedPattern = getNoScriptStrokePatternForPreset(settings.noScriptRandomPreset, settings.noScriptRandomPattern)
+  const updateRandomStrokePreset = (preset: AppSettings['noScriptRandomPreset']) => {
+    if (preset === 'custom') {
+      update('noScriptRandomPreset', preset)
+      return
+    }
+
+    const speedRange = NO_SCRIPT_STROKE_PRESET_SPEED_RANGES[preset]
+    onChange({
+      ...settings,
+      noScriptRandomPreset: preset,
+      noScriptRandomMinSpeed: speedRange.min,
+      noScriptRandomMaxSpeed: speedRange.max,
+    })
+  }
 
   return (
     <div>
@@ -393,7 +413,7 @@ function PlaybackSection({
         <select
           disabled={randomStrokeControlsDisabled}
           value={settings.noScriptRandomPreset}
-          onChange={(e) => update('noScriptRandomPreset', e.target.value as AppSettings['noScriptRandomPreset'])}
+          onChange={(e) => updateRandomStrokePreset(e.target.value as AppSettings['noScriptRandomPreset'])}
           className={`bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[160px] ${randomStrokeControlsDisabled ? 'opacity-40 cursor-not-allowed' : 'focus:border-accent/50'}`}
         >
           {NO_SCRIPT_STROKE_PRESETS.map((preset) => (
@@ -436,9 +456,9 @@ function PlaybackSection({
       >
         <input
           type="range"
-          min={30}
-          max={240}
-          step={2}
+          min={NO_SCRIPT_STROKE_MIN_SPM}
+          max={NO_SCRIPT_STROKE_MAX_SPM}
+          step={NO_SCRIPT_STROKE_SPEED_STEP}
           disabled={randomStrokeControlsDisabled}
           value={settings.noScriptRandomMinSpeed}
           onChange={(e) => {
@@ -457,9 +477,9 @@ function PlaybackSection({
       >
         <input
           type="range"
-          min={30}
-          max={240}
-          step={2}
+          min={NO_SCRIPT_STROKE_MIN_SPM}
+          max={NO_SCRIPT_STROKE_MAX_SPM}
+          step={NO_SCRIPT_STROKE_SPEED_STEP}
           disabled={randomStrokeControlsDisabled}
           value={settings.noScriptRandomMaxSpeed}
           onChange={(e) => {
@@ -886,6 +906,10 @@ function ShortcutsSection({
 
 function AboutSection() {
   const { t } = useTranslation()
+  const openLink = useCallback((url: string) => {
+    void window.electronAPI?.openExternal?.(url)
+  }, [])
+
   return (
     <div>
       <SectionHeading>{t('settings.about')}</SectionHeading>
@@ -911,6 +935,45 @@ function AboutSection() {
         <p className="text-text-muted">
           Built with Electron, React, and Tailwind CSS.
         </p>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => openLink(APP_LINKS.feedback)}
+          className="inline-flex h-8 items-center gap-1.5 rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary"
+        >
+          <MessageSquare size={13} />
+          {t('settings.feedback')}
+        </button>
+        <button
+          type="button"
+          onClick={() => openLink(APP_LINKS.koFi)}
+          className="inline-flex h-8 items-center gap-1.5 rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary"
+        >
+          <span className="flex h-4 w-4 items-center justify-center overflow-hidden rounded-sm">
+            <img
+              src={APP_SUPPORT_ICONS.koFi}
+              alt=""
+              className="h-3.5 w-3.5 object-contain"
+            />
+          </span>
+          {t('settings.supportKoFi')}
+        </button>
+        <button
+          type="button"
+          onClick={() => openLink(APP_LINKS.patreon)}
+          className="inline-flex h-8 items-center gap-1.5 rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary"
+        >
+          <span className="flex h-4 w-4 items-center justify-center overflow-hidden rounded-sm">
+            <img
+              src={APP_SUPPORT_ICONS.patreon}
+              alt=""
+              className="h-3.5 w-3.5 object-contain"
+            />
+          </span>
+          {t('settings.supportPatreon')}
+        </button>
       </div>
 
       <Divider />

@@ -1,10 +1,31 @@
 import { Funscript, FunscriptAction } from '../types'
 
-export const NO_SCRIPT_STROKE_PATTERNS = ['random', 'steady', 'wave', 'burst', 'tease'] as const
+export const NO_SCRIPT_STROKE_PATTERNS = ['random', 'steady', 'wave', 'burst', 'tease', 'pulse', 'ramp', 'drill', 'chaos'] as const
 export type NoScriptStrokePattern = (typeof NO_SCRIPT_STROKE_PATTERNS)[number]
 
-export const NO_SCRIPT_STROKE_PRESETS = ['natural', 'gentle', 'intense', 'edging', 'custom'] as const
+export const NO_SCRIPT_STROKE_PRESETS = ['natural', 'gentle', 'intense', 'edging', 'surge', 'extreme', 'custom'] as const
 export type NoScriptStrokePreset = (typeof NO_SCRIPT_STROKE_PRESETS)[number]
+
+export const NO_SCRIPT_STROKE_MIN_SPM = 30
+export const NO_SCRIPT_STROKE_MAX_SPM = 320
+export const NO_SCRIPT_STROKE_SPEED_STEP = 2
+
+export interface NoScriptStrokeSpeedRange {
+  min: number
+  max: number
+}
+
+export const NO_SCRIPT_STROKE_PRESET_SPEED_RANGES: Record<
+  Exclude<NoScriptStrokePreset, 'custom'>,
+  NoScriptStrokeSpeedRange
+> = {
+  natural: { min: 72, max: 140 },
+  gentle: { min: 48, max: 96 },
+  intense: { min: 110, max: 220 },
+  edging: { min: 54, max: 150 },
+  surge: { min: 120, max: 260 },
+  extreme: { min: 180, max: 320 },
+}
 
 export interface NoScriptStrokeOptions {
   minStrokesPerMinute: number
@@ -36,8 +57,6 @@ interface NoScriptStrokeProfile {
   teaseMidpointChance: number
 }
 
-const MIN_STROKES_PER_MINUTE = 30
-const MAX_STROKES_PER_MINUTE = 240
 const MIN_HALF_STROKE_MS = 90
 const MAX_HALF_STROKE_MS = 1500
 
@@ -64,6 +83,10 @@ export function getNoScriptStrokePatternForPreset(
       return 'burst'
     case 'edging':
       return 'tease'
+    case 'surge':
+      return 'ramp'
+    case 'extreme':
+      return 'drill'
     case 'custom':
       return customPattern
     case 'natural':
@@ -157,6 +180,75 @@ export function buildNoScriptRandomFunscript(
         pauseChance *= 1.15
         holdChance *= 1.25
         break
+      case 'pulse': {
+        const pulsePhase = stepIndex % 8
+        const pulseActive = pulsePhase < 5
+        if (pulseActive) {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.62, 0.98, random()))
+          span = lerp(profile.minSpan, profile.maxSpan, lerp(0.68, 1, random()))
+          durationJitter = lerp(0.82, 1.02, random())
+          pauseChance *= 0.2
+          holdChance *= 0.35
+        } else {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.24, 0.48, random()))
+          span = clampNumber(span * lerp(0.45, 0.68, random()), 8, 34)
+          durationJitter = lerp(1.02, 1.22, random())
+          pauseChance *= 1.35
+          holdChance *= 1.45
+        }
+        break
+      }
+      case 'ramp': {
+        const cycleIndex = stepIndex % Math.max(waveCycleSteps, 1)
+        const rampProgress = cycleIndex / Math.max(waveCycleSteps - 1, 1)
+        const rampShape = Math.pow(rampProgress, 0.72)
+        const rampT = clampNumber(0.1 + rampShape * 0.88 + random() * 0.06, 0, 1)
+        strokesPerMinute = lerp(minSpm, maxSpm, rampT)
+        span = lerp(profile.minSpan, profile.maxSpan, clampNumber(0.18 + rampShape * 0.82 + random() * 0.08, 0, 1))
+        durationJitter = lerp(0.88, 1.08, random())
+        pauseChance *= rampProgress > 0.88 ? 1.2 : 0.55
+        holdChance *= 0.6
+
+        if ((stepIndex + 1) % Math.max(waveCycleSteps, 1) === 0) {
+          waveCycleSteps = randomInt(profile.waveCycleMinSteps, profile.waveCycleMaxSteps, random)
+        }
+        break
+      }
+      case 'drill':
+        strokesPerMinute = lerp(minSpm, maxSpm, sampleBiasedUnit(random, 0.42))
+        span = lerp(Math.max(profile.minSpan, profile.maxSpan * 0.72), profile.maxSpan, random())
+        durationJitter = lerp(0.78, 0.98, random())
+        pauseChance *= 0.08
+        holdChance *= 0.1
+        break
+      case 'chaos': {
+        const chaosRoll = random()
+        if (chaosRoll < 0.42) {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.7, 1, random()))
+          span = lerp(profile.minSpan, profile.maxSpan, lerp(0.55, 1, random()))
+          durationJitter = lerp(0.78, 1.02, random())
+          pauseChance *= 0.18
+          holdChance *= 0.24
+        } else if (chaosRoll < 0.68) {
+          strokesPerMinute = lerp(minSpm, maxSpm, sampleBiasedUnit(random, 0.72))
+          span = lerp(profile.minSpan, profile.maxSpan, random())
+          durationJitter = lerp(0.92, 1.28, random())
+          pauseChance *= 0.85
+        } else if (chaosRoll < 0.84) {
+          strokesPerMinute = lerp(minSpm, maxSpm, sampleBiasedUnit(random, 1.45))
+          span = lerp(profile.minSpan, profile.maxSpan, Math.pow(random(), 1.2))
+          durationJitter = lerp(1.02, 1.32, random())
+          pauseChance *= 1.35
+          holdChance *= 1.5
+        } else {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.82, 1, random()))
+          span = lerp(profile.minSpan, profile.maxSpan, lerp(0.72, 1, random()))
+          durationJitter = lerp(0.7, 0.92, random())
+          pauseChance *= 0.08
+          holdChance *= 0.06
+        }
+        break
+      }
       case 'random':
       default:
         break
@@ -294,6 +386,52 @@ function resolveNoScriptStrokeProfile(
         burstSpanMultiplier: 1.05,
         teaseMidpointChance: 0.28,
       }
+    case 'surge':
+      return {
+        pattern: 'ramp',
+        speedBiasExponent: 0.72,
+        minSpan: 24,
+        maxSpan: 48,
+        jitterMin: 0.84,
+        jitterMax: 1.1,
+        pauseChance: 0.06,
+        pauseMinMs: 50,
+        pauseMaxMs: 180,
+        holdChance: 0.04,
+        holdMinMs: 70,
+        holdMaxMs: 180,
+        waveCycleMinSteps: 7,
+        waveCycleMaxSteps: 13,
+        burstChance: 0.2,
+        burstMinSteps: 3,
+        burstMaxSteps: 6,
+        burstSpeedMultiplier: 1.34,
+        burstSpanMultiplier: 1.18,
+        teaseMidpointChance: 0.08,
+      }
+    case 'extreme':
+      return {
+        pattern: 'drill',
+        speedBiasExponent: 0.42,
+        minSpan: 34,
+        maxSpan: 50,
+        jitterMin: 0.74,
+        jitterMax: 1.02,
+        pauseChance: 0.015,
+        pauseMinMs: 20,
+        pauseMaxMs: 90,
+        holdChance: 0.01,
+        holdMinMs: 30,
+        holdMaxMs: 100,
+        waveCycleMinSteps: 5,
+        waveCycleMaxSteps: 9,
+        burstChance: 0.36,
+        burstMinSteps: 4,
+        burstMaxSteps: 8,
+        burstSpeedMultiplier: 1.55,
+        burstSpanMultiplier: 1.24,
+        teaseMidpointChance: 0.02,
+      }
     case 'custom':
       return buildCustomNoScriptStrokeProfile(pattern)
     case 'natural':
@@ -399,6 +537,77 @@ function buildCustomNoScriptStrokeProfile(pattern: NoScriptStrokePattern): NoScr
         holdMaxMs: 520,
         teaseMidpointChance: 0.26,
       }
+    case 'pulse':
+      return {
+        ...base,
+        speedBiasExponent: 0.86,
+        minSpan: 18,
+        maxSpan: 46,
+        jitterMin: 0.84,
+        jitterMax: 1.16,
+        pauseChance: 0.1,
+        holdChance: 0.11,
+        burstChance: 0.2,
+        burstSpeedMultiplier: 1.36,
+        burstSpanMultiplier: 1.14,
+      }
+    case 'ramp':
+      return {
+        ...base,
+        speedBiasExponent: 0.82,
+        minSpan: 18,
+        maxSpan: 48,
+        jitterMin: 0.88,
+        jitterMax: 1.1,
+        pauseChance: 0.08,
+        holdChance: 0.06,
+        waveCycleMinSteps: 7,
+        waveCycleMaxSteps: 14,
+        burstChance: 0.18,
+        burstSpeedMultiplier: 1.32,
+        burstSpanMultiplier: 1.16,
+      }
+    case 'drill':
+      return {
+        ...base,
+        speedBiasExponent: 0.48,
+        minSpan: 30,
+        maxSpan: 50,
+        jitterMin: 0.78,
+        jitterMax: 1.02,
+        pauseChance: 0.03,
+        holdChance: 0.02,
+        pauseMinMs: 30,
+        pauseMaxMs: 120,
+        burstChance: 0.3,
+        burstMinSteps: 4,
+        burstMaxSteps: 8,
+        burstSpeedMultiplier: 1.5,
+        burstSpanMultiplier: 1.2,
+      }
+    case 'chaos':
+      return {
+        ...base,
+        speedBiasExponent: 0.7,
+        minSpan: 12,
+        maxSpan: 50,
+        jitterMin: 0.74,
+        jitterMax: 1.28,
+        pauseChance: 0.14,
+        pauseMinMs: 40,
+        pauseMaxMs: 260,
+        holdChance: 0.1,
+        holdMinMs: 80,
+        holdMaxMs: 420,
+        waveCycleMinSteps: 4,
+        waveCycleMaxSteps: 11,
+        burstChance: 0.28,
+        burstMinSteps: 2,
+        burstMaxSteps: 7,
+        burstSpeedMultiplier: 1.48,
+        burstSpanMultiplier: 1.22,
+        teaseMidpointChance: 0.22,
+      }
     case 'random':
     default:
       return base
@@ -429,7 +638,7 @@ function randomInt(min: number, max: number, random: () => number): number {
 }
 
 function clampRate(value: number): number {
-  return clampNumber(value, MIN_STROKES_PER_MINUTE, MAX_STROKES_PER_MINUTE)
+  return clampNumber(value, NO_SCRIPT_STROKE_MIN_SPM, NO_SCRIPT_STROKE_MAX_SPM)
 }
 
 function clampNumber(value: number, min: number, max: number): number {

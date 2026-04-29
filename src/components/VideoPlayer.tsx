@@ -199,6 +199,8 @@ export default function VideoPlayer({
   const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
   const fullscreenControlsOverlayRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
+  const [diagnosticsSnapshot, setDiagnosticsSnapshot] = useState<PlaybackDiagnosticsSnapshot | null>(null)
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false)
   const [progressPreviewTime, setProgressPreviewTime] = useState<number | null>(null)
   const [isProgressScrubbing, setIsProgressScrubbing] = useState(false)
   const [duration, setDuration] = useState(0)
@@ -224,6 +226,9 @@ export default function VideoPlayer({
     max: strokeRangeMax,
   }))
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const diagnosticsEventsRef = useRef<PlaybackDiagnosticsEvents>(createEmptyPlaybackDiagnosticsEvents())
+  const diagnosticsFramesRef = useRef<PlaybackDiagnosticsFrames>(createEmptyPlaybackDiagnosticsFrames())
+  const diagnosticsCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const playbackFrameRef = useRef<number | null>(null)
   const handledAutoPlayRequest = useRef(0)
   const progressScrubbingRef = useRef(false)
@@ -289,9 +294,157 @@ export default function VideoPlayer({
 
   }, [mediaRef])
 
+  const collectDiagnosticsSnapshot = useCallback((): PlaybackDiagnosticsSnapshot => {
+    const media = mediaRef.current
+    const quality = getVideoPlaybackQualitySnapshot(media)
+    const frames = summarizePlaybackDiagnosticsFrames(diagnosticsFramesRef.current)
+    const renderer = getWebGlRendererInfo()
+    const deviceMemory = (navigator as NavigatorWithDeviceMemory).deviceMemory
+
+    return {
+      capturedAt: new Date().toISOString(),
+      platform: window.electronAPI?.platform || navigator.platform,
+      userAgent: navigator.userAgent,
+      versions: window.electronAPI?.versions ?? null,
+      hardwareConcurrency: navigator.hardwareConcurrency || null,
+      deviceMemory: typeof deviceMemory === 'number' ? deviceMemory : null,
+      mediaType,
+      fileName: currentFileName || '',
+      hasSource: Boolean(videoUrl),
+      videoWidth: media instanceof HTMLVideoElement ? media.videoWidth : 0,
+      videoHeight: media instanceof HTMLVideoElement ? media.videoHeight : 0,
+      duration: Number.isFinite(media?.duration) ? media?.duration ?? 0 : 0,
+      currentTime: Number.isFinite(media?.currentTime) ? media?.currentTime ?? 0 : 0,
+      playbackRate: media?.playbackRate ?? 1,
+      readyState: media?.readyState ?? 0,
+      networkState: media?.networkState ?? 0,
+      paused: media?.paused ?? true,
+      events: { ...diagnosticsEventsRef.current },
+      frames,
+      quality,
+      renderer,
+      actionCount: actions.length,
+      subtitleCount: subtitleCues.length,
+    }
+  }, [actions.length, currentFileName, mediaRef, mediaType, subtitleCues.length, videoUrl])
+
+  const handleCopyDiagnostics = useCallback(async () => {
+    const snapshot = collectDiagnosticsSnapshot()
+    setDiagnosticsSnapshot(snapshot)
+
+    try {
+      if (window.electronAPI?.writeClipboardText) {
+        await window.electronAPI.writeClipboardText(formatPlaybackDiagnostics(snapshot))
+      } else {
+        await navigator.clipboard.writeText(formatPlaybackDiagnostics(snapshot))
+      }
+      setDiagnosticsCopied(true)
+      if (diagnosticsCopiedTimer.current) {
+        clearTimeout(diagnosticsCopiedTimer.current)
+      }
+      diagnosticsCopiedTimer.current = setTimeout(() => setDiagnosticsCopied(false), 1600)
+    } catch (error) {
+      console.warn('[VideoPlayer] failed to copy playback diagnostics', error)
+    }
+  }, [collectDiagnosticsSnapshot])
+
   const handleTimeUpdate = useCallback(() => {
     syncCurrentTimeFromMedia()
   }, [syncCurrentTimeFromMedia])
+
+  useEffect(() => {
+    if (!videoUrl) {
+      setDiagnosticsSnapshot(null)
+      return
+    }
+
+    setDiagnosticsSnapshot(collectDiagnosticsSnapshot())
+    const intervalId = window.setInterval(() => {
+      setDiagnosticsSnapshot(collectDiagnosticsSnapshot())
+    }, 1000)
+
+    return () => window.clearInterval(intervalId)
+  }, [collectDiagnosticsSnapshot, videoUrl])
+
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!media || !videoUrl) return
+
+    diagnosticsEventsRef.current = createEmptyPlaybackDiagnosticsEvents()
+    diagnosticsFramesRef.current = createEmptyPlaybackDiagnosticsFrames()
+
+    const increment = (key: keyof PlaybackDiagnosticsEvents) => {
+      diagnosticsEventsRef.current[key] += 1
+    }
+    const handleWaiting = () => increment('waiting')
+    const handleStalled = () => increment('stalled')
+    const handleSuspend = () => increment('suspend')
+    const handleError = () => increment('error')
+
+    media.addEventListener('waiting', handleWaiting)
+    media.addEventListener('stalled', handleStalled)
+    media.addEventListener('suspend', handleSuspend)
+    media.addEventListener('error', handleError)
+
+    return () => {
+      media.removeEventListener('waiting', handleWaiting)
+      media.removeEventListener('stalled', handleStalled)
+      media.removeEventListener('suspend', handleSuspend)
+      media.removeEventListener('error', handleError)
+    }
+  }, [mediaRef, mediaStateKey, videoUrl])
+
+  useEffect(() => {
+    const media = mediaRef.current as HTMLMediaElementWithVideoFrameCallback | null
+    if (!media || !videoUrl || typeof media.requestVideoFrameCallback !== 'function') return
+
+    let active = true
+    let callbackId: number | null = null
+    const frames = diagnosticsFramesRef.current
+    frames.lastFrameWallMs = 0
+    frames.lastMediaTime = 0
+    frames.presentedFrames = 0
+
+    const onFrame = (now: number, metadata: VideoFrameMetadataLike) => {
+      if (!active) return
+
+      if (frames.lastFrameWallMs > 0) {
+        const wallDeltaMs = now - frames.lastFrameWallMs
+        const mediaDeltaMs = Math.max(0, (metadata.mediaTime - frames.lastMediaTime) * 1000)
+        pushCappedNumber(frames.wallDeltasMs, wallDeltaMs, 3600)
+        if (wallDeltaMs >= 90 || mediaDeltaMs >= 90) {
+          frames.largeGaps += 1
+          frames.lastLargeGap = {
+            atMediaTime: metadata.mediaTime,
+            wallDeltaMs,
+            mediaDeltaMs,
+          }
+        }
+      }
+
+      frames.lastFrameWallMs = now
+      frames.lastMediaTime = metadata.mediaTime
+      frames.presentedFrames = metadata.presentedFrames ?? frames.presentedFrames
+      callbackId = media.requestVideoFrameCallback?.(onFrame) ?? null
+    }
+
+    callbackId = media.requestVideoFrameCallback(onFrame)
+
+    return () => {
+      active = false
+      if (callbackId !== null && typeof media.cancelVideoFrameCallback === 'function') {
+        media.cancelVideoFrameCallback(callbackId)
+      }
+    }
+  }, [mediaRef, mediaStateKey, videoUrl])
+
+  useEffect(() => {
+    return () => {
+      if (diagnosticsCopiedTimer.current) {
+        clearTimeout(diagnosticsCopiedTimer.current)
+      }
+    }
+  }, [])
 
   const togglePlay = useCallback(() => {
     const media = mediaRef.current
@@ -728,6 +881,12 @@ export default function VideoPlayer({
   useEffect(() => {
     const media = mediaRef.current
     if (!media || !videoUrl) return
+    media.muted = muted
+  }, [mediaRef, mediaStateKey, muted, videoUrl])
+
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!media || !videoUrl) return
     media.defaultPlaybackRate = playbackRate
     media.playbackRate = playbackRate
   }, [mediaRef, mediaStateKey, playbackRate, videoUrl])
@@ -1098,67 +1257,135 @@ export default function VideoPlayer({
           </div>
         )}
 
-        {scriptDebugInfo?.enabled && actions.length > 0 && (
+        {scriptDebugInfo?.enabled && (actions.length > 0 || diagnosticsSnapshot) && (
           <div className="absolute top-3 left-3 z-10 max-w-[min(34rem,calc(100%-1.5rem))] rounded-lg border border-white/10 bg-black/72 px-3 py-2 text-[10px] text-white/82 shadow-[0_12px_36px_rgba(0,0,0,0.35)] backdrop-blur-sm">
             <div className="mb-1 flex items-center gap-2">
               <span className="font-semibold uppercase tracking-[0.18em] text-accent">
                 {t('player.scriptDebug')}
               </span>
-              <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[9px] text-white/70">
-                {scriptDebugInfo.sourceLabel}
-              </span>
+              {actions.length > 0 && (
+                <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[9px] text-white/70">
+                  {scriptDebugInfo.sourceLabel}
+                </span>
+              )}
             </div>
-            <div className="truncate font-mono text-white/80">
-              {scriptDebugInfo.sourcePath || t('player.scriptDebugGenerated')}
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-white/62">
-              <span>{t('player.scriptDebugAxes')}: {scriptDebugInfo.axes.length > 0 ? scriptDebugInfo.axes.join(', ') : '-'}</span>
-              <span>{t('player.scriptDebugOffset')}: {formatScriptOffset(scriptDebugInfo.offsetMs)}</span>
-              <span>{scriptDebugInfo.offsetScope}</span>
-            </div>
-            {debugScriptPath && (
-              <div className="mt-2 flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void copyScriptPath(debugScriptPath)
-                  }}
-                  className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
-                  title={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
-                  aria-label={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
-                >
-                  <Copy size={11} />
-                  {scriptPathCopied ? t('player.scriptPathCopiedShort') : t('player.copyScriptPathShort')}
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void openScriptFolder(debugScriptPath)
-                  }}
-                  className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
-                  title={t('player.openScriptFolder')}
-                  aria-label={t('player.openScriptFolder')}
-                >
-                  <FolderOpen size={11} />
-                  {t('player.openScriptFolderShort')}
-                </button>
-                {onReloadScriptSource && (
+            {actions.length > 0 && (
+              <>
+                <div className="truncate font-mono text-white/80">
+                  {scriptDebugInfo.sourcePath || t('player.scriptDebugGenerated')}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-white/62">
+                  <span>{t('player.scriptDebugAxes')}: {scriptDebugInfo.axes.length > 0 ? scriptDebugInfo.axes.join(', ') : '-'}</span>
+                  <span>{t('player.scriptDebugOffset')}: {formatScriptOffset(scriptDebugInfo.offsetMs)}</span>
+                  <span>{scriptDebugInfo.offsetScope}</span>
+                </div>
+                {debugScriptPath && (
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void copyScriptPath(debugScriptPath)
+                      }}
+                      className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
+                      title={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
+                      aria-label={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
+                    >
+                      <Copy size={11} />
+                      {scriptPathCopied ? t('player.scriptPathCopiedShort') : t('player.copyScriptPathShort')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void openScriptFolder(debugScriptPath)
+                      }}
+                      className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
+                      title={t('player.openScriptFolder')}
+                      aria-label={t('player.openScriptFolder')}
+                    >
+                      <FolderOpen size={11} />
+                      {t('player.openScriptFolderShort')}
+                    </button>
+                    {onReloadScriptSource && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void onReloadScriptSource(debugScriptPath)
+                        }}
+                        className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
+                        title={t('player.reloadScriptSource')}
+                        aria-label={t('player.reloadScriptSource')}
+                      >
+                        <RefreshCw size={11} />
+                        {t('player.reloadScriptSourceShort')}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            {diagnosticsSnapshot && (
+              <div className="mt-2 border-t border-white/10 pt-2">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <span className="font-semibold uppercase tracking-[0.18em] text-accent">PLAYBACK</span>
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation()
-                      void onReloadScriptSource(debugScriptPath)
+                      void handleCopyDiagnostics()
                     }}
                     className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
-                    title={t('player.reloadScriptSource')}
-                    aria-label={t('player.reloadScriptSource')}
                   >
-                    <RefreshCw size={11} />
-                    {t('player.reloadScriptSourceShort')}
+                    <Copy size={11} />
+                    {diagnosticsCopied ? '복사됨' : '진단 복사'}
                   </button>
-                )}
+                </div>
+                <div className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1 font-mono text-white/62">
+                  <span>Renderer</span>
+                  <span className="truncate text-white/78">{diagnosticsSnapshot.renderer.renderer || 'unknown'}</span>
+                  <span>GPU</span>
+                  <span className={diagnosticsSnapshot.renderer.hardwareLikely === false ? 'text-amber-300' : 'text-emerald-300'}>
+                    {getHardwareRendererLabel(diagnosticsSnapshot.renderer.hardwareLikely)}
+                  </span>
+                  <span>Video</span>
+                  <span>
+                    {diagnosticsSnapshot.videoWidth}x{diagnosticsSnapshot.videoHeight}
+                    {' · '}
+                    {formatTime(diagnosticsSnapshot.currentTime)} / {formatTime(diagnosticsSnapshot.duration)}
+                  </span>
+                  <span>Frames</span>
+                  <span>
+                    drop {formatDiagnosticInteger(diagnosticsSnapshot.quality.droppedVideoFrames)}
+                    {' / '}
+                    total {formatDiagnosticInteger(diagnosticsSnapshot.quality.totalVideoFrames)}
+                  </span>
+                  <span>Gap</span>
+                  <span>
+                    p95 {formatDiagnosticMs(diagnosticsSnapshot.frames.p95WallDeltaMs)}
+                    {' · '}
+                    max {formatDiagnosticMs(diagnosticsSnapshot.frames.maxWallDeltaMs)}
+                    {' · '}
+                    large {diagnosticsSnapshot.frames.largeGaps}
+                  </span>
+                  <span>Events</span>
+                  <span>
+                    waiting {diagnosticsSnapshot.events.waiting}
+                    {' · '}
+                    stalled {diagnosticsSnapshot.events.stalled}
+                    {' · '}
+                    error {diagnosticsSnapshot.events.error}
+                  </span>
+                  <span>Runtime</span>
+                  <span>
+                    Electron {diagnosticsSnapshot.versions?.electron || 'unknown'}
+                    {' · '}
+                    Chrome {diagnosticsSnapshot.versions?.chrome || 'unknown'}
+                    {' · '}
+                    {diagnosticsSnapshot.platform}
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -1836,4 +2063,236 @@ function getVideoClassName({
   }
 
   return 'block max-w-full max-h-full object-contain'
+}
+
+type NavigatorWithDeviceMemory = Navigator & {
+  deviceMemory?: number
+}
+
+type HTMLMediaElementWithVideoFrameCallback = HTMLMediaElement & {
+  requestVideoFrameCallback?: (callback: (now: number, metadata: VideoFrameMetadataLike) => void) => number
+  cancelVideoFrameCallback?: (handle: number) => void
+}
+
+type VideoFrameMetadataLike = {
+  mediaTime: number
+  presentedFrames?: number
+}
+
+type PlaybackDiagnosticsEvents = {
+  waiting: number
+  stalled: number
+  suspend: number
+  error: number
+}
+
+type PlaybackDiagnosticsFrames = {
+  wallDeltasMs: number[]
+  largeGaps: number
+  lastFrameWallMs: number
+  lastMediaTime: number
+  presentedFrames: number
+  lastLargeGap: {
+    atMediaTime: number
+    wallDeltaMs: number
+    mediaDeltaMs: number
+  } | null
+}
+
+type PlaybackDiagnosticsFrameSummary = {
+  samples: number
+  presentedFrames: number
+  largeGaps: number
+  p95WallDeltaMs: number | null
+  maxWallDeltaMs: number | null
+  lastLargeGap: PlaybackDiagnosticsFrames['lastLargeGap']
+}
+
+type PlaybackDiagnosticsQuality = {
+  totalVideoFrames: number | null
+  droppedVideoFrames: number | null
+  corruptedVideoFrames: number | null
+}
+
+type WebGlRendererInfo = {
+  vendor: string
+  renderer: string
+  hardwareLikely: boolean | null
+}
+
+type PlaybackDiagnosticsSnapshot = {
+  capturedAt: string
+  platform: string
+  userAgent: string
+  versions: {
+    electron: string
+    chrome: string
+    node: string
+  } | null
+  hardwareConcurrency: number | null
+  deviceMemory: number | null
+  mediaType: MediaType | null
+  fileName: string
+  hasSource: boolean
+  videoWidth: number
+  videoHeight: number
+  duration: number
+  currentTime: number
+  playbackRate: number
+  readyState: number
+  networkState: number
+  paused: boolean
+  events: PlaybackDiagnosticsEvents
+  frames: PlaybackDiagnosticsFrameSummary
+  quality: PlaybackDiagnosticsQuality
+  renderer: WebGlRendererInfo
+  actionCount: number
+  subtitleCount: number
+}
+
+let cachedWebGlRendererInfo: WebGlRendererInfo | null = null
+
+function createEmptyPlaybackDiagnosticsEvents(): PlaybackDiagnosticsEvents {
+  return {
+    waiting: 0,
+    stalled: 0,
+    suspend: 0,
+    error: 0,
+  }
+}
+
+function createEmptyPlaybackDiagnosticsFrames(): PlaybackDiagnosticsFrames {
+  return {
+    wallDeltasMs: [],
+    largeGaps: 0,
+    lastFrameWallMs: 0,
+    lastMediaTime: 0,
+    presentedFrames: 0,
+    lastLargeGap: null,
+  }
+}
+
+function pushCappedNumber(values: number[], value: number, limit: number): void {
+  values.push(value)
+  if (values.length > limit) {
+    values.splice(0, values.length - limit)
+  }
+}
+
+function summarizePlaybackDiagnosticsFrames(frames: PlaybackDiagnosticsFrames): PlaybackDiagnosticsFrameSummary {
+  const sorted = [...frames.wallDeltasMs].sort((a, b) => a - b)
+  return {
+    samples: sorted.length,
+    presentedFrames: frames.presentedFrames,
+    largeGaps: frames.largeGaps,
+    p95WallDeltaMs: percentile(sorted, 0.95),
+    maxWallDeltaMs: sorted.length ? sorted[sorted.length - 1] : null,
+    lastLargeGap: frames.lastLargeGap,
+  }
+}
+
+function percentile(sortedValues: number[], ratio: number): number | null {
+  if (!sortedValues.length) return null
+  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.floor(sortedValues.length * ratio)))
+  return sortedValues[index]
+}
+
+function getVideoPlaybackQualitySnapshot(media: HTMLMediaElement | null): PlaybackDiagnosticsQuality {
+  const video = media as (HTMLVideoElement & {
+    webkitDecodedFrameCount?: number
+    webkitDroppedFrameCount?: number
+  }) | null
+  const quality = typeof video?.getVideoPlaybackQuality === 'function'
+    ? video.getVideoPlaybackQuality()
+    : null
+
+  return {
+    totalVideoFrames: quality?.totalVideoFrames ?? video?.webkitDecodedFrameCount ?? null,
+    droppedVideoFrames: quality?.droppedVideoFrames ?? video?.webkitDroppedFrameCount ?? null,
+    corruptedVideoFrames: quality?.corruptedVideoFrames ?? null,
+  }
+}
+
+function getWebGlRendererInfo(): WebGlRendererInfo {
+  if (cachedWebGlRendererInfo) {
+    return cachedWebGlRendererInfo
+  }
+
+  let gl: WebGLRenderingContext | WebGL2RenderingContext | null = null
+
+  try {
+    const canvas = document.createElement('canvas')
+    gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+    if (!gl) {
+      cachedWebGlRendererInfo = {
+        vendor: '',
+        renderer: '',
+        hardwareLikely: null,
+      }
+      return cachedWebGlRendererInfo
+    }
+
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info') as any
+    const vendor = String(debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR) || '')
+    const renderer = String(debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER) || '')
+
+    cachedWebGlRendererInfo = {
+      vendor,
+      renderer,
+      hardwareLikely: renderer ? !/swiftshader|software|llvmpipe|microsoft basic/i.test(renderer) : null,
+    }
+    return cachedWebGlRendererInfo
+  } catch {
+    cachedWebGlRendererInfo = {
+      vendor: '',
+      renderer: '',
+      hardwareLikely: null,
+    }
+    return cachedWebGlRendererInfo
+  } finally {
+    gl?.getExtension('WEBGL_lose_context')?.loseContext()
+  }
+}
+
+function getHardwareRendererLabel(value: boolean | null): string {
+  if (value === true) return '하드웨어 렌더러로 보임'
+  if (value === false) return '소프트웨어 렌더러 의심'
+  return '확인 불가'
+}
+
+function formatDiagnosticInteger(value: number | null): string {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value).toLocaleString() : 'unknown'
+}
+
+function formatDiagnosticMs(value: number | null): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}ms` : 'unknown'
+}
+
+function formatPlaybackDiagnostics(snapshot: PlaybackDiagnosticsSnapshot): string {
+  return [
+    'ScriptPlayer+ playback diagnostics',
+    `Captured: ${snapshot.capturedAt}`,
+    `Platform: ${snapshot.platform}`,
+    `User agent: ${snapshot.userAgent}`,
+    `Electron: ${snapshot.versions?.electron || 'unknown'}`,
+    `Chrome: ${snapshot.versions?.chrome || 'unknown'}`,
+    `Node: ${snapshot.versions?.node || 'unknown'}`,
+    `CPU threads: ${snapshot.hardwareConcurrency ?? 'unknown'}`,
+    `Device memory: ${snapshot.deviceMemory ?? 'unknown'} GB`,
+    `WebGL vendor: ${snapshot.renderer.vendor || 'unknown'}`,
+    `WebGL renderer: ${snapshot.renderer.renderer || 'unknown'}`,
+    `Hardware renderer: ${getHardwareRendererLabel(snapshot.renderer.hardwareLikely)}`,
+    `Media type: ${snapshot.mediaType}`,
+    `File: ${snapshot.fileName || 'unknown'}`,
+    `Video: ${snapshot.videoWidth}x${snapshot.videoHeight}`,
+    `Time: ${snapshot.currentTime.toFixed(3)} / ${snapshot.duration.toFixed(3)}`,
+    `Playback rate: ${snapshot.playbackRate}`,
+    `Ready/network state: ${snapshot.readyState}/${snapshot.networkState}`,
+    `Paused: ${snapshot.paused}`,
+    `Frames total/dropped/corrupted: ${formatDiagnosticInteger(snapshot.quality.totalVideoFrames)} / ${formatDiagnosticInteger(snapshot.quality.droppedVideoFrames)} / ${formatDiagnosticInteger(snapshot.quality.corruptedVideoFrames)}`,
+    `Frame gaps samples/p95/max/large: ${snapshot.frames.samples} / ${formatDiagnosticMs(snapshot.frames.p95WallDeltaMs)} / ${formatDiagnosticMs(snapshot.frames.maxWallDeltaMs)} / ${snapshot.frames.largeGaps}`,
+    `Events waiting/stalled/suspend/error: ${snapshot.events.waiting} / ${snapshot.events.stalled} / ${snapshot.events.suspend} / ${snapshot.events.error}`,
+    `Script actions: ${snapshot.actionCount}`,
+    `Subtitles: ${snapshot.subtitleCount}`,
+  ].join('\n')
 }

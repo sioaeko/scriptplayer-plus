@@ -36,6 +36,8 @@ export class OsrSerialManager {
   private port: RuntimeSerialPort | null = null
   private state: OsrSerialState = createInitialState()
   private notifyStateChange: (state: OsrSerialState) => void
+  private writeInProgress = false
+  private pendingCommand: string | null = null
 
   constructor(notifyStateChange?: (state: OsrSerialState) => void) {
     this.notifyStateChange = notifyStateChange ?? (() => {})
@@ -129,6 +131,8 @@ export class OsrSerialManager {
   async disconnect(): Promise<OsrSerialState> {
     const port = this.port
     this.port = null
+    this.pendingCommand = null
+    this.writeInProgress = false
 
     if (port) {
       port.removeAllListeners('error')
@@ -164,17 +168,46 @@ export class OsrSerialManager {
       return false
     }
 
-    const payload = command.endsWith('\n') ? command : `${command}\n`
+    if (this.writeInProgress) {
+      this.pendingCommand = command
+      return true
+    }
+
+    return this.writeLatest(command)
+  }
+
+  private async writeLatest(command: string): Promise<boolean> {
+    let commandToWrite: string | null = command
+    this.writeInProgress = true
 
     try {
-      await writeAndDrain(port, Buffer.from(payload, 'ascii'))
-      if (this.state.connectionState !== 'connected') {
-        this.state = {
-          ...this.state,
-          connectionState: 'connected',
-          error: null,
+      while (commandToWrite) {
+        const port = this.port
+        if (!port || !port.isOpen) {
+          this.state = {
+            ...this.state,
+            connectionState: 'error',
+            error: 'Serial port is not connected.',
+          }
+          this.emitState()
+          return false
         }
-        this.emitState()
+
+        const payload = commandToWrite.endsWith('\n') ? commandToWrite : `${commandToWrite}\n`
+        await writeAndDrain(port, Buffer.from(payload, 'ascii'))
+
+        if (this.state.connectionState !== 'connected') {
+          this.state = {
+            ...this.state,
+            connectionState: 'connected',
+            error: null,
+          }
+          this.emitState()
+        }
+
+        const nextCommand = this.pendingCommand
+        this.pendingCommand = null
+        commandToWrite = nextCommand && nextCommand !== commandToWrite ? nextCommand : null
       }
       return true
     } catch (error) {
@@ -185,6 +218,13 @@ export class OsrSerialManager {
       }
       this.emitState()
       return false
+    } finally {
+      this.writeInProgress = false
+      const queuedCommand = this.pendingCommand
+      this.pendingCommand = null
+      if (queuedCommand && this.port?.isOpen && this.state.connectionState !== 'error') {
+        void this.write(queuedCommand)
+      }
     }
   }
 

@@ -1,9 +1,12 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions, Copy } from 'lucide-react'
+import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions, Copy, ListPlus, Save, Upload, Trash2 } from 'lucide-react'
 import { OsrSerialPortInfo, ScriptAxisId, ScriptVariantOption, VideoFile } from '../types'
 import { ButtplugDevice, ButtplugFeature } from '../services/buttplug'
+import { isButtplugFeatureAxisCompatible } from '../services/buttplugDeviceControl'
 import { groupVideoFiles, VideoSortState } from '../services/mediaOrder'
 import { getScriptAxisDefinition } from '../services/multiaxis'
+import { OsrSerialAxisConfig, OsrSerialAxisConfigMap, OsrSerialProfile, OSR_SERIAL_PROFILES } from '../services/osrSerialConfig'
+import { OSR_SERIAL_AXIS_ORDER } from '../services/tcode'
 import { useTranslation } from '../i18n'
 import EroScriptsPanel from './EroScriptsPanel'
 
@@ -84,6 +87,14 @@ interface SidebarProps {
   currentFile: string | null
   onFileSelect: (file: VideoFile) => void
   onOpenFolder: () => void
+  playlistMode: boolean
+  playlistName: string
+  playlistFilePath?: string
+  onAddMediaFiles: () => void | Promise<void>
+  onOpenPlaylist: () => void | Promise<void>
+  onSavePlaylist: () => void | Promise<void>
+  onClearPlaylist: () => void | Promise<void>
+  onRemovePlaylistFile: (file: VideoFile) => void | Promise<void>
   onManualScriptSelect: (file: VideoFile) => void | Promise<void>
   onManualSubtitleSelect: (file: VideoFile) => void | Promise<void>
   onClearManualScript: (file: VideoFile) => void | Promise<void>
@@ -112,6 +123,11 @@ interface SidebarProps {
   osrSerialError?: string | null
   osrSerialUpdateRate: number
   onOsrSerialUpdateRateChange: (rate: number) => void
+  osrSerialProfile: OsrSerialProfile
+  onOsrSerialProfileChange: (profile: OsrSerialProfile) => void
+  osrSerialAxisConfigs: OsrSerialAxisConfigMap
+  osrSerialActiveAxes: ScriptAxisId[]
+  onOsrSerialAxisConfigChange: (axisId: ScriptAxisId, patch: Partial<OsrSerialAxisConfig>) => void
   buttplugConnected: boolean
   buttplugConnecting: boolean
   buttplugDevices: ButtplugDevice[]
@@ -182,6 +198,14 @@ export default function Sidebar({
   currentFile,
   onFileSelect,
   onOpenFolder,
+  playlistMode,
+  playlistName,
+  playlistFilePath,
+  onAddMediaFiles,
+  onOpenPlaylist,
+  onSavePlaylist,
+  onClearPlaylist,
+  onRemovePlaylistFile,
   onManualScriptSelect,
   onManualSubtitleSelect,
   onClearManualScript,
@@ -210,6 +234,11 @@ export default function Sidebar({
   osrSerialError,
   osrSerialUpdateRate,
   onOsrSerialUpdateRateChange,
+  osrSerialProfile,
+  onOsrSerialProfileChange,
+  osrSerialAxisConfigs,
+  osrSerialActiveAxes,
+  onOsrSerialAxisConfigChange,
   buttplugConnected,
   buttplugConnecting,
   buttplugDevices,
@@ -289,6 +318,10 @@ export default function Sidebar({
   const selectedOsrSerialPortValue = useMemo(
     () => (osrSerialPorts.some((port) => port.path === selectedOsrSerialPortPath) ? selectedOsrSerialPortPath : ''),
     [osrSerialPorts, selectedOsrSerialPortPath]
+  )
+  const osrSerialActiveAxisSet = useMemo(
+    () => new Set(osrSerialActiveAxes),
+    [osrSerialActiveAxes]
   )
   const availableAxisOptions = useMemo(
     () => buttplugAvailableAxes.map((axisId) => ({
@@ -533,7 +566,14 @@ export default function Sidebar({
       {file.type === 'audio'
         ? <Music4 size={14} className="flex-shrink-0 mt-0.5" />
         : <Film size={14} className="flex-shrink-0 mt-0.5" />}
-      <span className="break-all leading-relaxed flex-1 min-w-0">{file.name}</span>
+      <span className="flex-1 min-w-0 leading-relaxed">
+        <span className="block break-all">{file.name}</span>
+        {file.relativePath && file.relativePath !== file.name && (
+          <span className="mt-0.5 block truncate text-[10px] text-text-muted">
+            {file.relativePath}
+          </span>
+        )}
+      </span>
       <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
         {file.hasSubtitles && <Captions size={14} className="text-sky-400" />}
         {file.hasScript && <FileCheck size={14} className="text-green-400" />}
@@ -575,6 +615,34 @@ export default function Sidebar({
               </button>
               <button
                 type="button"
+                onClick={() => void onAddMediaFiles()}
+                className="flex h-[30px] w-[34px] flex-shrink-0 items-center justify-center rounded border border-surface-100/30 bg-surface-300 text-text-secondary transition-colors hover:border-accent/35 hover:text-accent"
+                title={t('sidebar.addMediaFiles')}
+                aria-label={t('sidebar.addMediaFiles')}
+              >
+                <ListPlus size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void onOpenPlaylist()}
+                className="flex h-[30px] w-[34px] flex-shrink-0 items-center justify-center rounded border border-surface-100/30 bg-surface-300 text-text-secondary transition-colors hover:border-accent/35 hover:text-accent"
+                title={t('sidebar.openPlaylist')}
+                aria-label={t('sidebar.openPlaylist')}
+              >
+                <Upload size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSavePlaylist()}
+                disabled={files.length === 0}
+                className="flex h-[30px] w-[34px] flex-shrink-0 items-center justify-center rounded border border-surface-100/30 bg-surface-300 text-text-secondary transition-colors hover:border-accent/35 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+                title={t('sidebar.savePlaylist')}
+                aria-label={t('sidebar.savePlaylist')}
+              >
+                <Save size={14} />
+              </button>
+              <button
+                type="button"
                 onClick={() => void onRescanScriptFolder()}
                 disabled={!hasScriptFolder || scriptFolderRescanning}
                 className="flex h-[30px] w-[34px] flex-shrink-0 items-center justify-center rounded border border-surface-100/30 bg-surface-300 text-text-secondary transition-colors hover:border-accent/35 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
@@ -584,6 +652,35 @@ export default function Sidebar({
                 <RefreshCw size={14} className={scriptFolderRescanning ? 'animate-spin' : ''} />
               </button>
             </div>
+            {playlistMode && (
+              <div className="px-2 pb-2">
+                <div
+                  className="flex items-center gap-2 rounded border border-accent/25 bg-accent/10 px-2.5 py-2"
+                  title={playlistFilePath || playlistName || t('sidebar.unsavedPlaylist')}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[10px] font-medium uppercase tracking-wider text-accent/80">
+                      {t('sidebar.playlist')}
+                    </div>
+                    <div className="truncate text-xs text-text-primary">
+                      {playlistName || t('sidebar.unsavedPlaylist')}
+                    </div>
+                    <div className="truncate text-[10px] text-text-muted">
+                      {t('sidebar.playlistItemCount', { count: String(files.length) })}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void onClearPlaylist()}
+                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded border border-surface-100/30 text-text-muted transition-colors hover:border-red-400/40 hover:text-red-300"
+                    title={t('sidebar.clearPlaylist')}
+                    aria-label={t('sidebar.clearPlaylist')}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="px-2 pb-2">
               <input
                 type="text"
@@ -759,7 +856,7 @@ export default function Sidebar({
         )}
 
         {tab === 'device' && (
-          <div className="p-3 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-4">
             <div>
               <label className="text-[10px] text-text-muted uppercase tracking-wider block mb-1.5">
                 {t('device.provider')}
@@ -944,6 +1041,100 @@ export default function Sidebar({
                   </div>
                 </div>
 
+                <div>
+                  <label className="text-[10px] text-text-muted uppercase tracking-wider block mb-1.5">
+                    {t('device.serialProfile')}
+                  </label>
+                  <select
+                    value={osrSerialProfile}
+                    onChange={(event) => onOsrSerialProfileChange(event.target.value as OsrSerialProfile)}
+                    className="w-full bg-surface-300 text-text-primary text-xs px-3 py-2 rounded border border-surface-100/30 focus:border-accent/50 outline-none"
+                  >
+                    {OSR_SERIAL_PROFILES.map((profile) => (
+                      <option key={profile} value={profile}>
+                        {t(`device.serialProfile.${profile}`)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[10px] text-text-muted uppercase tracking-wider">
+                    {t('device.serialAxisTuning')}
+                  </div>
+                  {OSR_SERIAL_AXIS_ORDER.map((axisId) => {
+                    const axis = getScriptAxisDefinition(axisId)
+                    const config = osrSerialAxisConfigs[axisId] || {
+                      enabled: true,
+                      invert: false,
+                      min: 0,
+                      max: 100,
+                    }
+                    const active = osrSerialActiveAxisSet.has(axisId)
+                    const customProfile = osrSerialProfile === 'custom'
+
+                    return (
+                      <div
+                        key={axisId}
+                        className={`rounded border border-surface-100/30 bg-surface-300/60 p-2 transition-opacity ${
+                          active ? '' : 'opacity-45'
+                        }`}
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <label className="flex min-w-0 items-center gap-2 text-xs text-text-secondary">
+                            <input
+                              type="checkbox"
+                              checked={active}
+                              disabled={!customProfile}
+                              onChange={(event) => onOsrSerialAxisConfigChange(axisId, { enabled: event.target.checked })}
+                            />
+                            <span className="truncate">
+                              {axis.label} {axis.description}
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-1 text-[10px] text-text-muted">
+                            <input
+                              type="checkbox"
+                              checked={config.invert}
+                              disabled={!active}
+                              onChange={(event) => onOsrSerialAxisConfigChange(axisId, { invert: event.target.checked })}
+                            />
+                            {t('device.invertAxis')}
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="text-[10px] text-text-muted">
+                            {t('device.axisMin')}
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={config.min}
+                              disabled={!active}
+                              onChange={(event) => onOsrSerialAxisConfigChange(axisId, { min: Number(event.target.value) })}
+                              className="mt-1 w-full rounded border border-surface-100/30 bg-surface-200 px-2 py-1 text-xs text-text-primary outline-none focus:border-accent/50 disabled:opacity-50"
+                            />
+                          </label>
+                          <label className="text-[10px] text-text-muted">
+                            {t('device.axisMax')}
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={config.max}
+                              disabled={!active}
+                              onChange={(event) => onOsrSerialAxisConfigChange(axisId, { max: Number(event.target.value) })}
+                              className="mt-1 w-full rounded border border-surface-100/30 bg-surface-200 px-2 py-1 text-xs text-text-primary outline-none focus:border-accent/50 disabled:opacity-50"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
                 {selectedOsrSerialPort && (
                   <p className="text-[10px] text-text-muted leading-relaxed">
                     {[
@@ -1091,6 +1282,13 @@ export default function Sidebar({
                     </label>
                     {buttplugFeatures.map((feature) => {
                       const mapping = buttplugFeatureMappings[feature.id] || { axisId: '', invert: false }
+                      const compatibleAxisOptions = availableAxisOptions.filter((axis) => (
+                        isButtplugFeatureAxisCompatible(feature, axis.id)
+                      ))
+                      const mappedAxisId = mapping.axisId && isButtplugFeatureAxisCompatible(feature, mapping.axisId)
+                        ? mapping.axisId
+                        : ''
+
                       return (
                         <div key={feature.id} className="rounded border border-surface-100/30 bg-surface-300/60 p-2 space-y-2">
                           <div className="text-[10px] text-text-secondary">
@@ -1098,7 +1296,7 @@ export default function Sidebar({
                           </div>
                           <div className="flex gap-2">
                             <select
-                              value={mapping.axisId}
+                              value={mappedAxisId}
                               onChange={(event) => onButtplugFeatureMappingChange(feature.id, {
                                 ...mapping,
                                 axisId: event.target.value as ScriptAxisId | '',
@@ -1106,7 +1304,7 @@ export default function Sidebar({
                               className="flex-1 bg-surface-300 text-text-primary text-xs px-2 py-1.5 rounded border border-surface-100/30 focus:border-accent/50 outline-none"
                             >
                               <option value="">{t('device.unmapped')}</option>
-                              {availableAxisOptions.map((axis) => (
+                              {compatibleAxisOptions.map((axis) => (
                                 <option key={axis.id} value={axis.id}>
                                   {axis.label}
                                 </option>
@@ -1117,10 +1315,11 @@ export default function Sidebar({
                                 ...mapping,
                                 invert: !mapping.invert,
                               })}
-                              className={`px-2 py-1.5 rounded text-[10px] transition-colors ${
-                                mapping.invert
+                              disabled={!mappedAxisId}
+                              className={`px-2 py-1.5 rounded text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                mappedAxisId && mapping.invert
                                   ? 'bg-accent/15 text-accent'
-                                  : 'bg-surface-100/20 text-text-muted hover:bg-surface-100/30'
+                                  : 'bg-surface-100/20 text-text-muted hover:bg-surface-100/30 disabled:hover:bg-surface-100/20'
                               }`}
                             >
                               {t('device.invertAxis')}
@@ -1241,6 +1440,17 @@ export default function Sidebar({
               className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-surface-100/30 hover:text-text-primary transition-colors"
             >
               {t('sidebar.clearManualSubtitle')}
+            </button>
+          )}
+          {playlistMode && (
+            <button
+              onClick={() => {
+                setContextMenu(null)
+                onRemovePlaylistFile(contextMenu.file)
+              }}
+              className="w-full px-3 py-2 text-left text-xs text-red-300 hover:bg-red-500/10 transition-colors"
+            >
+              {t('sidebar.removeFromPlaylist')}
             </button>
           )}
         </div>

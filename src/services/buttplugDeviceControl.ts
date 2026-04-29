@@ -1,6 +1,6 @@
 import { ScriptAxisId } from '../types'
 import { ButtplugDevice, ButtplugDeviceFrame, ButtplugFeature } from './buttplug'
-import { SCRIPT_AXIS_IDS } from './multiaxis'
+import { getScriptAxisDefinition, SCRIPT_AXIS_IDS } from './multiaxis'
 import {
   applyAxisMappingValue,
   AxisActionMap,
@@ -66,6 +66,15 @@ export function guessScriptAxisForFeature(feature: ButtplugFeature): ScriptAxisI
   return ''
 }
 
+export function isButtplugFeatureAxisCompatible(feature: ButtplugFeature, axisId: ScriptAxisId): boolean {
+  const axisKind = getScriptAxisDefinition(axisId).kind
+  return feature.type === axisKind
+}
+
+export function getCompatibleButtplugAxisIds(feature: ButtplugFeature, axisIds: ScriptAxisId[]): ScriptAxisId[] {
+  return axisIds.filter((axisId) => isButtplugFeatureAxisCompatible(feature, axisId))
+}
+
 export function buildFeatureMappingsForDevice(
   device: ButtplugDevice | null,
   mappingStore: Record<string, ButtplugFeatureMapping>
@@ -78,8 +87,9 @@ export function buildFeatureMappingsForDevice(
   for (const feature of device.features) {
     const key = getButtplugFeatureStorageKey(deviceSignature, feature.id)
     const stored = mappingStore[key]
+    const axisId = stored?.axisId ?? guessScriptAxisForFeature(feature)
     next[feature.id] = {
-      axisId: stored?.axisId ?? guessScriptAxisForFeature(feature),
+      axisId: axisId && isButtplugFeatureAxisCompatible(feature, axisId) ? axisId : '',
       invert: stored?.invert ?? false,
     }
   }
@@ -119,14 +129,11 @@ function buildButtplugFrame(
     const mapping = mappings[feature.id]
     const mappedAxisId = mapping?.axisId
 
-    if (!mappedAxisId) {
-      if (feature.type === 'linear') {
-        frame.linear?.push({ index: feature.index, position: 0.5, duration: intervalMs })
-      } else if (feature.type === 'rotate') {
-        frame.rotate?.push({ index: feature.index, speed: 0, clockwise: true })
-      } else if (feature.type === 'scalar' && feature.actuatorType) {
-        frame.scalar?.push({ index: feature.index, scalar: 0, actuatorType: feature.actuatorType })
-      }
+    if (
+      !mappedAxisId
+      || !isButtplugFeatureAxisCompatible(feature, mappedAxisId)
+      || !hasAxisActions(actionMap, mappedAxisId)
+    ) {
       continue
     }
 
@@ -205,12 +212,16 @@ function collectRawTCodeAxisIds(
   }
 
   for (const mapping of Object.values(mappings)) {
-    if (mapping.axisId) {
+    if (mapping.axisId && hasAxisActions(actionMap, mapping.axisId)) {
       axisIds.add(mapping.axisId)
     }
   }
 
   return TCODE_AXIS_ORDER.filter((axisId) => axisIds.has(axisId))
+}
+
+function hasAxisActions(actionMap: AxisActionMap, axisId: ScriptAxisId): boolean {
+  return Boolean(actionMap[axisId]?.length)
 }
 
 function shouldPreferRawTCode(axisIds: ScriptAxisId[]): boolean {

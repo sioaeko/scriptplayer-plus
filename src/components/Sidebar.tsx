@@ -826,12 +826,16 @@ export default function Sidebar({
                     <div key={group.folder} className="mb-1">
                       <button
                         onClick={() => toggleFolder(group.folder)}
-                        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                        className="flex w-full min-w-0 items-center gap-1.5 px-2 py-1.5 text-[10px] text-text-muted transition-colors hover:text-text-secondary"
                       >
-                        {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                        <Folder size={12} className="text-accent/50" />
+                        <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
+                          {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                        </span>
+                        <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center">
+                          <Folder size={12} className="text-accent/50" />
+                        </span>
                         <span className="truncate font-medium">{folderName}</span>
-                        <span className="ml-auto text-text-muted/50">{group.files.length}</span>
+                        <span className="ml-auto flex-shrink-0 text-text-muted/50">{group.files.length}</span>
                       </button>
                       {!isCollapsed && (
                         <div className="ml-2">

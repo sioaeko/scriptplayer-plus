@@ -608,10 +608,10 @@ export default function Sidebar({
             <div className="p-2 flex gap-2">
               <button
                 onClick={onOpenFolder}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 text-accent rounded text-xs transition-colors flex-1"
+                className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded bg-accent/10 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/20"
               >
-                <FolderOpen size={14} />
-                {t('sidebar.openFolder')}
+                <FolderOpen size={14} className="flex-shrink-0" />
+                <span className="truncate">{t('sidebar.openFolder')}</span>
               </button>
               <button
                 type="button"

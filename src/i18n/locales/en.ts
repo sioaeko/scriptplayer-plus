@@ -12,7 +12,7 @@ const en: Record<string, string> = {
   'sidebar.files': 'Files',
   'sidebar.scripts': 'Scripts',
   'sidebar.device': 'Device',
-  'sidebar.openFolder': 'Open Folder',
+  'sidebar.openFolder': 'Folder',
   'sidebar.addMediaFiles': 'Add media files',
   'sidebar.openPlaylist': 'Open playlist',
   'sidebar.savePlaylist': 'Save playlist',

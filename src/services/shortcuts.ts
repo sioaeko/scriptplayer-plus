@@ -8,6 +8,9 @@ export const SHORTCUT_ACTION_IDS = [
   'nextVideo',
   'goToStart',
   'goToEnd',
+  'setSegmentRepeatStart',
+  'setSegmentRepeatEnd',
+  'openSegmentRepeatEditor',
   'volumeUp',
   'volumeDown',
   'toggleMute',
@@ -61,12 +64,15 @@ export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBindings = {
   nextVideo: { code: 'PageDown', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   goToStart: { code: 'Home', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   goToEnd: { code: 'End', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  setSegmentRepeatStart: { code: 'BracketLeft', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  setSegmentRepeatEnd: { code: 'BracketRight', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  openSegmentRepeatEditor: { code: 'KeyB', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   volumeUp: { code: 'ArrowUp', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   volumeDown: { code: 'ArrowDown', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   toggleMute: { code: 'KeyM', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
   toggleFullscreen: { code: 'KeyF', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
-  decreaseStrokeRange: { code: 'BracketLeft', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
-  increaseStrokeRange: { code: 'BracketRight', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false },
+  decreaseStrokeRange: { code: 'BracketLeft', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
+  increaseStrokeRange: { code: 'BracketRight', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
   decreaseScriptOffset: { code: 'ArrowLeft', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
   increaseScriptOffset: { code: 'ArrowRight', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
   resetScriptOffset: { code: 'Digit0', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false },
@@ -96,10 +102,29 @@ export function normalizeShortcutBindings(raw: unknown): ShortcutBindings {
   }
 
   const source = raw as Record<string, unknown>
+  const hasSegmentRepeatShortcuts = (
+    'setSegmentRepeatStart' in source
+    || 'setSegmentRepeatEnd' in source
+    || 'openSegmentRepeatEditor' in source
+  )
+
   for (const actionId of SHORTCUT_ACTION_IDS) {
     const normalized = normalizeShortcutBinding(source[actionId])
     if (normalized !== undefined) {
       defaults[actionId] = normalized
+    }
+  }
+
+  if (!hasSegmentRepeatShortcuts) {
+    defaults.setSegmentRepeatStart = { ...DEFAULT_SHORTCUT_BINDINGS.setSegmentRepeatStart! }
+    defaults.setSegmentRepeatEnd = { ...DEFAULT_SHORTCUT_BINDINGS.setSegmentRepeatEnd! }
+    defaults.openSegmentRepeatEditor = { ...DEFAULT_SHORTCUT_BINDINGS.openSegmentRepeatEditor! }
+
+    if (isUnmodifiedShortcut(defaults.decreaseStrokeRange, 'BracketLeft')) {
+      defaults.decreaseStrokeRange = { ...DEFAULT_SHORTCUT_BINDINGS.decreaseStrokeRange! }
+    }
+    if (isUnmodifiedShortcut(defaults.increaseStrokeRange, 'BracketRight')) {
+      defaults.increaseStrokeRange = { ...DEFAULT_SHORTCUT_BINDINGS.increaseStrokeRange! }
     }
   }
 
@@ -320,5 +345,16 @@ function areShortcutBindingsEqual(left: ShortcutBinding | null, right: ShortcutB
     && left.altKey === right.altKey
     && left.shiftKey === right.shiftKey
     && left.metaKey === right.metaKey
+  )
+}
+
+function isUnmodifiedShortcut(binding: ShortcutBinding | null, code: string): boolean {
+  return Boolean(
+    binding
+    && binding.code === code
+    && !binding.ctrlKey
+    && !binding.altKey
+    && !binding.shiftKey
+    && !binding.metaKey
   )
 }

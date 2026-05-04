@@ -22,8 +22,9 @@ import {
   RefreshCw,
   Copy,
   FolderOpen,
+  Trash2,
 } from 'lucide-react'
-import { FunscriptAction, MediaType, PlaybackMode, SubtitleCue } from '../types'
+import { FunscriptAction, MediaType, PlaybackMode, ScriptVariantOption, SubtitleCue, VideoFile } from '../types'
 import { useTranslation } from '../i18n'
 import { getActiveSubtitleText } from '../services/subtitles'
 import {
@@ -42,6 +43,8 @@ interface DeviceOverlayInfo {
   statusText?: string | null
   statusTone?: 'busy' | 'error' | null
 }
+
+type FullscreenDrawerTab = 'files' | 'scripts' | 'device'
 
 export interface ScriptDebugInfo {
   enabled: boolean
@@ -62,6 +65,9 @@ const PLAYER_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'nextVideo',
   'goToStart',
   'goToEnd',
+  'setSegmentRepeatStart',
+  'setSegmentRepeatEnd',
+  'openSegmentRepeatEditor',
   'volumeUp',
   'volumeDown',
   'toggleMute',
@@ -76,12 +82,19 @@ const PLAYER_SHORTCUT_ACTIONS: ShortcutActionId[] = [
 interface VideoPlayerProps {
   mediaSessionKey: number
   videoUrl: string | null
+  currentFilePath?: string | null
   mediaType: MediaType | null
   currentFileName: string | null
   artworkUrl: string | null
   actions: FunscriptAction[]
   scriptSource?: string | null
   scriptDebugInfo?: ScriptDebugInfo | null
+  scriptFolder?: string
+  scriptVariants?: ScriptVariantOption[]
+  scriptVariantOverrideActive?: boolean
+  onScriptVariantSelect?: (scriptPath: string) => void | Promise<void>
+  onScriptVariantReset?: () => void | Promise<void>
+  onManualScriptSelect?: () => void | Promise<void>
   subtitleCues: SubtitleCue[]
   onTimeUpdate: (time: number) => void
   onPlay: () => void | Promise<void>
@@ -89,6 +102,8 @@ interface VideoPlayerProps {
   onSeek: (time: number) => void | Promise<void>
   onEnded: () => void | Promise<void>
   mediaRef: React.MutableRefObject<HTMLMediaElement | null>
+  playlistFiles?: VideoFile[]
+  onPlaylistFileSelect?: (file: VideoFile) => void | Promise<void>
   autoPlayRequestId: number
   canGoToPreviousFile?: boolean
   onPreviousFile?: () => void | Promise<void>
@@ -131,16 +146,364 @@ const SCRIPT_OFFSET_MAX_MS = 5000
 const SCRIPT_OFFSET_SMALL_STEP_MS = 50
 const SCRIPT_OFFSET_LARGE_STEP_MS = 250
 const TOP_NAV_TRIGGER_HEIGHT_PX = 84
+const SEGMENT_REPEAT_STORAGE_KEY = 'scriptplayer-segment-repeats-v1'
+const SEGMENT_REPEAT_FILE_MIGRATION_KEY = 'scriptplayer-segment-repeats-file-migrated-v1'
+const SEGMENT_REPEAT_FILE_VERSION = 1
+const SEGMENT_REPEAT_MIN_DURATION_SECONDS = 0.25
+const PROGRESS_THUMBNAIL_WIDTH_PX = 176
+const FULLSCREEN_FILE_DRAWER_FALLBACK_WIDTH_PX = 360
+const FULLSCREEN_FILE_DRAWER_TRIGGER_PX = 56
+
+interface SegmentRepeatItem {
+  id: string
+  start: number
+  end: number
+}
+
+interface SegmentRepeatState {
+  draftStart: number | null
+  draftEnd: number | null
+  enabled: boolean
+  activeId: string | null
+  segments: SegmentRepeatItem[]
+}
+
+interface StoredSegmentRepeatItem {
+  id?: string
+  start?: number
+  end?: number
+}
+
+interface StoredSegmentRepeat {
+  start?: number
+  end?: number
+  draftStart?: number
+  draftEnd?: number
+  enabled?: boolean
+  activeId?: string | null
+  segments?: StoredSegmentRepeatItem[]
+}
+
+interface StoredSegmentRepeatFile {
+  version?: number
+  updatedAt?: string
+  segmentsByMedia?: Record<string, StoredSegmentRepeat>
+}
+
+interface ProgressThumbnailState {
+  time: number
+  leftPercent: number
+}
+
+const EMPTY_SEGMENT_REPEAT: SegmentRepeatState = {
+  draftStart: null,
+  draftEnd: null,
+  enabled: false,
+  activeId: null,
+  segments: [],
+}
+
+function readLocalSegmentRepeatStore(): Record<string, StoredSegmentRepeat> {
+  try {
+    const raw = localStorage.getItem(SEGMENT_REPEAT_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    return normalizeSegmentRepeatStoreRecord(parsed)
+  } catch {
+    return {}
+  }
+}
+
+function writeLocalSegmentRepeatStore(store: Record<string, StoredSegmentRepeat>) {
+  try {
+    localStorage.setItem(SEGMENT_REPEAT_STORAGE_KEY, JSON.stringify(store))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function getSegmentRepeatStateFromStore(store: Record<string, StoredSegmentRepeat>, storageKey: string): SegmentRepeatState {
+  if (!storageKey) return EMPTY_SEGMENT_REPEAT
+
+  const stored = store[storageKey]
+  if (!stored || typeof stored !== 'object') {
+    return EMPTY_SEGMENT_REPEAT
+  }
+
+  const draftStart = normalizeSegmentPoint(stored.draftStart ?? stored.start)
+  const draftEnd = normalizeSegmentPoint(stored.draftEnd ?? stored.end)
+  const storedSegments = Array.isArray(stored.segments)
+    ? normalizeSegmentRepeatItems(stored.segments)
+    : []
+  const legacySegment = normalizeSegmentRepeatItem({
+    id: 'legacy',
+    start: stored.start,
+    end: stored.end,
+  }, 0)
+  const segments = storedSegments.length > 0
+    ? storedSegments
+    : (legacySegment ? [legacySegment] : [])
+  const activeId = typeof stored.activeId === 'string' && segments.some((segment) => segment.id === stored.activeId)
+    ? stored.activeId
+    : segments[0]?.id ?? null
+  const enabled = Boolean(stored.enabled && activeId)
+
+  return {
+    draftStart,
+    draftEnd,
+    enabled,
+    activeId,
+    segments,
+  }
+}
+
+function updateSegmentRepeatStore(
+  store: Record<string, StoredSegmentRepeat>,
+  storageKey: string,
+  state: SegmentRepeatState
+): Record<string, StoredSegmentRepeat> {
+  if (!storageKey) return store
+
+  const nextStore = { ...store }
+  if (state.draftStart === null && state.draftEnd === null && state.segments.length === 0) {
+    delete nextStore[storageKey]
+  } else {
+    const activeId = state.activeId && state.segments.some((segment) => segment.id === state.activeId)
+      ? state.activeId
+      : state.segments[0]?.id ?? null
+    nextStore[storageKey] = {
+      draftStart: state.draftStart ?? undefined,
+      draftEnd: state.draftEnd ?? undefined,
+      activeId,
+      enabled: Boolean(state.enabled && activeId),
+      segments: state.segments.map((segment) => ({
+        id: segment.id,
+        start: segment.start,
+        end: segment.end,
+      })),
+    }
+  }
+
+  return nextStore
+}
+
+async function loadPreferredSegmentRepeatStore(scriptFolder?: string | null): Promise<Record<string, StoredSegmentRepeat>> {
+  const localStore = readLocalSegmentRepeatStore()
+  const normalizedScriptFolder = scriptFolder?.trim()
+  if (!normalizedScriptFolder) {
+    return localStore
+  }
+
+  try {
+    const response = await window.electronAPI.readSegmentRepeatStore(normalizedScriptFolder)
+    if (!response.ok) {
+      return localStore
+    }
+
+    const fileStore = response.exists && response.content
+      ? parseSegmentRepeatStoreFile(response.content)
+      : {}
+    const migrationKey = normalizeSegmentRepeatPathKey(normalizedScriptFolder)
+    const migrationMap = readSegmentRepeatMigrationMap()
+    if (!migrationMap[migrationKey] && hasSegmentRepeatStoreEntries(localStore)) {
+      const mergedStore = {
+        ...localStore,
+        ...fileStore,
+      }
+      const writeOk = await writeSegmentRepeatStoreFile(normalizedScriptFolder, mergedStore)
+      if (writeOk) {
+        writeSegmentRepeatMigrationMap({
+          ...migrationMap,
+          [migrationKey]: true,
+        })
+        writeLocalSegmentRepeatStore(mergedStore)
+        return mergedStore
+      }
+    }
+
+    return response.exists ? fileStore : localStore
+  } catch {
+    return localStore
+  }
+}
+
+async function persistPreferredSegmentRepeatStore(
+  scriptFolder: string | null | undefined,
+  store: Record<string, StoredSegmentRepeat>
+): Promise<void> {
+  writeLocalSegmentRepeatStore(store)
+
+  const normalizedScriptFolder = scriptFolder?.trim()
+  if (!normalizedScriptFolder) {
+    return
+  }
+
+  await writeSegmentRepeatStoreFile(normalizedScriptFolder, store)
+}
+
+async function writeSegmentRepeatStoreFile(
+  scriptFolder: string,
+  store: Record<string, StoredSegmentRepeat>
+): Promise<boolean> {
+  try {
+    const response = await window.electronAPI.writeSegmentRepeatStore(
+      scriptFolder,
+      JSON.stringify({
+        version: SEGMENT_REPEAT_FILE_VERSION,
+        updatedAt: new Date().toISOString(),
+        segmentsByMedia: store,
+      } satisfies StoredSegmentRepeatFile, null, 2)
+    )
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+function parseSegmentRepeatStoreFile(content: string): Record<string, StoredSegmentRepeat> {
+  try {
+    const parsed = JSON.parse(content) as StoredSegmentRepeatFile | Record<string, StoredSegmentRepeat>
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'segmentsByMedia' in parsed) {
+      return normalizeSegmentRepeatStoreRecord((parsed as StoredSegmentRepeatFile).segmentsByMedia)
+    }
+
+    return normalizeSegmentRepeatStoreRecord(parsed)
+  } catch {
+    return {}
+  }
+}
+
+function normalizeSegmentRepeatStoreRecord(raw: unknown): Record<string, StoredSegmentRepeat> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {}
+  }
+
+  const next: Record<string, StoredSegmentRepeat> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!key || !value || typeof value !== 'object' || Array.isArray(value)) {
+      continue
+    }
+    next[key] = value as StoredSegmentRepeat
+  }
+
+  return next
+}
+
+function hasSegmentRepeatStoreEntries(store: Record<string, StoredSegmentRepeat>): boolean {
+  return Object.keys(store).length > 0
+}
+
+function readSegmentRepeatMigrationMap(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(SEGMENT_REPEAT_FILE_MIGRATION_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, boolean] => typeof entry[0] === 'string' && typeof entry[1] === 'boolean')
+    )
+  } catch {
+    return {}
+  }
+}
+
+function writeSegmentRepeatMigrationMap(map: Record<string, boolean>) {
+  try {
+    localStorage.setItem(SEGMENT_REPEAT_FILE_MIGRATION_KEY, JSON.stringify(map))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function normalizeSegmentRepeatPathKey(filePath: string): string {
+  return window.electronAPI.platform === 'win32' ? filePath.toLowerCase() : filePath
+}
+
+function normalizeSegmentPoint(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
+function isValidSegmentRange(start: number | null, end: number | null): start is number {
+  return start !== null && end !== null && end - start >= SEGMENT_REPEAT_MIN_DURATION_SECONDS
+}
+
+function normalizeSegmentRepeatItems(items: StoredSegmentRepeatItem[]): SegmentRepeatItem[] {
+  const usedIds = new Set<string>()
+  const segments: SegmentRepeatItem[] = []
+
+  items.forEach((item, index) => {
+    const segment = normalizeSegmentRepeatItem(item, index)
+    if (!segment) return
+
+    let id = segment.id
+    while (usedIds.has(id)) {
+      id = createSegmentRepeatId(segment.start, segment.end, usedIds.size)
+    }
+    usedIds.add(id)
+    segments.push({ ...segment, id })
+  })
+
+  return sortSegmentRepeatItems(segments)
+}
+
+function normalizeSegmentRepeatItem(item: StoredSegmentRepeatItem, index: number): SegmentRepeatItem | null {
+  const start = normalizeSegmentPoint(item.start)
+  const end = normalizeSegmentPoint(item.end)
+  if (start === null || end === null || !isValidSegmentRange(start, end)) {
+    return null
+  }
+
+  return {
+    id: typeof item.id === 'string' && item.id.trim().length > 0
+      ? item.id
+      : createSegmentRepeatId(start, end, index),
+    start,
+    end,
+  }
+}
+
+function createSegmentRepeatId(start: number, end: number, index = Date.now()): string {
+  return `seg-${Math.round(start * 1000)}-${Math.round(end * 1000)}-${index.toString(36)}`
+}
+
+function sortSegmentRepeatItems(segments: SegmentRepeatItem[]): SegmentRepeatItem[] {
+  return [...segments].sort((a, b) => (
+    a.start === b.start ? a.end - b.end : a.start - b.start
+  ))
+}
+
+function getActiveSegmentRepeatItem(state: SegmentRepeatState): SegmentRepeatItem | null {
+  if (state.activeId) {
+    const active = state.segments.find((segment) => segment.id === state.activeId)
+    if (active) return active
+  }
+
+  return state.segments[0] ?? null
+}
+
+function areSameMediaPath(left?: string | null, right?: string | null): boolean {
+  if (!left || !right) return false
+  return left.toLowerCase() === right.toLowerCase()
+}
 
 export default function VideoPlayer({
   mediaSessionKey,
   videoUrl,
+  currentFilePath = null,
   mediaType,
   currentFileName,
   artworkUrl,
   actions,
   scriptSource = null,
   scriptDebugInfo = null,
+  scriptFolder = '',
+  scriptVariants = [],
+  scriptVariantOverrideActive = false,
+  onScriptVariantSelect,
+  onScriptVariantReset,
+  onManualScriptSelect,
   subtitleCues,
   onTimeUpdate,
   onPlay,
@@ -148,6 +511,8 @@ export default function VideoPlayer({
   onSeek,
   onEnded,
   mediaRef,
+  playlistFiles = [],
+  onPlaylistFileSelect,
   autoPlayRequestId,
   canGoToPreviousFile = false,
   onPreviousFile,
@@ -186,6 +551,7 @@ export default function VideoPlayer({
   const [showStrokeControls, setShowStrokeControls] = useState(false)
   const [showScriptOffsetControls, setShowScriptOffsetControls] = useState(false)
   const [showPlaybackRatePopover, setShowPlaybackRatePopover] = useState(false)
+  const [showSegmentRepeatControls, setShowSegmentRepeatControls] = useState(false)
   const [showHeatmap, setShowHeatmap] = useState(defaultShowHeatmap)
   const [showTimeline, setShowTimeline] = useState(defaultShowTimeline)
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -193,9 +559,11 @@ export default function VideoPlayer({
   const strokeControlsRef = useRef<HTMLDivElement>(null)
   const playbackRateControlsRef = useRef<HTMLDivElement>(null)
   const scriptOffsetControlsRef = useRef<HTMLDivElement>(null)
+  const segmentRepeatControlsRef = useRef<HTMLDivElement>(null)
   const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoRevealedScriptKey = useRef<string | null>(null)
   const initializedMediaStateKey = useRef<string | null>(null)
+  const fullscreenFileDrawerRef = useRef<HTMLDivElement>(null)
   const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
   const fullscreenControlsOverlayRef = useRef<HTMLDivElement>(null)
   const [currentTime, setCurrentTime] = useState(0)
@@ -211,7 +579,11 @@ export default function VideoPlayer({
   })
   const [muted, setMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [fullscreenFitEnabled, setFullscreenFitEnabled] = useState(false)
+  const [videoFillEnabled, setVideoFillEnabled] = useState(false)
+  const [segmentRepeat, setSegmentRepeat] = useState<SegmentRepeatState>(EMPTY_SEGMENT_REPEAT)
+  const [progressThumbnail, setProgressThumbnail] = useState<ProgressThumbnailState | null>(null)
+  const [showFullscreenFileDrawer, setShowFullscreenFileDrawer] = useState(false)
+  const [fullscreenDrawerTab, setFullscreenDrawerTab] = useState<FullscreenDrawerTab>('files')
   const [fullscreenScriptOverlayHeight, setFullscreenScriptOverlayHeight] = useState(0)
   const [fullscreenControlsOverlayHeight, setFullscreenControlsOverlayHeight] = useState(0)
   const [showControls, setShowControls] = useState(true)
@@ -221,6 +593,10 @@ export default function VideoPlayer({
   const [scriptPathCopied, setScriptPathCopied] = useState(false)
   const scriptOffsetRef = useRef(scriptOffset)
   const scriptPathCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const progressThumbnailVideoRef = useRef<HTMLVideoElement>(null)
+  const segmentRepeatRef = useRef(segmentRepeat)
+  const segmentRepeatStoreRef = useRef<Record<string, StoredSegmentRepeat>>({})
+  const segmentRepeatLoadRunId = useRef(0)
   const [strokeDraft, setStrokeDraft] = useState(() => ({
     min: strokeRangeMin,
     max: strokeRangeMax,
@@ -232,9 +608,11 @@ export default function VideoPlayer({
   const playbackFrameRef = useRef<number | null>(null)
   const handledAutoPlayRequest = useRef(0)
   const progressScrubbingRef = useRef(false)
+  const progressSeekTimeRef = useRef<number | null>(null)
   const effectiveCurrentTime = isProgressScrubbing && progressPreviewTime !== null ? progressPreviewTime : currentTime
   const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, effectiveCurrentTime) : ''
   const firstActionTimeSeconds = actions.length > 0 ? Math.max(0, actions[0].at / 1000) : null
+  const currentScriptPath = isRealScriptSource(scriptSource) ? scriptSource : null
   const scriptSourceName = scriptSource ? getFileNameFromPath(scriptSource) : null
   const scriptStatusText = actions.length === 0
     ? null
@@ -254,8 +632,7 @@ export default function VideoPlayer({
       : 0
   )
   const videoClassName = getVideoClassName({
-    isFullscreen,
-    fullscreenFitEnabled,
+    videoFillEnabled,
   })
   const controlsContainerClass = isFullscreen
     ? 'absolute inset-x-0 bottom-0 z-10 px-4 pb-3 pt-4'
@@ -264,14 +641,52 @@ export default function VideoPlayer({
     ? 'rounded-2xl border border-white/14 bg-black px-3 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.6)]'
     : ''
   const mediaStateKey = `${mediaSessionKey}:${videoUrl ?? 'none'}`
+  const segmentRepeatStorageKey = currentFilePath || mediaStateKey
+  const activeSegmentRepeat = getActiveSegmentRepeatItem(segmentRepeat)
+  const segmentRepeatActive = Boolean(segmentRepeat.enabled && activeSegmentRepeat)
+  const segmentRepeatReady = Boolean(activeSegmentRepeat)
+  const hasSegmentRepeatDraft = segmentRepeat.draftStart !== null || segmentRepeat.draftEnd !== null
+  const fullscreenDrawerFiles = playlistFiles.slice(0, 240)
+  const fullscreenDrawerHasFiles = fullscreenDrawerFiles.length > 0
+  const fullscreenDrawerHasScripts = Boolean(scriptSource || scriptVariants.length > 0 || onManualScriptSelect)
+  const fullscreenDrawerHasDevice = Boolean(deviceInfo || onOpenDeviceSettings)
+  const fullscreenDrawerAvailable = fullscreenDrawerHasFiles || fullscreenDrawerHasScripts || fullscreenDrawerHasDevice
   const debugScriptPathCandidate = scriptDebugInfo?.sourcePath ?? null
   const debugScriptPath = isRealScriptSource(debugScriptPathCandidate) ? debugScriptPathCandidate : null
+  const progressPercent = duration > 0
+    ? Math.max(0, Math.min(100, (effectiveCurrentTime / duration) * 100))
+    : 0
   const progressBarWrapClass = isFullscreen
-    ? 'mb-3'
-    : 'mb-2'
+    ? 'relative mb-3'
+    : 'relative mb-2'
   const controlRowClass = isFullscreen
     ? 'flex items-center justify-between gap-4'
     : 'flex items-center justify-between gap-4'
+
+  useEffect(() => {
+    if (!fullscreenDrawerAvailable) return
+
+    const activeTabAvailable = (
+      (fullscreenDrawerTab === 'files' && fullscreenDrawerHasFiles)
+      || (fullscreenDrawerTab === 'scripts' && fullscreenDrawerHasScripts)
+      || (fullscreenDrawerTab === 'device' && fullscreenDrawerHasDevice)
+    )
+    if (activeTabAvailable) return
+
+    setFullscreenDrawerTab(
+      fullscreenDrawerHasFiles
+        ? 'files'
+        : fullscreenDrawerHasScripts
+          ? 'scripts'
+          : 'device'
+    )
+  }, [
+    fullscreenDrawerAvailable,
+    fullscreenDrawerHasDevice,
+    fullscreenDrawerHasFiles,
+    fullscreenDrawerHasScripts,
+    fullscreenDrawerTab,
+  ])
 
   const syncCurrentTimeFromMedia = useCallback(() => {
     const media = mediaRef.current
@@ -467,22 +882,153 @@ export default function VideoPlayer({
     [mediaRef, onSeek]
   )
 
-  const beginProgressScrub = useCallback(() => {
+  const clampSegmentTime = useCallback((time: number) => {
+    const maxTime = duration > 0 ? duration : time
+    return Math.max(0, Math.min(maxTime, Number.isFinite(time) ? time : 0))
+  }, [duration])
+
+  const commitSegmentRepeat = useCallback((next: SegmentRepeatState) => {
+    setSegmentRepeat(next)
+    const nextStore = updateSegmentRepeatStore(segmentRepeatStoreRef.current, segmentRepeatStorageKey, next)
+    segmentRepeatStoreRef.current = nextStore
+    void persistPreferredSegmentRepeatStore(scriptFolder, nextStore)
+  }, [scriptFolder, segmentRepeatStorageKey])
+
+  const setSegmentStartAtCurrentTime = useCallback(() => {
+    const start = clampSegmentTime(currentTime)
+    const next: SegmentRepeatState = {
+      ...segmentRepeat,
+      draftStart: start,
+      draftEnd: segmentRepeat.draftEnd !== null && segmentRepeat.draftEnd > start
+        ? segmentRepeat.draftEnd
+        : null,
+    }
+    commitSegmentRepeat(next)
+  }, [clampSegmentTime, commitSegmentRepeat, currentTime, segmentRepeat])
+
+  const setSegmentEndAtCurrentTime = useCallback(() => {
+    const end = clampSegmentTime(currentTime)
+    const draftStart = segmentRepeat.draftStart
+
+    if (!isValidSegmentRange(draftStart, end)) {
+      commitSegmentRepeat({
+        ...segmentRepeat,
+        draftEnd: end,
+      })
+      return
+    }
+
+    const segment: SegmentRepeatItem = {
+      id: createSegmentRepeatId(draftStart, end),
+      start: draftStart,
+      end,
+    }
+    const next: SegmentRepeatState = {
+      ...segmentRepeat,
+      draftEnd: end,
+      enabled: true,
+      activeId: segment.id,
+      segments: sortSegmentRepeatItems([...segmentRepeat.segments, segment]),
+    }
+    commitSegmentRepeat(next)
+  }, [clampSegmentTime, commitSegmentRepeat, currentTime, segmentRepeat])
+
+  const toggleSegmentRepeat = useCallback(() => {
+    const activeSegment = getActiveSegmentRepeatItem(segmentRepeat)
+    if (!activeSegment) return
+    commitSegmentRepeat({
+      ...segmentRepeat,
+      activeId: activeSegment.id,
+      enabled: !segmentRepeat.enabled,
+    })
+  }, [commitSegmentRepeat, segmentRepeat])
+
+  const clearSegmentRepeat = useCallback(() => {
+    commitSegmentRepeat(EMPTY_SEGMENT_REPEAT)
+  }, [commitSegmentRepeat])
+
+  const selectSegmentRepeatItem = useCallback((segmentId: string) => {
+    const segment = segmentRepeat.segments.find((item) => item.id === segmentId)
+    if (!segment) return
+
+    commitSegmentRepeat({
+      ...segmentRepeat,
+      draftStart: segment.start,
+      draftEnd: segment.end,
+      activeId: segment.id,
+    })
+  }, [commitSegmentRepeat, segmentRepeat])
+
+  const deleteSegmentRepeatItem = useCallback((segmentId: string) => {
+    const nextSegments = segmentRepeat.segments.filter((segment) => segment.id !== segmentId)
+    const nextActive = segmentRepeat.activeId === segmentId
+      ? nextSegments[0]?.id ?? null
+      : segmentRepeat.activeId
+
+    commitSegmentRepeat({
+      ...segmentRepeat,
+      activeId: nextActive,
+      enabled: segmentRepeat.enabled && Boolean(nextActive),
+      segments: nextSegments,
+    })
+  }, [commitSegmentRepeat, segmentRepeat])
+
+  const updateProgressThumbnail = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!videoUrl || mediaType !== 'video' || duration <= 0) return
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(rect.width, 1)))
+    const time = Math.round(ratio * duration * 2) / 2
+    setProgressThumbnail({
+      time,
+      leftPercent: ratio * 100,
+    })
+  }, [duration, mediaType, videoUrl])
+
+  const hideProgressThumbnail = useCallback(() => {
+    setProgressThumbnail(null)
+  }, [])
+
+  const getProgressPointerInfo = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(rect.width, 1)))
+    return {
+      time: Math.max(0, Math.min(duration || 0, ratio * (duration || 0))),
+      leftPercent: ratio * 100,
+    }
+  }, [duration])
+
+  const beginProgressScrub = useCallback((time?: number) => {
+    const nextTime = time ?? currentTime
     progressScrubbingRef.current = true
+    progressSeekTimeRef.current = nextTime
     setIsProgressScrubbing(true)
-    setProgressPreviewTime(currentTime)
+    setProgressPreviewTime(nextTime)
   }, [currentTime])
 
   const updateProgressPreview = useCallback((time: number) => {
     const clampedTime = Math.max(0, Math.min(duration || 0, time))
+    progressSeekTimeRef.current = clampedTime
     setProgressPreviewTime(clampedTime)
   }, [duration])
+
+  const seekProgressByPointer = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const { time, leftPercent } = getProgressPointerInfo(event)
+    progressSeekTimeRef.current = time
+    setProgressPreviewTime(time)
+    if (videoUrl && mediaType === 'video' && duration > 0) {
+      setProgressThumbnail({ time: Math.round(time * 2) / 2, leftPercent })
+    }
+    handleSeek(time)
+    return time
+  }, [duration, getProgressPointerInfo, handleSeek, mediaType, videoUrl])
 
   const commitProgressScrub = useCallback((overrideTime?: number) => {
     if (!progressScrubbingRef.current) return
 
-    const targetTime = Math.max(0, Math.min(duration || 0, overrideTime ?? progressPreviewTime ?? currentTime))
+    const targetTime = Math.max(0, Math.min(duration || 0, overrideTime ?? progressSeekTimeRef.current ?? progressPreviewTime ?? currentTime))
     progressScrubbingRef.current = false
+    progressSeekTimeRef.current = null
     setIsProgressScrubbing(false)
     setProgressPreviewTime(null)
     handleSeek(targetTime)
@@ -649,6 +1195,27 @@ export default function VideoPlayer({
     }
   }, [clearHideControlsTimer, isFullscreen, playing])
 
+  const handleContainerMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    resetHideTimer()
+
+    if (!isFullscreen || !fullscreenDrawerAvailable) {
+      return
+    }
+
+    const drawerWidth = fullscreenFileDrawerRef.current?.getBoundingClientRect().width
+      ?? FULLSCREEN_FILE_DRAWER_FALLBACK_WIDTH_PX
+    const keepDrawerOpen = showFullscreenFileDrawer
+      && event.clientX <= drawerWidth + 36
+    setShowFullscreenFileDrawer(event.clientX <= FULLSCREEN_FILE_DRAWER_TRIGGER_PX || keepDrawerOpen)
+  }, [fullscreenDrawerAvailable, isFullscreen, resetHideTimer, showFullscreenFileDrawer])
+
+  const handleContainerMouseLeave = useCallback(() => {
+    if (playing) {
+      setShowControls(false)
+    }
+    setShowFullscreenFileDrawer(false)
+  }, [playing])
+
   const revealTopNav = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.stopPropagation()
     setShowTopNav(true)
@@ -690,12 +1257,6 @@ export default function VideoPlayer({
   }, [])
 
   useEffect(() => {
-    if (!isFullscreen) {
-      setFullscreenFitEnabled(false)
-    }
-  }, [isFullscreen])
-
-  useEffect(() => {
     if (!isFullscreen || !playing) {
       clearHideControlsTimer()
       setShowControls(true)
@@ -718,9 +1279,83 @@ export default function VideoPlayer({
   }, [scriptOffset])
 
   useEffect(() => {
+    segmentRepeatRef.current = segmentRepeat
+  }, [segmentRepeat])
+
+  useEffect(() => {
+    const runId = segmentRepeatLoadRunId.current + 1
+    segmentRepeatLoadRunId.current = runId
+    void loadPreferredSegmentRepeatStore(scriptFolder).then((store) => {
+      if (segmentRepeatLoadRunId.current !== runId) return
+      segmentRepeatStoreRef.current = store
+      setSegmentRepeat(getSegmentRepeatStateFromStore(store, segmentRepeatStorageKey))
+    })
+    setProgressThumbnail(null)
+    setShowFullscreenFileDrawer(false)
+  }, [scriptFolder, segmentRepeatStorageKey])
+
+  useEffect(() => {
+    if (!segmentRepeatActive) return
+
+    const media = mediaRef.current
+    if (!media) return
+
+    let frameId = 0
+    let syncing = false
+    const tick = () => {
+      const current = segmentRepeatRef.current
+      const activeSegment = getActiveSegmentRepeatItem(current)
+      if (
+        current.enabled
+        && activeSegment
+        && media.currentTime >= activeSegment.end - 0.03
+      ) {
+        media.currentTime = activeSegment.start
+        setCurrentTime(activeSegment.start)
+        if (!syncing) {
+          syncing = true
+          Promise.resolve(onSeek(activeSegment.start))
+            .catch(() => {
+              // Seek syncing errors are already surfaced by the device layer.
+            })
+            .finally(() => {
+              syncing = false
+            })
+        }
+      }
+
+      frameId = requestAnimationFrame(tick)
+    }
+
+    frameId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frameId)
+  }, [mediaRef, mediaStateKey, onSeek, segmentRepeatActive])
+
+  useEffect(() => {
+    const previewVideo = progressThumbnailVideoRef.current
+    if (!previewVideo || !progressThumbnail || !videoUrl || mediaType !== 'video') return
+
+    const applyPreviewTime = () => {
+      const maxTime = Number.isFinite(previewVideo.duration) && previewVideo.duration > 0
+        ? previewVideo.duration
+        : progressThumbnail.time
+      previewVideo.currentTime = Math.max(0, Math.min(maxTime, progressThumbnail.time))
+    }
+
+    if (previewVideo.readyState >= 1) {
+      applyPreviewTime()
+      return
+    }
+
+    previewVideo.addEventListener('loadedmetadata', applyPreviewTime, { once: true })
+    return () => previewVideo.removeEventListener('loadedmetadata', applyPreviewTime)
+  }, [mediaType, progressThumbnail, videoUrl])
+
+  useEffect(() => {
     if (showControls) return
     setShowStrokeControls(false)
     setShowScriptOffsetControls(false)
+    setShowSegmentRepeatControls(false)
   }, [showControls])
 
   useEffect(() => {
@@ -765,6 +1400,18 @@ export default function VideoPlayer({
     window.addEventListener('mousedown', handlePointerDown)
     return () => window.removeEventListener('mousedown', handlePointerDown)
   }, [showScriptOffsetControls])
+
+  useEffect(() => {
+    if (!showSegmentRepeatControls) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (segmentRepeatControlsRef.current?.contains(event.target as Node)) return
+      setShowSegmentRepeatControls(false)
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    return () => window.removeEventListener('mousedown', handlePointerDown)
+  }, [showSegmentRepeatControls])
 
   useEffect(() => {
     return () => {
@@ -819,6 +1466,15 @@ export default function VideoPlayer({
         case 'goToEnd':
           handleSeek(duration)
           break
+        case 'setSegmentRepeatStart':
+          setSegmentStartAtCurrentTime()
+          break
+        case 'setSegmentRepeatEnd':
+          setSegmentEndAtCurrentTime()
+          break
+        case 'openSegmentRepeatEditor':
+          setShowSegmentRepeatControls((value) => !value)
+          break
         case 'volumeUp':
           handleVolumeChange(Math.min(1, volume + 0.05))
           break
@@ -862,6 +1518,8 @@ export default function VideoPlayer({
     shortcutsEnabled,
     skip,
     setScriptOffsetValue,
+    setSegmentEndAtCurrentTime,
+    setSegmentStartAtCurrentTime,
     toggleFullscreen,
     toggleMute,
     togglePlay,
@@ -945,7 +1603,7 @@ export default function VideoPlayer({
     setDuration(0)
     setDisplayDuration(0)
     setPlaying(false)
-    setFullscreenFitEnabled(false)
+    setVideoFillEnabled(false)
     setShowControls(true)
     setShowTopNav(false)
     setShowStrokeControls(false)
@@ -1147,8 +1805,8 @@ export default function VideoPlayer({
     <div
       ref={containerRef}
       className="flex-1 flex flex-col bg-black relative"
-      onMouseMove={resetHideTimer}
-      onMouseLeave={() => playing && setShowControls(false)}
+      onMouseMove={handleContainerMouseMove}
+      onMouseLeave={handleContainerMouseLeave}
     >
       {/* Media */}
       <div className="flex-1 relative flex items-center justify-center overflow-hidden" onClick={togglePlay}>
@@ -1443,6 +2101,312 @@ export default function VideoPlayer({
           </div>
         )}
 
+        {isFullscreen && fullscreenDrawerAvailable && (
+          <div
+            ref={fullscreenFileDrawerRef}
+            className={`absolute inset-y-0 left-0 z-30 min-w-0 overflow-hidden border-r border-white/10 bg-black/82 shadow-[18px_0_48px_rgba(0,0,0,0.42)] backdrop-blur-xl transition-transform duration-200 ${
+              showFullscreenFileDrawer ? 'translate-x-0' : '-translate-x-full'
+            }`}
+            style={{
+              width: 'clamp(20rem, 32vw, 30rem)',
+              maxWidth: 'calc(100vw - 0.75rem)',
+            }}
+            onClick={(event) => event.stopPropagation()}
+            onMouseEnter={() => setShowFullscreenFileDrawer(true)}
+            onMouseLeave={() => setShowFullscreenFileDrawer(false)}
+          >
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="border-b border-white/10 px-3 py-3">
+                <div className="min-w-0 px-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
+                    {t('app.name')}
+                  </div>
+                  <div className="mt-1 truncate text-sm font-medium text-white">
+                    {currentFileName || t('player.noVideo')}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-white/[0.04] p-1">
+                  {([
+                    { id: 'files' as FullscreenDrawerTab, label: t('sidebar.files'), Icon: FolderOpen, enabled: fullscreenDrawerHasFiles },
+                    { id: 'scripts' as FullscreenDrawerTab, label: t('sidebar.scripts'), Icon: Music4, enabled: fullscreenDrawerHasScripts },
+                    { id: 'device' as FullscreenDrawerTab, label: t('sidebar.device'), Icon: SlidersHorizontal, enabled: fullscreenDrawerHasDevice },
+                  ]).map(({ id, label, Icon, enabled }) => {
+                    const active = fullscreenDrawerTab === id
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        disabled={!enabled}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (enabled) {
+                            setFullscreenDrawerTab(id)
+                          }
+                        }}
+                        className={`flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg px-1.5 text-[10px] font-medium transition-colors ${
+                          active
+                            ? 'bg-accent/18 text-accent'
+                            : enabled
+                              ? 'text-white/62 hover:bg-white/8 hover:text-white'
+                              : 'cursor-not-allowed text-white/22'
+                        }`}
+                      >
+                        <Icon size={13} className="flex-shrink-0" />
+                        <span className="truncate">{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {fullscreenDrawerTab === 'files' && (
+                <div className="min-h-0 flex-1 overflow-y-auto py-2">
+                  {fullscreenDrawerFiles.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs text-white/42">
+                      {t('sidebar.noFiles')}
+                    </div>
+                  ) : fullscreenDrawerFiles.map((file) => {
+                    const active = areSameMediaPath(file.path, currentFilePath)
+                    return (
+                      <button
+                        key={file.path}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (!active) {
+                            void onPlaylistFileSelect?.(file)
+                          }
+                          setShowFullscreenFileDrawer(false)
+                        }}
+                        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                          active
+                            ? 'bg-accent/12 text-white'
+                            : 'text-white/66 hover:bg-white/8 hover:text-white'
+                        }`}
+                      >
+                        <span className={`h-2 w-2 flex-shrink-0 rounded-full ${active ? 'bg-accent' : 'bg-white/18'}`} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium">{file.name}</span>
+                          <span className="mt-0.5 block truncate text-[10px] text-white/42">
+                            {file.hasScript
+                              ? `${t('sidebar.scripts')} · ${file.scriptAxes.length > 0 ? file.scriptAxes.join(', ') : 'L0'}`
+                              : file.relativePath || file.path}
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {fullscreenDrawerTab === 'scripts' && (
+                <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/46">
+                        {t('sidebar.scriptVariants')}
+                      </div>
+                      {scriptVariantOverrideActive && onScriptVariantReset && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void onScriptVariantReset()
+                          }}
+                          className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-medium text-white/68 transition-colors hover:border-accent/35 hover:text-accent"
+                        >
+                          {t('sidebar.useAutoScript')}
+                        </button>
+                      )}
+                    </div>
+
+                    <div
+                      className="mt-2 truncate rounded-lg border border-white/8 bg-black/24 px-2.5 py-2 font-mono text-[10px] text-white/58"
+                      title={currentScriptPath ?? scriptSource ?? undefined}
+                    >
+                      {scriptSourceName || t('sidebar.selectScript')}
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        disabled={!currentScriptPath}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (currentScriptPath) {
+                            void copyScriptPath(currentScriptPath)
+                          }
+                        }}
+                        className={`flex h-8 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] transition-colors ${
+                          currentScriptPath
+                            ? 'border-white/10 bg-white/5 text-white/68 hover:border-accent/35 hover:text-accent'
+                            : 'cursor-not-allowed border-white/6 text-white/24'
+                        }`}
+                        title={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
+                        aria-label={scriptPathCopied ? t('player.scriptPathCopied') : t('player.copyScriptPath')}
+                      >
+                        <Copy size={12} />
+                        <span className="truncate">{scriptPathCopied ? t('player.scriptPathCopiedShort') : t('player.copyScriptPathShort')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!currentScriptPath}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (currentScriptPath) {
+                            void openScriptFolder(currentScriptPath)
+                          }
+                        }}
+                        className={`flex h-8 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] transition-colors ${
+                          currentScriptPath
+                            ? 'border-white/10 bg-white/5 text-white/68 hover:border-accent/35 hover:text-accent'
+                            : 'cursor-not-allowed border-white/6 text-white/24'
+                        }`}
+                        title={t('player.openScriptFolder')}
+                        aria-label={t('player.openScriptFolder')}
+                      >
+                        <FolderOpen size={12} />
+                        <span className="truncate">{t('player.openScriptFolderShort')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!currentScriptPath || !onReloadScriptSource}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (currentScriptPath && onReloadScriptSource) {
+                            void onReloadScriptSource(currentScriptPath)
+                          }
+                        }}
+                        className={`flex h-8 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] transition-colors ${
+                          currentScriptPath && onReloadScriptSource
+                            ? 'border-white/10 bg-white/5 text-white/68 hover:border-accent/35 hover:text-accent'
+                            : 'cursor-not-allowed border-white/6 text-white/24'
+                        }`}
+                        title={t('player.reloadScriptSource')}
+                        aria-label={t('player.reloadScriptSource')}
+                      >
+                        <RefreshCw size={12} />
+                        <span className="truncate">{t('player.reloadScriptSourceShort')}</span>
+                      </button>
+                    </div>
+
+                    {onManualScriptSelect && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void onManualScriptSelect()
+                        }}
+                        className="mt-2 flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 text-[10px] font-medium text-white/72 transition-colors hover:border-accent/35 hover:text-accent"
+                      >
+                        <FolderOpen size={12} />
+                        <span className="truncate">{t('sidebar.selectScript')}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {scriptVariants.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {scriptVariants.map((variant) => {
+                        const active = areSameMediaPath(variant.path, scriptSource)
+                        const meta = [
+                          variant.source === 'local'
+                            ? t('sidebar.scriptSourceLocal')
+                            : t('sidebar.scriptSourceFolder'),
+                          variant.axes.length > 0 ? variant.axes.join(' / ') : 'L0',
+                        ].join(' · ')
+
+                        return (
+                          <button
+                            key={variant.path}
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void onScriptVariantSelect?.(variant.path)
+                            }}
+                            className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                              active
+                                ? 'border-accent/35 bg-accent/12 text-accent'
+                                : 'border-white/10 bg-white/[0.035] text-white/70 hover:border-white/18 hover:bg-white/8 hover:text-white'
+                            }`}
+                          >
+                            <div className="truncate text-xs font-medium">
+                              {variant.isDefault ? t('sidebar.scriptDefaultVariant') : variant.label}
+                            </div>
+                            <div className={`mt-0.5 truncate text-[10px] ${active ? 'text-accent/78' : 'text-white/40'}`}>
+                              {meta}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-6 text-center text-xs text-white/42">
+                      {t('player.noScriptVariants')}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {fullscreenDrawerTab === 'device' && (
+                <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-1.5 h-2.5 w-2.5 flex-shrink-0 rounded-full ${
+                        deviceInfo?.connected
+                          ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.65)]'
+                          : 'bg-red-400'
+                      }`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-white">
+                          {deviceInfo?.label || t('sidebar.device')}
+                        </div>
+                        <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-white/42">
+                          {deviceInfo?.connected ? t('device.connected') : t('device.disconnected')}
+                        </div>
+                        {deviceInfo?.detail && (
+                          <div className="mt-2 rounded-lg border border-white/8 bg-black/20 px-2.5 py-2 text-xs text-white/58">
+                            {deviceInfo.detail}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {deviceInfo?.statusText && (
+                      <div className={`mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs ${
+                        deviceInfo.statusTone === 'error'
+                          ? 'border-red-400/25 bg-red-500/10 text-red-200'
+                          : 'border-accent/20 bg-accent/10 text-white/72'
+                      }`}>
+                        {deviceInfo.statusTone === 'busy' && <Loader2 size={13} className="animate-spin text-accent" />}
+                        {deviceInfo.statusTone === 'error' && <AlertCircle size={13} className="text-red-400" />}
+                        <span className="min-w-0 flex-1 truncate">{deviceInfo.statusText}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {onOpenDeviceSettings && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setShowFullscreenFileDrawer(false)
+                        void document.exitFullscreen?.()
+                        onOpenDeviceSettings()
+                      }}
+                      className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-medium text-white/76 transition-colors hover:border-accent/35 hover:bg-accent/10 hover:text-accent"
+                    >
+                      <SlidersHorizontal size={14} />
+                      <span className="truncate">{t('settings.device')}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {mediaType === 'video' && currentFileName && (
           <div
             className="absolute inset-x-0 top-0 z-10"
@@ -1573,33 +2537,87 @@ export default function VideoPlayer({
         }`}
       >
         <div className={controlsPanelClass}>
-          <div className={progressBarWrapClass}>
-            <input
-              type="range"
-              min={0}
-              max={duration || 100}
-              step={0.1}
-              value={effectiveCurrentTime}
-              onPointerDown={(e) => {
-                e.stopPropagation()
-                beginProgressScrub()
-              }}
-              onPointerUp={(e) => {
-                e.stopPropagation()
-                commitProgressScrub(parseFloat((e.target as HTMLInputElement).value))
-              }}
-              onChange={(e) => {
-                const nextTime = parseFloat(e.target.value)
-                if (progressScrubbingRef.current) {
-                  updateProgressPreview(nextTime)
-                  return
-                }
-                handleSeek(nextTime)
-              }}
-              onBlur={() => commitProgressScrub()}
-              className="w-full h-1"
-              onClick={(e) => e.stopPropagation()}
-            />
+          <div
+            className={progressBarWrapClass}
+            onPointerMove={updateProgressThumbnail}
+            onPointerLeave={hideProgressThumbnail}
+          >
+            {progressThumbnail && mediaType === 'video' && videoUrl && duration > 0 && (
+              <div
+                className="pointer-events-none absolute bottom-full z-30 mb-3 overflow-hidden rounded-xl border border-white/12 bg-black/90 shadow-[0_18px_44px_rgba(0,0,0,0.52)]"
+                style={{
+                  left: `${progressThumbnail.leftPercent}%`,
+                  width: PROGRESS_THUMBNAIL_WIDTH_PX,
+                  transform: 'translateX(-50%)',
+                }}
+              >
+                <video
+                  ref={progressThumbnailVideoRef}
+                  src={videoUrl}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  className="h-24 w-full bg-black object-cover"
+                />
+                <div className="border-t border-white/10 px-2 py-1 text-center font-mono text-[10px] text-white/76">
+                  {formatTime(progressThumbnail.time)}
+                </div>
+              </div>
+            )}
+            <div className="group relative h-5">
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-sm bg-[#45475a] transition-[height] group-hover:h-1.5" />
+              <div
+                className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#cba6f7] transition-transform group-hover:scale-110"
+                style={{ left: `${progressPercent}%` }}
+              />
+              <div
+                role="slider"
+                aria-valuemin={0}
+                aria-valuemax={duration || 0}
+                aria-valuenow={effectiveCurrentTime}
+                tabIndex={0}
+                className="absolute inset-0 cursor-pointer"
+                onPointerDown={(e) => {
+                  e.stopPropagation()
+                  e.preventDefault()
+                  e.currentTarget.setPointerCapture?.(e.pointerId)
+                  const targetTime = seekProgressByPointer(e)
+                  beginProgressScrub(targetTime)
+                }}
+                onPointerMove={(e) => {
+                  if (!progressScrubbingRef.current) return
+                  e.stopPropagation()
+                  e.preventDefault()
+                  seekProgressByPointer(e)
+                }}
+                onPointerUp={(e) => {
+                  e.stopPropagation()
+                  e.preventDefault()
+                  e.currentTarget.releasePointerCapture?.(e.pointerId)
+                  commitProgressScrub(seekProgressByPointer(e))
+                }}
+                onPointerCancel={(e) => {
+                  e.stopPropagation()
+                  commitProgressScrub()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowLeft') {
+                    e.preventDefault()
+                    handleSeek(Math.max(0, effectiveCurrentTime - 5))
+                  } else if (e.key === 'ArrowRight') {
+                    e.preventDefault()
+                    handleSeek(Math.min(duration || 0, effectiveCurrentTime + 5))
+                  } else if (e.key === 'Home') {
+                    e.preventDefault()
+                    handleSeek(0)
+                  } else if (e.key === 'End') {
+                    e.preventDefault()
+                    handleSeek(duration || 0)
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
           </div>
 
           <div className={controlRowClass}>
@@ -1920,6 +2938,170 @@ export default function VideoPlayer({
                   </div>
                 )}
 
+                {videoUrl && (
+                  <div ref={segmentRepeatControlsRef} className="relative">
+                    {showSegmentRepeatControls && (
+                      <div
+                        className="absolute bottom-full right-0 mb-3 w-80 rounded-2xl border border-surface-100/20 bg-surface-300/95 p-4 shadow-[0_28px_100px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="mb-3 flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-text-muted">
+                              {t('player.segmentRepeatList')}
+                            </div>
+                            <div className="mt-1 font-mono text-sm font-semibold text-text-primary">
+                              {activeSegmentRepeat
+                                ? formatTime(activeSegmentRepeat.start)
+                                : (segmentRepeat.draftStart !== null ? formatTime(segmentRepeat.draftStart) : '--:--')}
+                              {' - '}
+                              {activeSegmentRepeat
+                                ? formatTime(activeSegmentRepeat.end)
+                                : (segmentRepeat.draftEnd !== null ? formatTime(segmentRepeat.draftEnd) : '--:--')}
+                            </div>
+                          </div>
+                          <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                            segmentRepeatActive ? 'bg-accent/15 text-accent' : 'bg-surface-100/10 text-text-muted'
+                          }`}>
+                            {segmentRepeatActive ? 'ON' : 'OFF'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSegmentStartAtCurrentTime()
+                            }}
+                            className="rounded-lg border border-surface-100/20 bg-surface-200/60 px-3 py-2 text-left transition-colors hover:border-accent/30 hover:bg-accent/10"
+                          >
+                            <span className="block font-mono text-xs font-semibold text-accent">A</span>
+                            <span className="mt-1 block text-[10px] text-text-secondary">
+                              {segmentRepeat.draftStart !== null ? formatTime(segmentRepeat.draftStart) : t('player.segmentRepeatSetStart')}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSegmentEndAtCurrentTime()
+                            }}
+                            className="rounded-lg border border-surface-100/20 bg-surface-200/60 px-3 py-2 text-left transition-colors hover:border-accent/30 hover:bg-accent/10"
+                          >
+                            <span className="block font-mono text-xs font-semibold text-accent">B</span>
+                            <span className="mt-1 block text-[10px] text-text-secondary">
+                              {segmentRepeat.draftEnd !== null ? formatTime(segmentRepeat.draftEnd) : t('player.segmentRepeatSetEnd')}
+                            </span>
+                          </button>
+                        </div>
+
+                        <div className="mt-3 max-h-40 space-y-1 overflow-y-auto pr-1">
+                          {segmentRepeat.segments.length === 0 ? (
+                            <div className="rounded-lg border border-surface-100/15 bg-surface-200/35 px-3 py-3 text-center text-[10px] text-text-muted">
+                              {t('player.segmentRepeatEmpty')}
+                            </div>
+                          ) : (
+                            segmentRepeat.segments.map((segment, index) => {
+                              const selected = activeSegmentRepeat?.id === segment.id
+                              return (
+                                <div
+                                  key={segment.id}
+                                  className={`grid grid-cols-[1fr_auto] items-center gap-1 rounded-lg border px-2 py-1.5 transition-colors ${
+                                    selected
+                                      ? 'border-accent/35 bg-accent/10'
+                                      : 'border-surface-100/15 bg-surface-200/35'
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      selectSegmentRepeatItem(segment.id)
+                                    }}
+                                    className="min-w-0 text-left"
+                                  >
+                                    <span className="block text-[10px] font-semibold text-text-muted">
+                                      {String(index + 1).padStart(2, '0')}
+                                      {selected ? ` · ${t('player.segmentRepeatActive')}` : ''}
+                                    </span>
+                                    <span className="block truncate font-mono text-xs text-text-primary">
+                                      {formatTime(segment.start)} - {formatTime(segment.end)}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      deleteSegmentRepeatItem(segment.id)
+                                    }}
+                                    className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-red-500/10 hover:text-red-300"
+                                    title={t('player.segmentRepeatDelete')}
+                                    aria-label={t('player.segmentRepeatDelete')}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleSegmentRepeat()
+                            }}
+                            disabled={!segmentRepeatReady}
+                            className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                              segmentRepeatActive
+                                ? 'bg-accent/15 text-accent'
+                                : 'bg-surface-100/15 text-text-secondary hover:bg-surface-100/25 hover:text-text-primary'
+                            }`}
+                          >
+                            {t('player.segmentRepeat')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              clearSegmentRepeat()
+                            }}
+                            disabled={!hasSegmentRepeatDraft && segmentRepeat.segments.length === 0}
+                            className="rounded-lg border border-surface-100/20 bg-surface-200/60 px-3 py-2 text-xs text-text-secondary transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {t('player.segmentRepeatClearAll')}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowSegmentRepeatControls((value) => !value)
+                      }}
+                      className={`inline-flex items-center rounded p-1.5 font-mono text-[10px] font-semibold transition-colors ${
+                        showSegmentRepeatControls || segmentRepeatActive || hasSegmentRepeatDraft || segmentRepeat.segments.length > 0
+                          ? 'text-accent bg-accent/10'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                      title={t('player.segmentRepeat')}
+                      aria-label={t('player.segmentRepeat')}
+                    >
+                      AB
+                      {segmentRepeat.segments.length > 0 && (
+                        <span className="ml-1 rounded-sm bg-accent/15 px-1 text-[9px] leading-none">
+                          {segmentRepeat.segments.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )}
+
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleLoopCurrentMedia() }}
                   className={`p-1.5 rounded transition-colors ${loopCurrentMedia ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
@@ -1964,12 +3146,12 @@ export default function VideoPlayer({
                     <span className="text-[10px] font-medium">CC</span>
                   </button>
                 )}
-                {mediaType === 'video' && isFullscreen && (
+                {mediaType === 'video' && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); setFullscreenFitEnabled((value) => !value) }}
-                    className={`p-1.5 flex items-center gap-1 rounded transition-colors ${fullscreenFitEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                    title="Fill screen"
-                    aria-label="Fill screen"
+                    onClick={(e) => { e.stopPropagation(); setVideoFillEnabled((value) => !value) }}
+                    className={`p-1.5 flex items-center gap-1 rounded transition-colors ${videoFillEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                    title="Fill video area"
+                    aria-label="Fill video area"
                   >
                     <span className="text-[10px] font-semibold tracking-wide">FIT</span>
                   </button>
@@ -2052,13 +3234,11 @@ function formatPlaybackRate(rate: number): string {
 }
 
 function getVideoClassName({
-  isFullscreen,
-  fullscreenFitEnabled,
+  videoFillEnabled,
 }: {
-  isFullscreen: boolean
-  fullscreenFitEnabled: boolean
+  videoFillEnabled: boolean
 }): string {
-  if (isFullscreen && fullscreenFitEnabled) {
+  if (videoFillEnabled) {
     return 'block h-full w-full object-cover'
   }
 

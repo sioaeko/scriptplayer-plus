@@ -57,8 +57,8 @@ import {
   normalizeScriptBundle,
   SCRIPT_AXIS_IDS,
 } from './services/multiaxis'
-import { AppSettings, loadSettings, saveSettings } from './services/settings'
-import { buildNoScriptRandomFunscript } from './services/noScriptStroke'
+import { AppSettings, createDefaultAppSettings, loadSettings, saveSettings } from './services/settings'
+import { buildNoScriptRandomFunscript, fillNoScriptRandomFunscriptGaps } from './services/noScriptStroke'
 import {
   findMatchingShortcutAction,
   ShortcutActionId,
@@ -99,6 +99,8 @@ const VIDEO_SORT_FIELD_STORAGE_KEY = 'scriptplayer-video-sort-field'
 const VIDEO_SORT_DIRECTION_STORAGE_KEY = 'scriptplayer-video-sort-direction'
 const SCRIPT_OFFSET_STORAGE_KEY = 'scriptplayer-script-offsets-v1'
 const CURRENT_PLAYLIST_STORAGE_KEY = 'scriptplayer-current-playlist-v1'
+const VOLUME_STORAGE_KEY = 'volume'
+const SIDEBAR_COLLAPSED_FOLDERS_STORAGE_KEY = 'sidebarCollapsedFolders'
 const SCRIPT_OFFSET_MIN_MS = -5000
 const SCRIPT_OFFSET_MAX_MS = 5000
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
@@ -112,6 +114,30 @@ const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
 const AUTO_SKIP_COOLDOWN_MS = 1000
 const AUTO_SKIP_TARGET_EPSILON_MS = 250
 const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
+const RANDOM_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['L0', 'R0']
+const INTIFACE_RESET_STORAGE_KEYS = [
+  BUTTPLUG_SERVER_URL_STORAGE_KEY,
+  BUTTPLUG_DEVICE_INDEX_STORAGE_KEY,
+  BUTTPLUG_FEATURE_MAPPINGS_STORAGE_KEY,
+] as const
+const APP_RESET_STORAGE_KEYS = [
+  PLAYBACK_MODE_STORAGE_KEY,
+  PLAYBACK_MODE_MIGRATION_KEY,
+  LOOP_CURRENT_MEDIA_STORAGE_KEY,
+  PLAYBACK_RATE_STORAGE_KEY,
+  DEVICE_PROVIDER_STORAGE_KEY,
+  ...INTIFACE_RESET_STORAGE_KEYS,
+  OSR_SERIAL_PORT_PATH_STORAGE_KEY,
+  OSR_SERIAL_UPDATE_RATE_STORAGE_KEY,
+  OSR_SERIAL_PROFILE_STORAGE_KEY,
+  OSR_SERIAL_AXIS_CONFIGS_STORAGE_KEY,
+  VIDEO_SORT_FIELD_STORAGE_KEY,
+  VIDEO_SORT_DIRECTION_STORAGE_KEY,
+  SCRIPT_OFFSET_STORAGE_KEY,
+  CURRENT_PLAYLIST_STORAGE_KEY,
+  VOLUME_STORAGE_KEY,
+  SIDEBAR_COLLAPSED_FOLDERS_STORAGE_KEY,
+] as const
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
 type StoredButtplugFeatureMapping = ButtplugFeatureMapping
@@ -128,6 +154,11 @@ interface StoredCurrentPlaylist {
   files: VideoFile[]
 }
 
+interface AppFeedback {
+  text: string
+  tone: 'success' | 'info' | 'error'
+}
+
 function getMediaTypeFromPath(filePath: string): MediaType | null {
   const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
   if (VIDEO_EXTS.includes(ext)) return 'video'
@@ -138,6 +169,16 @@ function getMediaTypeFromPath(filePath: string): MediaType | null {
 function isScriptFilePath(filePath: string): boolean {
   const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
   return SCRIPT_EXTS.includes(ext)
+}
+
+function removeStorageKeys(keys: readonly string[]) {
+  try {
+    for (const key of keys) {
+      localStorage.removeItem(key)
+    }
+  } catch {
+    // Ignore storage failures
+  }
 }
 
 function loadPlaybackMode(): PlaybackMode {
@@ -746,6 +787,7 @@ export default function App() {
   const [manualSubtitleFiles, setManualSubtitleFiles] = useState<Record<string, SubtitleFile>>({})
   const [mediaDurationSeconds, setMediaDurationSeconds] = useState(0)
   const [mediaSessionKey, setMediaSessionKey] = useState(0)
+  const [appFeedback, setAppFeedback] = useState<AppFeedback | null>(null)
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(loadPlaybackMode)
   const [loopCurrentMedia, setLoopCurrentMedia] = useState<boolean>(loadLoopCurrentMedia)
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
@@ -768,13 +810,84 @@ export default function App() {
   const buttplugStreamTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buttplugStreamRunId = useRef(0)
   const osrSerialStreamTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const appFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const osrSerialStreamRunId = useRef(0)
   const autoSkipSuppressedUntilRef = useRef(0)
   const autoSkipCooldownUntilRef = useRef(0)
 
   const effectiveFunscriptBundle = useMemo(() => {
+    const mediaDurationMs = mediaDurationSeconds * 1000
+    const randomStrokeOptions = {
+      minStrokesPerMinute: settings.noScriptRandomMinSpeed,
+      maxStrokesPerMinute: settings.noScriptRandomMaxSpeed,
+      preset: settings.noScriptRandomPreset,
+      pattern: settings.noScriptRandomPattern,
+    }
+
     if (funscriptBundle) {
-      return funscriptBundle
+      if (
+        !currentFile
+        || (!settings.noScriptRandomStrokeEnabled && !settings.noScriptRandomFillGapsEnabled)
+        || !Number.isFinite(mediaDurationSeconds)
+        || mediaDurationSeconds <= 0
+      ) {
+        return funscriptBundle
+      }
+
+      const scripts = { ...funscriptBundle.scripts }
+      const sources = { ...funscriptBundle.sources }
+      let changed = false
+
+      for (const axisId of RANDOM_FALLBACK_AXIS_IDS) {
+        const existingScript = scripts[axisId]
+        if (existingScript) {
+          if (settings.noScriptRandomFillGapsEnabled) {
+            const filledActions = fillNoScriptRandomFunscriptGaps(
+              existingScript.actions,
+              mediaDurationMs,
+              `${currentFile}|${axisId}|fill-gaps`,
+              {
+                ...randomStrokeOptions,
+                minimumGapMs: settings.noScriptRandomFillGapMinDuration * 1000,
+              }
+            )
+            if (filledActions) {
+              scripts[axisId] = {
+                ...existingScript,
+                actions: filledActions,
+              }
+              changed = true
+            }
+          }
+
+          continue
+        }
+
+        if (!settings.noScriptRandomStrokeEnabled) continue
+
+        const script = buildNoScriptRandomFunscript(
+          mediaDurationMs,
+          `${currentFile}|${axisId}`,
+          randomStrokeOptions
+        )
+        if (!script) continue
+
+        scripts[axisId] = script
+        sources[axisId] = `generated://random-no-script-${axisId.toLowerCase()}`
+        changed = true
+      }
+
+      if (!changed) {
+        return funscriptBundle
+      }
+
+      return {
+        primaryAxis: funscriptBundle.primaryAxis && scripts[funscriptBundle.primaryAxis]
+          ? funscriptBundle.primaryAxis
+          : (scripts.L0 ? 'L0' as const : RANDOM_FALLBACK_AXIS_IDS.find((axisId) => scripts[axisId]) ?? null),
+        scripts,
+        sources,
+      }
     }
 
     if (
@@ -786,29 +899,36 @@ export default function App() {
       return null
     }
 
-    const script = buildNoScriptRandomFunscript(
-      mediaDurationSeconds * 1000,
-      currentFile,
-      {
-        minStrokesPerMinute: settings.noScriptRandomMinSpeed,
-        maxStrokesPerMinute: settings.noScriptRandomMaxSpeed,
-        preset: settings.noScriptRandomPreset,
-        pattern: settings.noScriptRandomPattern,
-      }
-    )
-    if (!script) {
+    const scripts: Partial<Record<ScriptAxisId, Funscript>> = {}
+    const sources: Partial<Record<ScriptAxisId, string>> = {}
+
+    for (const axisId of RANDOM_FALLBACK_AXIS_IDS) {
+      const script = buildNoScriptRandomFunscript(
+        mediaDurationMs,
+        `${currentFile}|${axisId}`,
+        randomStrokeOptions
+      )
+      if (!script) continue
+
+      scripts[axisId] = script
+      sources[axisId] = `generated://random-no-script-${axisId.toLowerCase()}`
+    }
+
+    if (!RANDOM_FALLBACK_AXIS_IDS.some((axisId) => scripts[axisId])) {
       return null
     }
 
     return {
       primaryAxis: 'L0' as const,
-      scripts: { L0: script },
-      sources: { L0: 'generated://random-no-script' },
+      scripts,
+      sources,
     }
   }, [
     currentFile,
     funscriptBundle,
     mediaDurationSeconds,
+    settings.noScriptRandomFillGapMinDuration,
+    settings.noScriptRandomFillGapsEnabled,
     settings.noScriptRandomMaxSpeed,
     settings.noScriptRandomMinSpeed,
     settings.noScriptRandomPattern,
@@ -1301,6 +1421,17 @@ export default function App() {
     osrSerialStreamTimer.current = null
   }, [])
 
+  const showAppFeedback = useCallback((feedback: AppFeedback) => {
+    setAppFeedback(feedback)
+    if (appFeedbackTimer.current) {
+      clearTimeout(appFeedbackTimer.current)
+    }
+    appFeedbackTimer.current = setTimeout(() => {
+      appFeedbackTimer.current = null
+      setAppFeedback(null)
+    }, feedback.tone === 'error' ? 4200 : 2600)
+  }, [])
+
   const stopButtplugPlayback = useCallback(
     async (options?: { stopDevice?: boolean }) => {
       buttplugStreamRunId.current += 1
@@ -1410,14 +1541,29 @@ export default function App() {
 
     const runId = ++osrSerialStreamRunId.current
     clearOsrSerialStreamTimer()
+    const intervalMs = Math.max(5, Math.round(1000 / Math.max(1, osrSerialUpdateRate)))
+    let nextTickAt = performance.now()
 
-    const tick = async () => {
+    const scheduleNextTick = () => {
+      if (runId !== osrSerialStreamRunId.current) return
+
+      const now = performance.now()
+      nextTickAt += intervalMs
+      if (nextTickAt < now - intervalMs) {
+        nextTickAt = now + intervalMs
+      }
+
+      osrSerialStreamTimer.current = setTimeout(() => {
+        tick()
+      }, Math.max(0, nextTickAt - now))
+    }
+
+    const tick = () => {
       if (runId !== osrSerialStreamRunId.current) return
 
       const currentMedia = mediaRef.current
       if (!currentMedia || currentMedia.paused) return
 
-      const intervalMs = Math.max(5, Math.round(1000 / Math.max(1, osrSerialUpdateRate)))
       const effectivePlaybackRate = currentMedia.playbackRate > 0 ? currentMedia.playbackRate : playbackRate
       const currentTimeMs = currentMedia.currentTime * 1000 + effectiveDeviceTimeOffset
       const targetTimeMs = currentTimeMs + intervalMs * effectivePlaybackRate
@@ -1427,16 +1573,15 @@ export default function App() {
       })
 
       if (command) {
-        await osrSerialService.writeCommand(command)
+        void osrSerialService.writeCommand(command).catch(() => {
+          // Serial state updates already surface write failures.
+        })
       }
 
-      if (runId !== osrSerialStreamRunId.current) return
-      osrSerialStreamTimer.current = setTimeout(() => {
-        void tick()
-      }, intervalMs)
+      scheduleNextTick()
     }
 
-    await tick()
+    tick()
   }, [
     availableOsrSerialAxes,
     clearOsrSerialStreamTimer,
@@ -2056,6 +2201,103 @@ export default function App() {
     await osrSerialService.disconnect()
   }
 
+  const handleResetIntifaceSettings = useCallback(async () => {
+    try {
+      await stopButtplugPlayback({ stopDevice: true })
+    } catch {
+      // Continue resetting local settings even if the device stop command fails.
+    }
+
+    try {
+      if (buttplugService.isConnected) {
+        await buttplugService.disconnect()
+      }
+    } catch {
+      // Connection state callbacks will settle if disconnect fails.
+    }
+
+    removeStorageKeys(INTIFACE_RESET_STORAGE_KEYS)
+    setButtplugServerUrlState(DEFAULT_BUTTPLUG_SERVER_URL)
+    setSelectedButtplugDeviceIndexState(null)
+    setButtplugFeatureMappingStore({})
+    setButtplugDevices([])
+    setButtplugError(null)
+    setButtplugScanning(false)
+    clearButtplugStreamTimer()
+  }, [clearButtplugStreamTimer, stopButtplugPlayback])
+
+  const handleResetAllSettings = useCallback(async () => {
+    const defaultAppSettings = createDefaultAppSettings()
+
+    try {
+      await handleResetIntifaceSettings()
+    } catch {
+      // Keep the rest of the reset available even if Intiface cleanup fails.
+    }
+
+    try {
+      await stopOsrSerialPlayback({ homeDevice: true })
+    } catch {
+      // Continue resetting local settings even if homing fails.
+    }
+
+    try {
+      if (osrSerialService.connected) {
+        await osrSerialService.disconnect()
+      }
+    } catch {
+      // Ignore disconnect failures during reset.
+    }
+
+    removeStorageKeys(APP_RESET_STORAGE_KEYS)
+    saveSettings(defaultAppSettings)
+    saveScriptOffsets({})
+    clearStoredCurrentPlaylist()
+
+    setSettings(defaultAppSettings)
+    setPlaybackMode('sequential')
+    setLoopCurrentMedia(false)
+    setPlaybackRate(1)
+    setVideoSort(DEFAULT_VIDEO_SORT)
+    setDeviceProvider('handy')
+    setSelectedOsrSerialPortPathState('')
+    setOsrSerialUpdateRateState(DEFAULT_OSR_SERIAL_UPDATE_RATE)
+    setOsrSerialProfile('sr6')
+    setOsrSerialAxisConfigs(normalizeOsrSerialAxisConfigs({}))
+    setOsrSerialPorts([])
+    setOsrSerialError(null)
+    setOsrSerialConnectionState('disconnected')
+    setScriptOffsets({})
+    setManualScriptPaths({})
+    setManualSubtitleFiles({})
+    setScriptVariants([])
+    setScriptMatchDialog(null)
+    setFunscriptBundle(null)
+    setSubtitleCues([])
+    setScriptUploadUrl(null)
+    setHandyUploadStatus('idle')
+    setHandyUploadError(null)
+    resetHandyAutoPlayState()
+    clearOsrSerialStreamTimer()
+
+    setCurrentFile(null)
+    setCurrentFileType(null)
+    setVideoUrl(null)
+    setArtworkUrl(null)
+    setMediaDurationSeconds(0)
+    setMediaSessionKey((key) => key + 1)
+    setFiles([])
+    setPlaylistMode(false)
+    setPlaylistName('')
+    setPlaylistFilePath(undefined)
+    currentFolderPathRef.current = null
+  }, [
+    clearOsrSerialStreamTimer,
+    handleResetIntifaceSettings,
+    resetHandyAutoPlayState,
+    stopOsrSerialPlayback,
+  ])
+
   const handlePlay = useCallback(async () => {
     const media = mediaRef.current
     if (!media) return
@@ -2250,6 +2492,10 @@ export default function App() {
           setPlaylistFilePath(undefined)
           setPlaylistName((current) => current || t('sidebar.unsavedPlaylist'))
           setFiles((current) => mergeFilesByPath(current, mediaFiles))
+          showAppFeedback({
+            tone: 'success',
+            text: t('drop.mediaAdded', { count: mediaFiles.length.toString() }),
+          })
         }
         return
       }
@@ -2275,6 +2521,12 @@ export default function App() {
       if (matchedMediaPath) {
         setScriptMatchDialog(null)
         await applyDroppedScriptToMedia(path, matchedMediaPath, shouldAutoplay)
+        showAppFeedback({
+          tone: 'success',
+          text: matchedMediaPath === currentFileRef.current
+            ? t('drop.scriptAppliedCurrent')
+            : t('drop.scriptAppliedToMedia', { name: getFileName(matchedMediaPath) }),
+        })
         return
       }
 
@@ -2286,6 +2538,12 @@ export default function App() {
       if (matchCandidates.length === 1) {
         setScriptMatchDialog(null)
         await applyDroppedScriptToMedia(path, matchCandidates[0].path, shouldAutoplay)
+        showAppFeedback({
+          tone: 'success',
+          text: matchCandidates[0].path === currentFileRef.current
+            ? t('drop.scriptAppliedCurrent')
+            : t('drop.scriptAppliedToMedia', { name: getFileName(matchCandidates[0].path) }),
+        })
         return
       }
 
@@ -2294,7 +2552,17 @@ export default function App() {
           scriptPath: path,
           candidates: matchCandidates.slice(0, 6),
         })
+        showAppFeedback({
+          tone: 'info',
+          text: t('drop.scriptChooseMedia'),
+        })
+        return
       }
+
+      showAppFeedback({
+        tone: 'error',
+        text: t('drop.scriptNoMatch'),
+      })
     }
 
     const handleDragOver = (e: DragEvent) => {
@@ -2315,6 +2583,7 @@ export default function App() {
     mergeFilesByPath,
     openMediaFile,
     settings.handyAutoPlayAfterSync,
+    showAppFeedback,
     t,
   ])
 
@@ -2640,6 +2909,10 @@ export default function App() {
         clearTimeout(osrSerialStreamTimer.current)
         osrSerialStreamTimer.current = null
       }
+      if (appFeedbackTimer.current) {
+        clearTimeout(appFeedbackTimer.current)
+        appFeedbackTimer.current = null
+      }
 
       void buttplugService.disconnect()
       void osrSerialService.disconnect()
@@ -2703,6 +2976,21 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-surface-300">
+      {appFeedback && (
+        <div className="pointer-events-none fixed left-1/2 top-12 z-[70] -translate-x-1/2 px-3">
+          <div
+            className={`rounded-lg border px-3 py-2 text-xs shadow-[0_14px_44px_rgba(0,0,0,0.38)] backdrop-blur-md animate-fade-in ${
+              appFeedback.tone === 'error'
+                ? 'border-red-400/35 bg-red-500/12 text-red-100'
+                : appFeedback.tone === 'success'
+                  ? 'border-green-400/30 bg-green-500/12 text-green-100'
+                  : 'border-accent/30 bg-accent/12 text-text-primary'
+            }`}
+          >
+            {appFeedback.text}
+          </div>
+        </div>
+      )}
       <TitleBar onOpenSettings={() => openSettingsSection('general')} />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
@@ -2776,12 +3064,19 @@ export default function App() {
         <VideoPlayer
           mediaSessionKey={mediaSessionKey}
           videoUrl={videoUrl}
+          currentFilePath={currentFile}
           mediaType={currentFileType}
           currentFileName={currentFile ? getFileName(currentFile) : null}
           artworkUrl={artworkUrl}
           actions={displayActions}
           scriptSource={primaryScriptSource}
           scriptDebugInfo={scriptDebugInfo}
+          scriptFolder={settings.scriptFolder}
+          scriptVariants={scriptVariants}
+          scriptVariantOverrideActive={Boolean(currentFile && manualScriptPaths[currentFile])}
+          onScriptVariantSelect={handleQuickScriptVariantSelect}
+          onScriptVariantReset={handleQuickScriptVariantReset}
+          onManualScriptSelect={currentSidebarFile ? () => handleManualScriptSelect(currentSidebarFile) : undefined}
           subtitleCues={subtitleCues}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
@@ -2789,6 +3084,8 @@ export default function App() {
           onSeek={handleSeek}
           onEnded={handleEnded}
           mediaRef={mediaRef}
+          playlistFiles={orderedFiles}
+          onPlaylistFileSelect={handleFileSelect}
           autoPlayRequestId={autoPlayRequestId}
           canGoToPreviousFile={Boolean(previousSequentialFile)}
           onPreviousFile={handlePreviousFile}
@@ -2837,6 +3134,8 @@ export default function App() {
         onSettingsChange={handleSettingsChange}
         autoNextPlayEnabled={playbackMode !== 'none'}
         onAutoNextPlayChange={handleAutoNextPlayChange}
+        onResetIntifaceSettings={handleResetIntifaceSettings}
+        onResetAllSettings={handleResetAllSettings}
         initialSection={settingsSection}
       />
     </div>

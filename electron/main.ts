@@ -55,6 +55,7 @@ const SCRIPT_LABEL_SUFFIX_RE = /(?:[ _.-]+funscript(?:\([^)]*\))?)$/i
 const TRAILING_VARIANT_SUFFIX_RE = /(?:[ _.-]*げっぷ音緩和差分|[ _.-]*[（(][^()（）]*(?:差分|少なめ)[^()（）]*[)）])$/i
 const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|variant|edit|edited|fix|fixed|sync|offset))+$/i
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
+const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
@@ -694,6 +695,53 @@ ipcMain.handle('fs:saveFunscript', async (_event, videoPath: string, data: strin
     return true
   } catch {
     return false
+  }
+})
+
+function getSegmentRepeatStorePath(scriptFolder: string): string | null {
+  if (!scriptFolder || typeof scriptFolder !== 'string') {
+    return null
+  }
+
+  const resolvedFolder = path.resolve(scriptFolder)
+  return path.join(resolvedFolder, SEGMENT_REPEAT_STORE_FILE)
+}
+
+ipcMain.handle('fs:readSegmentRepeatStore', async (_event, scriptFolder: string) => {
+  const filePath = getSegmentRepeatStorePath(scriptFolder)
+  if (!filePath) {
+    return { ok: false, exists: false, error: 'Invalid script folder' }
+  }
+
+  try {
+    await fs.promises.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK)
+  } catch {
+    return { ok: false, exists: false, path: filePath, error: 'Script folder is not accessible' }
+  }
+
+  try {
+    const content = await fs.promises.readFile(filePath, 'utf-8')
+    return { ok: true, exists: true, path: filePath, content }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return { ok: true, exists: false, path: filePath }
+    }
+    return { ok: false, exists: false, path: filePath, error: String(error) }
+  }
+})
+
+ipcMain.handle('fs:writeSegmentRepeatStore', async (_event, scriptFolder: string, content: string) => {
+  const filePath = getSegmentRepeatStorePath(scriptFolder)
+  if (!filePath) {
+    return { ok: false, error: 'Invalid script folder' }
+  }
+
+  try {
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.promises.writeFile(filePath, content, 'utf-8')
+    return { ok: true, path: filePath }
+  } catch (error) {
+    return { ok: false, path: filePath, error: String(error) }
   }
 })
 

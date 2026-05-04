@@ -19,6 +19,9 @@ export const MOTION_SPEED_LIMIT_PRESET_VALUES: Record<Exclude<MotionSpeedLimitPr
   balanced: 240,
   strong: 320,
 }
+export const NO_SCRIPT_RANDOM_FILL_GAP_MIN_SECONDS = 2
+export const NO_SCRIPT_RANDOM_FILL_GAP_MAX_SECONDS = 60
+export const NO_SCRIPT_RANDOM_FILL_GAP_STEP_SECONDS = 1
 
 export type UiScaleValue = typeof UI_SCALE_OPTIONS[number]
 export type MotionSpeedLimitPreset = typeof MOTION_SPEED_LIMIT_PRESETS[number]
@@ -59,6 +62,8 @@ export interface AppSettings {
   noScriptRandomMaxSpeed: number // strokes/min, 30-320
   noScriptRandomPreset: NoScriptStrokePreset
   noScriptRandomPattern: NoScriptStrokePattern
+  noScriptRandomFillGapsEnabled: boolean
+  noScriptRandomFillGapMinDuration: number // seconds, 2-60
   autoSkipScriptGaps: boolean
   autoSkipGapMinDuration: number // seconds, 3-60
   autoSkipGapLeadIn: number // seconds, 0-5
@@ -68,6 +73,10 @@ export interface AppSettings {
 }
 
 export const defaultSettings: AppSettings = createDefaultSettings()
+
+export function createDefaultAppSettings(): AppSettings {
+  return createDefaultSettings()
+}
 
 function createDefaultSettings(): AppSettings {
   return {
@@ -97,6 +106,8 @@ function createDefaultSettings(): AppSettings {
     noScriptRandomMaxSpeed: 140,
     noScriptRandomPreset: 'natural',
     noScriptRandomPattern: 'random',
+    noScriptRandomFillGapsEnabled: false,
+    noScriptRandomFillGapMinDuration: 4,
     autoSkipScriptGaps: false,
     autoSkipGapMinDuration: 10,
     autoSkipGapLeadIn: 1.5,
@@ -142,6 +153,16 @@ function normalizeNoScriptRandomSpeed(value: unknown, fallback: number): number 
   return clampNumber(stepped, NO_SCRIPT_STROKE_MIN_SPM, NO_SCRIPT_STROKE_MAX_SPM)
 }
 
+function normalizeNoScriptRandomFillGapSeconds(value: unknown, fallback: number): number {
+  const requested = Number(value)
+  if (!Number.isFinite(requested)) {
+    return fallback
+  }
+
+  const stepped = Math.round(requested / NO_SCRIPT_RANDOM_FILL_GAP_STEP_SECONDS) * NO_SCRIPT_RANDOM_FILL_GAP_STEP_SECONDS
+  return clampNumber(stepped, NO_SCRIPT_RANDOM_FILL_GAP_MIN_SECONDS, NO_SCRIPT_RANDOM_FILL_GAP_MAX_SECONDS)
+}
+
 function normalizeMotionSpeedLimitPreset(value: unknown): MotionSpeedLimitPreset | null {
   return MOTION_SPEED_LIMIT_PRESETS.includes(value as MotionSpeedLimitPreset)
     ? value as MotionSpeedLimitPreset
@@ -180,6 +201,10 @@ export function loadSettings(): AppSettings {
       (parsed as { noScriptRandomMaxSpeed?: unknown })?.noScriptRandomMaxSpeed,
       defaults.noScriptRandomMaxSpeed
     )
+    const noScriptRandomFillGapMinDuration = normalizeNoScriptRandomFillGapSeconds(
+      (parsed as { noScriptRandomFillGapMinDuration?: unknown })?.noScriptRandomFillGapMinDuration,
+      defaults.noScriptRandomFillGapMinDuration
+    )
     return {
       ...defaults,
       ...parsed,
@@ -193,6 +218,10 @@ export function loadSettings(): AppSettings {
       noScriptRandomMaxSpeed: Math.max(noScriptRandomMinSpeed, noScriptRandomMaxSpeed),
       noScriptRandomPreset: normalizeNoScriptStrokePreset((parsed as { noScriptRandomPreset?: unknown })?.noScriptRandomPreset),
       noScriptRandomPattern: normalizeNoScriptStrokePattern((parsed as { noScriptRandomPattern?: unknown })?.noScriptRandomPattern),
+      noScriptRandomFillGapsEnabled: typeof (parsed as { noScriptRandomFillGapsEnabled?: unknown })?.noScriptRandomFillGapsEnabled === 'boolean'
+        ? (parsed as { noScriptRandomFillGapsEnabled: boolean }).noScriptRandomFillGapsEnabled
+        : defaults.noScriptRandomFillGapsEnabled,
+      noScriptRandomFillGapMinDuration,
       keyboardShortcuts: normalizeShortcutBindings((parsed as { keyboardShortcuts?: unknown })?.keyboardShortcuts),
     }
   } catch {

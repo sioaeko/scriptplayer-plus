@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('fs:listMediaMatchesForScript', scriptPath, candidateMediaPaths, preferredMediaPath),
   readFunscriptFile: (filePath: string) => ipcRenderer.invoke('fs:readFunscriptFile', filePath),
   saveFunscript: (videoPath: string, data: string) => ipcRenderer.invoke('fs:saveFunscript', videoPath, data),
+  readSegmentRepeatStore: (scriptFolder: string) => ipcRenderer.invoke('fs:readSegmentRepeatStore', scriptFolder),
+  writeSegmentRepeatStore: (scriptFolder: string, content: string) =>
+    ipcRenderer.invoke('fs:writeSegmentRepeatStore', scriptFolder, content),
   getVideoUrl: (filePath: string) => ipcRenderer.invoke('fs:getVideoUrl', filePath),
   findArtwork: (mediaPath: string) => ipcRenderer.invoke('fs:findArtwork', mediaPath),
   readSubtitles: (mediaPath: string) => ipcRenderer.invoke('fs:readSubtitles', mediaPath),

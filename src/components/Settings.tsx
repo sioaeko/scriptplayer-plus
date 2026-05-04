@@ -10,6 +10,7 @@ import {
   X,
   FolderOpen,
   MessageSquare,
+  RotateCcw,
 } from 'lucide-react'
 import { APP_VERSION } from '../constants/app'
 import { APP_LINKS, APP_SUPPORT_ICONS } from '../constants/links'
@@ -20,6 +21,9 @@ import {
   MOTION_SPEED_LIMIT_PRESET_VALUES,
   MOTION_SPEED_LIMIT_PRESETS,
   MOTION_SPEED_LIMIT_STEP,
+  NO_SCRIPT_RANDOM_FILL_GAP_MAX_SECONDS,
+  NO_SCRIPT_RANDOM_FILL_GAP_MIN_SECONDS,
+  NO_SCRIPT_RANDOM_FILL_GAP_STEP_SECONDS,
   UI_SCALE_OPTIONS,
 } from '../services/settings'
 import {
@@ -47,6 +51,8 @@ interface SettingsProps {
   onSettingsChange: (settings: AppSettings) => void
   autoNextPlayEnabled: boolean
   onAutoNextPlayChange: (enabled: boolean) => void
+  onResetIntifaceSettings: () => void | Promise<void>
+  onResetAllSettings: () => void | Promise<void>
   initialSection?: SettingsSection
 }
 
@@ -57,6 +63,7 @@ export type SettingsSection =
   | 'timeline'
   | 'device'
   | 'shortcuts'
+  | 'recovery'
   | 'about'
 
 // ── Shared primitives ────────────────────────────────────────────────
@@ -349,7 +356,8 @@ function PlaybackSection({
   const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
     onChange({ ...settings, [key]: val })
   const controlsDisabled = !settings.autoSkipScriptGaps
-  const randomStrokeControlsDisabled = !settings.noScriptRandomStrokeEnabled
+  const randomStrokeControlsDisabled = !settings.noScriptRandomStrokeEnabled && !settings.noScriptRandomFillGapsEnabled
+  const randomFillGapControlsDisabled = !settings.noScriptRandomFillGapsEnabled
   const resolvedPattern = getNoScriptStrokePatternForPreset(settings.noScriptRandomPreset, settings.noScriptRandomPattern)
   const updateRandomStrokePreset = (preset: AppSettings['noScriptRandomPreset']) => {
     if (preset === 'custom') {
@@ -401,6 +409,36 @@ function PlaybackSection({
         <Toggle
           checked={settings.noScriptRandomStrokeEnabled}
           onChange={(value) => update('noScriptRandomStrokeEnabled', value)}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.noScriptRandomFillGaps')}
+        description={t('settings.noScriptRandomFillGapsDesc')}
+      >
+        <Toggle
+          checked={settings.noScriptRandomFillGapsEnabled}
+          onChange={(value) => update('noScriptRandomFillGapsEnabled', value)}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.noScriptRandomFillGapMinDuration')}
+        description={`${formatSecondsLabel(settings.noScriptRandomFillGapMinDuration)} • ${t('settings.noScriptRandomFillGapMinDurationDesc')}`}
+      >
+        <input
+          type="range"
+          min={NO_SCRIPT_RANDOM_FILL_GAP_MIN_SECONDS}
+          max={NO_SCRIPT_RANDOM_FILL_GAP_MAX_SECONDS}
+          step={NO_SCRIPT_RANDOM_FILL_GAP_STEP_SECONDS}
+          disabled={randomFillGapControlsDisabled}
+          value={settings.noScriptRandomFillGapMinDuration}
+          onChange={(e) => update('noScriptRandomFillGapMinDuration', Number(e.target.value))}
+          className={`w-36 ${randomFillGapControlsDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
         />
       </FieldRow>
 
@@ -811,6 +849,9 @@ function ShortcutsSection({
         { id: 'nextVideo' as const, action: t('settings.nextVideo') },
         { id: 'goToStart' as const, action: t('settings.goToStart') },
         { id: 'goToEnd' as const, action: t('settings.goToEnd') },
+        { id: 'setSegmentRepeatStart' as const, action: t('settings.setSegmentRepeatStart') },
+        { id: 'setSegmentRepeatEnd' as const, action: t('settings.setSegmentRepeatEnd') },
+        { id: 'openSegmentRepeatEditor' as const, action: t('settings.openSegmentRepeatEditor') },
       ],
     },
     {
@@ -1002,6 +1043,92 @@ function AboutSection() {
   )
 }
 
+function RecoverySection({
+  onResetIntifaceSettings,
+  onResetAllSettings,
+}: {
+  onResetIntifaceSettings: () => void | Promise<void>
+  onResetAllSettings: () => void | Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [pendingAction, setPendingAction] = useState<'intiface' | 'all' | null>(null)
+
+  const runAction = useCallback(async (
+    action: 'intiface' | 'all',
+    confirmMessage: string,
+    callback: () => void | Promise<void>
+  ) => {
+    if (!window.confirm(confirmMessage)) return
+
+    setPendingAction(action)
+    try {
+      await callback()
+    } finally {
+      setPendingAction(null)
+    }
+  }, [])
+
+  return (
+    <div>
+      <SectionHeading>{t('settings.recovery')}</SectionHeading>
+
+      <div className="space-y-3">
+        <div className="rounded-lg border border-surface-100/25 bg-surface-300/45 p-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-text-primary">
+                {t('settings.resetIntiface')}
+              </div>
+              <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                {t('settings.resetIntifaceDesc')}
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={pendingAction !== null}
+              onClick={() => void runAction(
+                'intiface',
+                t('settings.resetIntifaceConfirm'),
+                onResetIntifaceSettings
+              )}
+              className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded border border-surface-100/30 bg-surface-200 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw size={13} />
+              {pendingAction === 'intiface' ? t('settings.resetting') : t('settings.reset')}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-red-400/20 bg-red-500/5 p-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-text-primary">
+                {t('settings.resetAllSettings')}
+              </div>
+              <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                {t('settings.resetAllSettingsDesc')}
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={pendingAction !== null}
+              onClick={() => void runAction(
+                'all',
+                t('settings.resetAllSettingsConfirm'),
+                onResetAllSettings
+              )}
+              className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded border border-red-400/30 bg-red-500/10 px-3 text-xs text-red-200 transition-colors hover:border-red-300/55 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw size={13} />
+              {pendingAction === 'all' ? t('settings.resetting') : t('settings.reset')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ───────────────────────────────────────────────────
 
 export default function Settings({
@@ -1011,6 +1138,8 @@ export default function Settings({
   onSettingsChange,
   autoNextPlayEnabled,
   onAutoNextPlayChange,
+  onResetIntifaceSettings,
+  onResetAllSettings,
   initialSection = 'general',
 }: SettingsProps) {
   const { t } = useTranslation()
@@ -1023,6 +1152,7 @@ export default function Settings({
     { id: 'timeline', label: t('settings.timeline'), icon: Activity },
     { id: 'device', label: t('settings.device'), icon: Wifi },
     { id: 'shortcuts', label: t('settings.keyboardShortcuts'), icon: Keyboard },
+    { id: 'recovery', label: t('settings.recovery'), icon: RotateCcw },
     { id: 'about', label: t('settings.about'), icon: Info },
   ]
 
@@ -1070,6 +1200,13 @@ export default function Settings({
         return <DeviceSection settings={settings} onChange={handleChange} />
       case 'shortcuts':
         return <ShortcutsSection settings={settings} onChange={handleChange} />
+      case 'recovery':
+        return (
+          <RecoverySection
+            onResetIntifaceSettings={onResetIntifaceSettings}
+            onResetAllSettings={onResetAllSettings}
+          />
+        )
       case 'about':
         return <AboutSection />
     }

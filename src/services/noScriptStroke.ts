@@ -34,6 +34,10 @@ export interface NoScriptStrokeOptions {
   pattern: NoScriptStrokePattern
 }
 
+export interface NoScriptStrokeGapFillOptions extends NoScriptStrokeOptions {
+  minimumGapMs: number
+}
+
 interface NoScriptStrokeProfile {
   pattern: NoScriptStrokePattern
   speedBiasExponent: number
@@ -59,6 +63,8 @@ interface NoScriptStrokeProfile {
 
 const MIN_HALF_STROKE_MS = 90
 const MAX_HALF_STROKE_MS = 1500
+const GAP_FILL_BOUNDARY_GUARD_MS = 75
+const GAP_FILL_IDLE_POSITION_EPSILON = 2
 
 export function normalizeNoScriptStrokePreset(raw: unknown): NoScriptStrokePreset {
   return typeof raw === 'string' && NO_SCRIPT_STROKE_PRESETS.includes(raw as NoScriptStrokePreset)
@@ -310,6 +316,140 @@ export function buildNoScriptRandomFunscript(
       type: 'generated',
     },
   }
+}
+
+export function fillNoScriptRandomFunscriptGaps(
+  actions: FunscriptAction[],
+  durationMs: number,
+  seedSource: string,
+  options: NoScriptStrokeGapFillOptions
+): FunscriptAction[] | null {
+  const normalizedDurationMs = Math.max(0, Math.round(durationMs))
+  const minimumGapMs = Math.max(250, Math.round(options.minimumGapMs))
+  if (!Number.isFinite(normalizedDurationMs) || normalizedDurationMs < 250 || minimumGapMs <= 0) {
+    return null
+  }
+
+  const sourceActions = normalizeGapSourceActions(actions, normalizedDurationMs)
+  const originalActions = actions
+    .filter((action) => Number.isFinite(action.at) && Number.isFinite(action.pos))
+    .map((action) => ({
+      at: action.at,
+      pos: action.pos,
+    }))
+    .sort((a, b) => a.at - b.at)
+  const gaps = collectRandomFillGaps(sourceActions, normalizedDurationMs, minimumGapMs)
+  if (gaps.length === 0) {
+    return null
+  }
+
+  const generatedActions: FunscriptAction[] = []
+  gaps.forEach((gap, index) => {
+    const gapDurationMs = gap.endMs - gap.startMs
+    const generatedScript = buildNoScriptRandomFunscript(
+      gapDurationMs,
+      `${seedSource}|gap|${index}|${gap.startMs}|${gap.endMs}`,
+      options
+    )
+    if (!generatedScript) {
+      return
+    }
+
+    const guardedEndMs = gap.includeEnd
+      ? gap.endMs
+      : Math.max(gap.startMs, gap.endMs - GAP_FILL_BOUNDARY_GUARD_MS)
+
+    for (const action of generatedScript.actions) {
+      const absoluteAt = gap.startMs + action.at
+      if (!gap.includeStart && absoluteAt <= gap.startMs) {
+        continue
+      }
+      if (absoluteAt > guardedEndMs || (!gap.includeEnd && absoluteAt >= gap.endMs)) {
+        continue
+      }
+
+      generatedActions.push({
+        at: Math.round(clampNumber(absoluteAt, 0, normalizedDurationMs)),
+        pos: Math.round(clampNumber(action.pos, 0, 100)),
+      })
+    }
+  })
+
+  if (generatedActions.length === 0) {
+    return null
+  }
+
+  return [...originalActions, ...generatedActions].sort((a, b) => a.at - b.at)
+}
+
+interface RandomFillGap {
+  startMs: number
+  endMs: number
+  includeStart: boolean
+  includeEnd: boolean
+}
+
+function normalizeGapSourceActions(actions: FunscriptAction[], durationMs: number): FunscriptAction[] {
+  return actions
+    .filter((action) => Number.isFinite(action.at) && Number.isFinite(action.pos))
+    .map((action) => ({
+      at: Math.round(clampNumber(action.at, 0, durationMs)),
+      pos: Math.round(clampNumber(action.pos, 0, 100)),
+    }))
+    .sort((a, b) => a.at - b.at)
+}
+
+function collectRandomFillGaps(
+  actions: FunscriptAction[],
+  durationMs: number,
+  minimumGapMs: number
+): RandomFillGap[] {
+  if (actions.length === 0) {
+    return durationMs >= minimumGapMs
+      ? [{ startMs: 0, endMs: durationMs, includeStart: true, includeEnd: true }]
+      : []
+  }
+
+  const gaps: RandomFillGap[] = []
+  const firstAction = actions[0]
+  if (firstAction.at >= minimumGapMs) {
+    gaps.push({
+      startMs: 0,
+      endMs: firstAction.at,
+      includeStart: true,
+      includeEnd: false,
+    })
+  }
+
+  for (let index = 0; index < actions.length - 1; index += 1) {
+    const current = actions[index]
+    const next = actions[index + 1]
+    if (next.at - current.at < minimumGapMs) {
+      continue
+    }
+    if (Math.abs(next.pos - current.pos) > GAP_FILL_IDLE_POSITION_EPSILON) {
+      continue
+    }
+
+    gaps.push({
+      startMs: current.at,
+      endMs: next.at,
+      includeStart: false,
+      includeEnd: false,
+    })
+  }
+
+  const lastAction = actions[actions.length - 1]
+  if (durationMs - lastAction.at >= minimumGapMs) {
+    gaps.push({
+      startMs: lastAction.at,
+      endMs: durationMs,
+      includeStart: false,
+      includeEnd: true,
+    })
+  }
+
+  return gaps
 }
 
 function resolveNoScriptStrokeProfile(

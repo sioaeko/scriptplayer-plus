@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // System utilities
   writeClipboardText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   showItemInFolder: (filePath: string) => ipcRenderer.invoke('shell:showItemInFolder', filePath),
+  trashItem: (filePath: string) => ipcRenderer.invoke('shell:trashItem', filePath),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 
   // Window controls

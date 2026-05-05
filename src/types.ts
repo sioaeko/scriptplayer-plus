@@ -115,6 +115,7 @@ declare global {
       setZoomFactor: (factor: number) => void
       writeClipboardText: (text: string) => Promise<boolean>
       showItemInFolder: (filePath: string) => Promise<boolean>
+      trashItem: (filePath: string) => Promise<boolean>
       openExternal: (url: string) => Promise<boolean>
       minimize: () => void
       maximize: () => void

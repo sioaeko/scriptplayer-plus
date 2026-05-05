@@ -310,6 +310,24 @@ ipcMain.handle('shell:showItemInFolder', async (_event, filePath: string) => {
   return true
 })
 
+ipcMain.handle('shell:trashItem', async (_event, filePath: string) => {
+  try {
+    if (typeof filePath !== 'string' || filePath.trim().length === 0) {
+      return false
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return false
+    }
+
+    await shell.trashItem(filePath)
+    invalidateFsCachesForRoot(path.dirname(filePath))
+    return true
+  } catch {
+    return false
+  }
+})
+
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   try {
     if (typeof url !== 'string' || url.trim().length === 0) {

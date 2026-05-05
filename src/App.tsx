@@ -1846,6 +1846,96 @@ export default function App() {
     setFiles((current) => current.filter((entry) => normalizeOffsetPathKey(entry.path) !== normalizeOffsetPathKey(file.path)))
   }, [])
 
+  const handleOpenFileLocation = useCallback(async (file: VideoFile) => {
+    const ok = await window.electronAPI.showItemInFolder(file.path)
+    showAppFeedback({
+      tone: ok ? 'success' : 'error',
+      text: ok
+        ? t('sidebar.fileLocationOpened', { name: file.name || getFileName(file.path) })
+        : t('sidebar.fileLocationOpenFailed'),
+    })
+  }, [showAppFeedback, t])
+
+  const handleTrashFile = useCallback(async (file: VideoFile) => {
+    const name = file.name || getFileName(file.path)
+    if (!window.confirm(t('sidebar.trashFileConfirm', { name }))) {
+      return
+    }
+
+    const targetKey = normalizeOffsetPathKey(file.path)
+    const currentKey = currentFileRef.current ? normalizeOffsetPathKey(currentFileRef.current) : ''
+    const currentStateKey = currentFile ? normalizeOffsetPathKey(currentFile) : ''
+    const deletingCurrentFile = currentKey === targetKey || currentStateKey === targetKey
+
+    if (deletingCurrentFile) {
+      openMediaRequestId.current += 1
+
+      try {
+        mediaRef.current?.pause()
+        mediaRef.current?.removeAttribute('src')
+        mediaRef.current?.load()
+      } catch {
+        // Best effort: clearing React state below will also detach the media URL.
+      }
+
+      cancelPendingHandySync()
+      handyService.cancelPendingRequests()
+      if (deviceProvider === 'handy') {
+        void handyService.hsspStop()
+      } else if (deviceProvider === 'buttplug') {
+        void stopButtplugPlayback({ stopDevice: true })
+      } else if (deviceProvider === 'serial') {
+        void stopOsrSerialPlayback({ homeDevice: true })
+      }
+      resetHandyAutoPlayState()
+      setScriptMatchDialog(null)
+      setCurrentFile(null)
+      setCurrentFileType(null)
+      setVideoUrl(null)
+      setArtworkUrl(null)
+      setFunscriptBundle(null)
+      setSubtitleCues([])
+      setScriptUploadUrl(null)
+      setHandyUploadStatus('idle')
+      setHandyUploadError(null)
+      setScriptVariants([])
+      setMediaDurationSeconds(0)
+      setMediaSessionKey((key) => key + 1)
+    }
+
+    const ok = await window.electronAPI.trashItem(file.path)
+    if (!ok) {
+      showAppFeedback({ tone: 'error', text: t('sidebar.fileMoveToTrashFailed') })
+      return
+    }
+
+    setFiles((current) => current.filter((entry) => normalizeOffsetPathKey(entry.path) !== targetKey))
+    setManualScriptPaths((prev) => {
+      const next = { ...prev }
+      delete next[file.path]
+      return next
+    })
+    setManualSubtitleFiles((prev) => {
+      const next = { ...prev }
+      delete next[file.path]
+      return next
+    })
+
+    showAppFeedback({
+      tone: 'success',
+      text: t('sidebar.fileMovedToTrash', { name }),
+    })
+  }, [
+    cancelPendingHandySync,
+    currentFile,
+    deviceProvider,
+    resetHandyAutoPlayState,
+    showAppFeedback,
+    stopButtplugPlayback,
+    stopOsrSerialPlayback,
+    t,
+  ])
+
   const handleRescanScriptFolder = useCallback(async () => {
     if (scriptFolderRescanning || !scriptFolderRef.current) {
       return
@@ -3006,6 +3096,8 @@ export default function App() {
           onSavePlaylist={handleSavePlaylistFile}
           onClearPlaylist={handleClearPlaylist}
           onRemovePlaylistFile={handleRemovePlaylistFile}
+          onOpenFileLocation={handleOpenFileLocation}
+          onTrashFile={handleTrashFile}
           onManualScriptSelect={handleManualScriptSelect}
           onManualSubtitleSelect={handleManualSubtitleSelect}
           onClearManualScript={handleClearManualScript}

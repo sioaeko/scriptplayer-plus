@@ -95,6 +95,8 @@ interface SidebarProps {
   onSavePlaylist: () => void | Promise<void>
   onClearPlaylist: () => void | Promise<void>
   onRemovePlaylistFile: (file: VideoFile) => void | Promise<void>
+  onOpenFileLocation: (file: VideoFile) => void | Promise<void>
+  onTrashFile: (file: VideoFile) => void | Promise<void>
   onManualScriptSelect: (file: VideoFile) => void | Promise<void>
   onManualSubtitleSelect: (file: VideoFile) => void | Promise<void>
   onClearManualScript: (file: VideoFile) => void | Promise<void>
@@ -206,6 +208,8 @@ export default function Sidebar({
   onSavePlaylist,
   onClearPlaylist,
   onRemovePlaylistFile,
+  onOpenFileLocation,
+  onTrashFile,
   onManualScriptSelect,
   onManualSubtitleSelect,
   onClearManualScript,
@@ -1403,7 +1407,7 @@ export default function Sidebar({
           className="fixed z-50 min-w-48 overflow-hidden rounded-lg border border-surface-100/40 bg-surface-200 shadow-2xl"
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 220),
-            top: Math.min(contextMenu.y, window.innerHeight - 180),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 280)),
           }}
         >
           <button
@@ -1423,6 +1427,15 @@ export default function Sidebar({
             className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-surface-100/30 hover:text-text-primary transition-colors"
           >
             {t('sidebar.selectSubtitle')}
+          </button>
+          <button
+            onClick={() => {
+              setContextMenu(null)
+              onOpenFileLocation(contextMenu.file)
+            }}
+            className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-surface-100/30 hover:text-text-primary transition-colors"
+          >
+            {t('sidebar.openFileLocation')}
           </button>
           {manualScriptPaths.has(contextMenu.file.path) && (
             <button
@@ -1457,6 +1470,15 @@ export default function Sidebar({
               {t('sidebar.removeFromPlaylist')}
             </button>
           )}
+          <button
+            onClick={() => {
+              setContextMenu(null)
+              onTrashFile(contextMenu.file)
+            }}
+            className="w-full px-3 py-2 text-left text-xs text-red-300 hover:bg-red-500/10 transition-colors"
+          >
+            {t('sidebar.trashFile')}
+          </button>
         </div>
       )}
     </div>

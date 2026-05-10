@@ -14,7 +14,7 @@ const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
 const AUDIO_EXTS = ['.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wma']
 const MEDIA_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS]
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']
-const SUBTITLE_EXTS = ['.vtt', '.srt', '.txt']
+const SUBTITLE_EXTS = ['.vtt', '.srt', '.ass', '.ssa', '.smi', '.sami', '.txt']
 const SUBTITLE_DIR_KEYWORDS = [
   'script',
   'scripts',
@@ -229,9 +229,9 @@ function isSamePathOrChildPath(targetPath: string, rootPath: string): boolean {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
+    width: 1480,
     height: 800,
-    minWidth: 900,
+    minWidth: 1280,
     minHeight: 600,
     frame: false,
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
@@ -1251,6 +1251,24 @@ function matchesScriptVariantMediaBaseName(stem: string, normalizedMediaBaseName
   return buildBundledScriptMatchKeys(stem).includes(normalizedMediaBaseName)
 }
 
+function getScriptVariantDirectoryBundleStem(
+  entry: { dir: string; topLevelGroup: string },
+  normalizedMediaBaseName: string,
+  mediaBaseName: string
+): string | null {
+  const dirBaseName = path.basename(entry.dir)
+
+  if (dirBaseName && matchesScriptVariantMediaBaseName(dirBaseName, normalizedMediaBaseName)) {
+    return mediaBaseName
+  }
+
+  if (entry.topLevelGroup && matchesScriptVariantMediaBaseName(entry.topLevelGroup, normalizedMediaBaseName)) {
+    return dirBaseName || mediaBaseName
+  }
+
+  return null
+}
+
 function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVariantOption[] {
   const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
   const normalizedMediaBaseName = normalizeBundledScriptBaseName(mediaBaseName)
@@ -1277,18 +1295,22 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
     for (const entry of listFunscriptFileEntries(context.dir, context.recursive)) {
       const ext = path.extname(entry.name).toLowerCase()
       const stem = path.basename(entry.name, ext)
-      if (!matchesScriptVariantMediaBaseName(stem, normalizedMediaBaseName)) continue
+      const directoryBundleStem = context.source === 'scriptFolder'
+        ? getScriptVariantDirectoryBundleStem(entry, normalizedMediaBaseName, mediaBaseName)
+        : null
+      if (!matchesScriptVariantMediaBaseName(stem, normalizedMediaBaseName) && !directoryBundleStem) continue
 
-      const bundleStem = stripKnownAxisSuffixPreserveCase(stem)
+      const strippedBundleStem = stripKnownAxisSuffixPreserveCase(stem)
+      const bundleStem = strippedBundleStem || directoryBundleStem || stem
       const dirKey = getDirectoryRealPathKeySync(entry.dir)
-      const variantKey = `${dirKey}::${normalizePathKey(bundleStem || stem)}`
+      const variantKey = `${dirKey}::${normalizePathKey(bundleStem)}`
       const axisId = inferAxisIdFromStem(stem) ?? 'L0'
       const filePath = entry.path
 
       let variant = groupedVariants.get(variantKey)
       if (!variant) {
         variant = {
-          bundleStem: bundleStem || stem,
+          bundleStem,
           source: context.source,
           axisPaths: new Map<ScriptAxisId, string>(),
         }
@@ -2010,6 +2032,8 @@ function scoreSubtitleCandidate(filePath: string, mediaDir: string, baseName: st
 
   if (ext === '.vtt') score += 120
   else if (ext === '.srt') score += 90
+  else if (ext === '.ass' || ext === '.ssa') score += 85
+  else if (ext === '.smi' || ext === '.sami') score += 80
   else if (ext === '.txt') score += 60
 
   if (path.dirname(filePath) === mediaDir) score += 40

@@ -130,6 +130,8 @@ interface VideoPlayerProps {
   onOpenDeviceSettings?: () => void
   defaultShowHeatmap?: boolean
   defaultShowTimeline?: boolean
+  autoFitVideoByAspect?: boolean
+  rememberVideoFit?: boolean
   timelineHeight?: number
   timelineWindow?: number
   speedColors?: boolean
@@ -539,6 +541,8 @@ export default function VideoPlayer({
   onOpenDeviceSettings,
   defaultShowHeatmap = false,
   defaultShowTimeline = false,
+  autoFitVideoByAspect = false,
+  rememberVideoFit = false,
   timelineHeight = 64,
   timelineWindow = 10,
   speedColors = true,
@@ -561,7 +565,6 @@ export default function VideoPlayer({
   const scriptOffsetControlsRef = useRef<HTMLDivElement>(null)
   const segmentRepeatControlsRef = useRef<HTMLDivElement>(null)
   const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const autoRevealedScriptKey = useRef<string | null>(null)
   const initializedMediaStateKey = useRef<string | null>(null)
   const fullscreenFileDrawerRef = useRef<HTMLDivElement>(null)
   const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
@@ -579,7 +582,10 @@ export default function VideoPlayer({
   })
   const [muted, setMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [videoFillEnabled, setVideoFillEnabled] = useState(false)
+  const [videoFillEnabled, setVideoFillEnabled] = useState(() => rememberVideoFit ? loadVideoFitPreference() ?? false : false)
+  const [videoFillMode, setVideoFillMode] = useState<VideoFillMode>(() => (
+    rememberVideoFit && loadVideoFitPreference() !== null ? 'manual' : null
+  ))
   const [segmentRepeat, setSegmentRepeat] = useState<SegmentRepeatState>(EMPTY_SEGMENT_REPEAT)
   const [progressThumbnail, setProgressThumbnail] = useState<ProgressThumbnailState | null>(null)
   const [showFullscreenFileDrawer, setShowFullscreenFileDrawer] = useState(false)
@@ -633,6 +639,7 @@ export default function VideoPlayer({
   )
   const videoClassName = getVideoClassName({
     videoFillEnabled,
+    isFullscreen,
   })
   const controlsContainerClass = isFullscreen
     ? 'absolute inset-x-0 bottom-0 z-10 px-4 pb-3 pt-4'
@@ -641,6 +648,16 @@ export default function VideoPlayer({
     ? 'rounded-2xl border border-white/14 bg-black px-3 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.6)]'
     : ''
   const mediaStateKey = `${mediaSessionKey}:${videoUrl ?? 'none'}`
+  const toggleVideoFill = useCallback(() => {
+    const nextValue = !videoFillEnabled
+
+    setVideoFillEnabled(nextValue)
+    setVideoFillMode('manual')
+
+    if (rememberVideoFit) {
+      saveVideoFitPreference(nextValue)
+    }
+  }, [rememberVideoFit, videoFillEnabled])
   const segmentRepeatStorageKey = currentFilePath || mediaStateKey
   const activeSegmentRepeat = getActiveSegmentRepeatItem(segmentRepeat)
   const segmentRepeatActive = Boolean(segmentRepeat.enabled && activeSegmentRepeat)
@@ -1603,14 +1620,79 @@ export default function VideoPlayer({
     setDuration(0)
     setDisplayDuration(0)
     setPlaying(false)
-    setVideoFillEnabled(false)
+    const rememberedVideoFit = rememberVideoFit ? loadVideoFitPreference() : null
+    setVideoFillEnabled(rememberedVideoFit ?? false)
+    setVideoFillMode(rememberedVideoFit === null ? null : 'manual')
     setShowControls(true)
     setShowTopNav(false)
     setShowStrokeControls(false)
     setShowPlaybackRatePopover(false)
     setShowHeatmap(defaultShowHeatmap)
     setShowTimeline(defaultShowTimeline)
-  }, [defaultShowHeatmap, defaultShowTimeline, mediaStateKey])
+  }, [defaultShowHeatmap, defaultShowTimeline, mediaStateKey, rememberVideoFit])
+
+  useEffect(() => {
+    if (rememberVideoFit && videoFillMode === 'manual') {
+      saveVideoFitPreference(videoFillEnabled)
+    }
+  }, [rememberVideoFit, videoFillEnabled, videoFillMode])
+
+  useEffect(() => {
+    if (!videoUrl || mediaType !== 'video') return
+
+    if (!autoFitVideoByAspect) {
+      if (videoFillMode === 'auto') {
+        setVideoFillEnabled(false)
+        setVideoFillMode(null)
+      }
+      return
+    }
+
+    if (videoFillMode === 'manual') {
+      return
+    }
+
+    const media = mediaRef.current
+    if (!(media instanceof HTMLVideoElement)) return
+
+    let frame: number | null = null
+    const viewport = media.parentElement
+    const observer = typeof ResizeObserver === 'undefined' || !viewport
+      ? null
+      : new ResizeObserver(() => {
+          applyAutoFit()
+        })
+
+    const applyAutoFit = () => {
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+
+      frame = requestAnimationFrame(() => {
+        frame = null
+        const shouldFit = shouldAutoFitVideoByAspect(media)
+        setVideoFillEnabled(shouldFit)
+        setVideoFillMode(shouldFit ? 'auto' : null)
+      })
+    }
+
+    if (media.readyState >= 1) {
+      applyAutoFit()
+    }
+
+    media.addEventListener('loadedmetadata', applyAutoFit)
+    window.addEventListener('resize', applyAutoFit)
+    observer?.observe(viewport as Element)
+
+    return () => {
+      media.removeEventListener('loadedmetadata', applyAutoFit)
+      window.removeEventListener('resize', applyAutoFit)
+      observer?.disconnect()
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+    }
+  }, [autoFitVideoByAspect, mediaRef, mediaStateKey, mediaType, showHeatmap, showTimeline, timelineHeight, videoFillMode, videoUrl])
 
   useEffect(() => {
     setShowSubtitles(subtitleCues.length > 0)
@@ -1787,19 +1869,6 @@ export default function VideoPlayer({
 
     return cleanup
   }, [autoPlayRequestId, mediaRef, mediaStateKey, videoUrl])
-
-  useEffect(() => {
-    if (!videoUrl || actions.length === 0 || showHeatmap || showTimeline) {
-      return
-    }
-
-    if (autoRevealedScriptKey.current === mediaStateKey) {
-      return
-    }
-
-    autoRevealedScriptKey.current = mediaStateKey
-    setShowTimeline(true)
-  }, [actions.length, mediaStateKey, showHeatmap, showTimeline, videoUrl])
 
   return (
     <div
@@ -3148,7 +3217,7 @@ export default function VideoPlayer({
                 )}
                 {mediaType === 'video' && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); setVideoFillEnabled((value) => !value) }}
+                    onClick={(e) => { e.stopPropagation(); toggleVideoFill() }}
                     className={`p-1.5 flex items-center gap-1 rounded transition-colors ${videoFillEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
                     title="Fill video area"
                     aria-label="Fill video area"
@@ -3234,15 +3303,60 @@ function formatPlaybackRate(rate: number): string {
 }
 
 function getVideoClassName({
+  isFullscreen,
   videoFillEnabled,
 }: {
+  isFullscreen: boolean
   videoFillEnabled: boolean
 }): string {
   if (videoFillEnabled) {
-    return 'block h-full w-full object-cover'
+    return `block h-full w-full object-cover ${isFullscreen ? 'object-center' : 'object-top'}`
   }
 
   return 'block max-w-full max-h-full object-contain'
+}
+
+function shouldAutoFitVideoByAspect(video: HTMLVideoElement): boolean {
+  const videoWidth = video.videoWidth
+  const videoHeight = video.videoHeight
+  const viewport = video.parentElement?.getBoundingClientRect()
+
+  if (!videoWidth || !videoHeight || !viewport || viewport.width <= 0 || viewport.height <= 0) {
+    return false
+  }
+
+  const coverScale = Math.max(viewport.width / videoWidth, viewport.height / videoHeight)
+  const renderedWidth = videoWidth * coverScale
+  const renderedHeight = videoHeight * coverScale
+  const croppedWidthRatio = Math.max(0, renderedWidth - viewport.width) / renderedWidth
+  const croppedHeightRatio = Math.max(0, renderedHeight - viewport.height) / renderedHeight
+
+  return Math.max(croppedWidthRatio, croppedHeightRatio) <= AUTO_FIT_MAX_CROP_RATIO
+}
+
+const VIDEO_FIT_PREFERENCE_STORAGE_KEY = 'scriptplayer-video-fit-enabled'
+const AUTO_FIT_MAX_CROP_RATIO = 0.025
+
+type VideoFillMode = 'manual' | 'auto' | null
+
+function loadVideoFitPreference(): boolean | null {
+  try {
+    const raw = localStorage.getItem(VIDEO_FIT_PREFERENCE_STORAGE_KEY)
+    if (raw === 'true') return true
+    if (raw === 'false') return false
+  } catch {
+    // Storage unavailable - ignore and use defaults
+  }
+
+  return null
+}
+
+function saveVideoFitPreference(enabled: boolean): void {
+  try {
+    localStorage.setItem(VIDEO_FIT_PREFERENCE_STORAGE_KEY, String(enabled))
+  } catch {
+    // Storage unavailable - ignore and keep current session state only
+  }
 }
 
 type NavigatorWithDeviceMemory = Navigator & {

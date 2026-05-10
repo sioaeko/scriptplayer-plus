@@ -1,9 +1,20 @@
 import { FunscriptAction } from '../types'
 
 const HANDY_API = 'https://www.handyfeeling.com/api/handy/v2'
-const SCRIPT_API = 'https://scripts01.handyfeeling.com/api/script/v0'
+const SCRIPT_UPLOAD_HOST = 'scripts01.handyfeeling.com'
+const SCRIPT_API = `https://${SCRIPT_UPLOAD_HOST}/api/script/v0`
 const HSSP_PLAY_MIN_LEAD_MS = 150
 const HSSP_PLAY_RETRY_DELAY_MS = 200
+
+const formatUploadError = (error: unknown): string => {
+  const detail = error instanceof Error ? error.message : String(error)
+
+  if (/failed to fetch/i.test(detail)) {
+    return `Upload error: Could not reach Handy upload server (${SCRIPT_UPLOAD_HOST}). Check VPN, firewall, DNS, or network connection.`
+  }
+
+  return `Upload error: ${detail}`
+}
 
 export type HandyUploadStatus = 'idle' | 'uploading' | 'setting-up' | 'ready' | 'error'
 
@@ -448,7 +459,7 @@ export class HandyService {
         return null
       }
       console.error('[Handy] upload error:', e)
-      this.setUploadStatus('error', `Upload error: ${e}`)
+      this.setUploadStatus('error', formatUploadError(e))
       return null
     } finally {
       this.clearController('upload', signal)

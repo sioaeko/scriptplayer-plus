@@ -37,6 +37,8 @@ export interface AppSettings {
   alwaysOnTop: boolean
   uiScale: UiScaleValue // percent
   subtitleFontSize: number // px, 14-32
+  autoFitVideoByAspect: boolean
+  rememberVideoFit: boolean
 
   // Timeline
   showHeatmapByDefault: boolean
@@ -87,6 +89,8 @@ function createDefaultSettings(): AppSettings {
     alwaysOnTop: false,
     uiScale: 100,
     subtitleFontSize: 20,
+    autoFitVideoByAspect: false,
+    rememberVideoFit: false,
     showHeatmapByDefault: false,
     showTimelineByDefault: false,
     timelineHeight: 64,
@@ -221,6 +225,12 @@ export function loadSettings(): AppSettings {
       noScriptRandomFillGapsEnabled: typeof (parsed as { noScriptRandomFillGapsEnabled?: unknown })?.noScriptRandomFillGapsEnabled === 'boolean'
         ? (parsed as { noScriptRandomFillGapsEnabled: boolean }).noScriptRandomFillGapsEnabled
         : defaults.noScriptRandomFillGapsEnabled,
+      autoFitVideoByAspect: typeof (parsed as { autoFitVideoByAspect?: unknown })?.autoFitVideoByAspect === 'boolean'
+        ? (parsed as { autoFitVideoByAspect: boolean }).autoFitVideoByAspect
+        : defaults.autoFitVideoByAspect,
+      rememberVideoFit: typeof (parsed as { rememberVideoFit?: unknown })?.rememberVideoFit === 'boolean'
+        ? (parsed as { rememberVideoFit: boolean }).rememberVideoFit
+        : defaults.rememberVideoFit,
       noScriptRandomFillGapMinDuration,
       keyboardShortcuts: normalizeShortcutBindings((parsed as { keyboardShortcuts?: unknown })?.keyboardShortcuts),
     }

@@ -307,7 +307,7 @@ export default function Sidebar({
   const currentScriptPath = isRealScriptSource(currentScriptSource) ? currentScriptSource : null
   const showScriptVariantPanel = Boolean(currentFile) && (scriptVariants.length > 1 || scriptVariantOverrideActive || Boolean(currentScriptPath))
   const hasSubfolders = folderGroups.length > 1 || (folderGroups.length === 1 && folderGroups[0].folder !== '')
-  const hasScriptFolder = Boolean(scriptFolder?.trim())
+  const hasRefreshableFiles = files.length > 0
   const activeDeviceConnected = deviceProvider === 'handy'
     ? handyConnected
     : (deviceProvider === 'serial' ? osrSerialConnected : buttplugConnected)
@@ -648,10 +648,10 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={() => void onRescanScriptFolder()}
-                disabled={!hasScriptFolder || scriptFolderRescanning}
+                disabled={!hasRefreshableFiles || scriptFolderRescanning}
                 className="flex h-[30px] w-[34px] flex-shrink-0 items-center justify-center rounded border border-surface-100/30 bg-surface-300 text-text-secondary transition-colors hover:border-accent/35 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
-                title={hasScriptFolder ? t('sidebar.rescanScriptFolder') : t('sidebar.scriptFolderNotConfigured')}
-                aria-label={hasScriptFolder ? t('sidebar.rescanScriptFolder') : t('sidebar.scriptFolderNotConfigured')}
+                title={t('sidebar.rescanScriptFolder')}
+                aria-label={t('sidebar.rescanScriptFolder')}
               >
                 <RefreshCw size={14} className={scriptFolderRescanning ? 'animate-spin' : ''} />
               </button>

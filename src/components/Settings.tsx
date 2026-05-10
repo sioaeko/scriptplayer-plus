@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { APP_VERSION } from '../constants/app'
 import { APP_LINKS, APP_SUPPORT_ICONS } from '../constants/links'
+import { checkForUpdates, type UpdateCheckResult } from '../services/updateChecker'
 import {
   AppSettings,
   MOTION_SPEED_LIMIT_MAX,
@@ -661,6 +662,30 @@ function TimelineSection({
           onChange={(v) => update('showHeatmapByDefault', v)}
         />
       </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.autoFitVideoByAspect')}
+        description={t('settings.autoFitVideoByAspectDesc')}
+      >
+        <Toggle
+          checked={settings.autoFitVideoByAspect}
+          onChange={(v) => update('autoFitVideoByAspect', v)}
+        />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.rememberVideoFit')}
+        description={t('settings.rememberVideoFitDesc')}
+      >
+        <Toggle
+          checked={settings.rememberVideoFit}
+          onChange={(v) => update('rememberVideoFit', v)}
+        />
+      </FieldRow>
     </div>
   )
 }
@@ -947,9 +972,49 @@ function ShortcutsSection({
 
 function AboutSection() {
   const { t } = useTranslation()
+  const [updateCheck, setUpdateCheck] = useState<{
+    checking: boolean
+    result: UpdateCheckResult | null
+    error: boolean
+  }>({
+    checking: false,
+    result: null,
+    error: false,
+  })
   const openLink = useCallback((url: string) => {
     void window.electronAPI?.openExternal?.(url)
   }, [])
+  const handleCheckForUpdates = useCallback(() => {
+    setUpdateCheck((state) => ({
+      ...state,
+      checking: true,
+      error: false,
+    }))
+
+    void checkForUpdates()
+      .then((result) => {
+        setUpdateCheck({
+          checking: false,
+          result,
+          error: false,
+        })
+      })
+      .catch(() => {
+        setUpdateCheck({
+          checking: false,
+          result: null,
+          error: true,
+        })
+      })
+  }, [])
+
+  const updateStatusText = updateCheck.error
+    ? t('settings.updateCheckFailed')
+    : updateCheck.result?.updateAvailable
+      ? t('settings.updateAvailable', { version: updateCheck.result.latestVersion })
+      : updateCheck.result
+        ? t('settings.updateLatest')
+        : ''
 
   return (
     <div>
@@ -976,6 +1041,38 @@ function AboutSection() {
         <p className="text-text-muted">
           Built with Electron, React, and Tailwind CSS.
         </p>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-surface-100/25 bg-surface-200/45 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-text-primary">
+              {t('settings.updates')}
+            </div>
+            <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
+              {updateStatusText || t('settings.updateCheckDesc')}
+            </div>
+          </div>
+          <div className="flex flex-shrink-0 gap-2">
+            {updateCheck.result?.updateAvailable && (
+              <button
+                type="button"
+                onClick={() => openLink(updateCheck.result?.releaseUrl || APP_LINKS.releases)}
+                className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15"
+              >
+                {t('settings.openRelease')}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleCheckForUpdates}
+              disabled={updateCheck.checking}
+              className="inline-flex h-8 items-center rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {updateCheck.checking ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">

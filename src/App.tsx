@@ -78,6 +78,7 @@ import {
   serializePlaylist,
 } from './services/playlist'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from './services/subtitles'
+import { checkForUpdates, type UpdateCheckResult } from './services/updateChecker'
 import { useTranslation } from './i18n'
 
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.wmv']
@@ -88,6 +89,7 @@ const PLAYBACK_MODE_MIGRATION_KEY = 'scriptplayer-playback-mode-default-v2'
 const LOOP_CURRENT_MEDIA_STORAGE_KEY = 'scriptplayer-loop-current-media'
 const PLAYBACK_RATE_STORAGE_KEY = 'scriptplayer-playback-rate'
 const DEVICE_PROVIDER_STORAGE_KEY = 'scriptplayer-device-provider'
+const UPDATE_DISMISSED_STORAGE_KEY = 'scriptplayer-update-dismissed-version'
 const BUTTPLUG_SERVER_URL_STORAGE_KEY = 'scriptplayer-buttplug-url'
 const BUTTPLUG_DEVICE_INDEX_STORAGE_KEY = 'scriptplayer-buttplug-device-index'
 const BUTTPLUG_FEATURE_MAPPINGS_STORAGE_KEY = 'scriptplayer-buttplug-feature-mappings-v1'
@@ -113,6 +115,8 @@ const HANDY_AUTOPLAY_REQUEST_BUFFER_MS = 220
 const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
 const AUTO_SKIP_COOLDOWN_MS = 1000
 const AUTO_SKIP_TARGET_EPSILON_MS = 250
+const AUTO_SKIP_END_LEAD_MS = 350
+const AUTO_SKIP_MIN_POSITION_DELTA = 2
 const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
 const RANDOM_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['L0', 'R0']
 const INTIFACE_RESET_STORAGE_KEYS = [
@@ -692,9 +696,18 @@ function collectSortedActionTimes(actionMap: AxisActionMap): number[] {
     const actions = actionMap[axisId]
     if (!actions) continue
 
-    for (const action of actions) {
-      if (Number.isFinite(action.at) && action.at >= 0) {
+    const sortedActions = [...actions]
+      .filter((action) => Number.isFinite(action.at) && action.at >= 0 && Number.isFinite(action.pos))
+      .sort((a, b) => a.at - b.at)
+    let lastMotionPosition: number | null = null
+
+    for (const action of sortedActions) {
+      if (
+        lastMotionPosition === null
+        || Math.abs(action.pos - lastMotionPosition) >= AUTO_SKIP_MIN_POSITION_DELTA
+      ) {
         uniqueTimes.add(action.at)
+        lastMotionPosition = action.pos
       }
     }
   }
@@ -706,7 +719,8 @@ function findAutoSkipTargetMs(
   actionTimes: number[],
   currentTimeMs: number,
   minimumGapMs: number,
-  leadInMs: number
+  leadInMs: number,
+  durationMs?: number
 ): number | null {
   if (actionTimes.length === 0 || minimumGapMs <= 0) {
     return null
@@ -725,7 +739,22 @@ function findAutoSkipTargetMs(
 
   const nextActionTime = actionTimes[low]
   if (!Number.isFinite(nextActionTime)) {
-    return null
+    if (!Number.isFinite(durationMs) || typeof durationMs !== 'number' || durationMs <= 0) {
+      return null
+    }
+
+    const gapStartTime = actionTimes[actionTimes.length - 1]
+    const gapDuration = durationMs - gapStartTime
+    if (gapDuration < minimumGapMs) {
+      return null
+    }
+
+    const targetTime = Math.max(gapStartTime, durationMs - AUTO_SKIP_END_LEAD_MS)
+    if (targetTime <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
+      return null
+    }
+
+    return targetTime
   }
 
   const gapStartTime = low > 0 ? actionTimes[low - 1] : 0
@@ -794,6 +823,7 @@ export default function App() {
   const [videoSort, setVideoSort] = useState<VideoSortState>(loadVideoSort)
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
   const [pendingAutoPlayAfterHandyUpload, setPendingAutoPlayAfterHandyUpload] = useState(false)
+  const [availableUpdate, setAvailableUpdate] = useState<UpdateCheckResult | null>(null)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const currentFileRef = useRef<string | null>(null)
   const currentFolderPathRef = useRef<string | null>(null)
@@ -814,6 +844,42 @@ export default function App() {
   const osrSerialStreamRunId = useRef(0)
   const autoSkipSuppressedUntilRef = useRef(0)
   const autoSkipCooldownUntilRef = useRef(0)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    void checkForUpdates({ signal: controller.signal })
+      .then((result) => {
+        if (!result.updateAvailable) return
+
+        const dismissedVersion = localStorage.getItem(UPDATE_DISMISSED_STORAGE_KEY)
+        if (dismissedVersion === result.latestVersion) return
+
+        setAvailableUpdate(result)
+      })
+      .catch((error) => {
+        if ((error as Error)?.name !== 'AbortError') {
+          console.warn('[Update] check failed', error)
+        }
+      })
+
+    return () => {
+      controller.abort()
+    }
+  }, [])
+
+  const openAvailableUpdate = useCallback(() => {
+    if (!availableUpdate) return
+    void window.electronAPI?.openExternal?.(availableUpdate.releaseUrl)
+  }, [availableUpdate])
+
+  const dismissAvailableUpdate = useCallback(() => {
+    if (availableUpdate) {
+      localStorage.setItem(UPDATE_DISMISSED_STORAGE_KEY, availableUpdate.latestVersion)
+    }
+
+    setAvailableUpdate(null)
+  }, [availableUpdate])
 
   const effectiveFunscriptBundle = useMemo(() => {
     const mediaDurationMs = mediaDurationSeconds * 1000
@@ -1750,16 +1816,20 @@ export default function App() {
   }, [scriptUploadUrl, syncHandyPlayback])
 
   const mergeFilesByPath = useCallback((currentFiles: VideoFile[], incomingFiles: VideoFile[]) => {
-    const seenPaths = new Set(currentFiles.map((file) => normalizeOffsetPathKey(file.path)))
     const merged = [...currentFiles]
+    const indexByPath = new Map(
+      currentFiles.map((file, index) => [normalizeOffsetPathKey(file.path), index])
+    )
 
     for (const file of incomingFiles) {
       const key = normalizeOffsetPathKey(file.path)
-      if (seenPaths.has(key)) {
+      const existingIndex = indexByPath.get(key)
+      if (existingIndex !== undefined) {
+        merged[existingIndex] = file
         continue
       }
 
-      seenPaths.add(key)
+      indexByPath.set(key, merged.length)
       merged.push(file)
     }
 
@@ -1937,7 +2007,7 @@ export default function App() {
   ])
 
   const handleRescanScriptFolder = useCallback(async () => {
-    if (scriptFolderRescanning || !scriptFolderRef.current) {
+    if (scriptFolderRescanning) {
       return
     }
 
@@ -1945,13 +2015,24 @@ export default function App() {
     try {
       const folderPath = currentFolderPathRef.current
       const mediaPath = currentFileRef.current
-      const refreshedFiles = folderPath ? await loadFolderFiles(folderPath) : null
+      let refreshedFiles: VideoFile[] | null = null
+
+      if (folderPath) {
+        refreshedFiles = await loadFolderFiles(folderPath)
+      } else if (files.length > 0) {
+        refreshedFiles = await window.electronAPI.inspectMediaFiles(
+          files.map((file) => file.path),
+          scriptFolderRef.current || undefined
+        )
+        setFiles((current) => mergeFilesByPath(current, refreshedFiles ?? []))
+      }
 
       if (!mediaPath) {
         return
       }
 
-      const refreshedFile = refreshedFiles?.find((file) => file.path === mediaPath)
+      const mediaPathKey = normalizeOffsetPathKey(mediaPath)
+      const refreshedFile = refreshedFiles?.find((file) => normalizeOffsetPathKey(file.path) === mediaPathKey)
       const preferredScriptPath = manualScriptPathsRef.current[mediaPath] ?? refreshedFile?.autoScriptPath
 
       await refreshCurrentScriptBundle(mediaPath, preferredScriptPath)
@@ -1963,8 +2044,10 @@ export default function App() {
       setScriptFolderRescanning(false)
     }
   }, [
+    files,
     loadFolderFiles,
     loadScriptVariants,
+    mergeFilesByPath,
     refreshCurrentScriptBundle,
     scriptFolderRescanning,
   ])
@@ -2039,7 +2122,7 @@ export default function App() {
 
       if (waitForHandyUpload) {
         setPendingAutoPlayAfterHandyUpload(true)
-      } else if (!handyAutoplayRequiresUpload) {
+      } else {
         setAutoPlayRequestId((prev) => prev + 1)
       }
     }
@@ -2492,7 +2575,8 @@ export default function App() {
       allScriptActionTimes,
       time * 1000,
       settings.autoSkipGapMinDuration * 1000,
-      settings.autoSkipGapLeadIn * 1000
+      settings.autoSkipGapLeadIn * 1000,
+      Number.isFinite(media.duration) ? media.duration * 1000 : undefined
     )
     if (targetTimeMs === null) {
       return
@@ -3081,6 +3165,32 @@ export default function App() {
           </div>
         </div>
       )}
+      {availableUpdate?.updateAvailable && (
+        <div className="fixed right-4 top-14 z-[65] w-[min(360px,calc(100vw-2rem))] rounded-xl border border-accent/30 bg-surface-200/95 p-3 text-xs text-text-primary shadow-[0_18px_48px_rgba(0,0,0,0.45)] backdrop-blur-md animate-fade-in">
+          <div className="font-semibold">
+            {t('update.availableTitle', { version: availableUpdate.latestVersion })}
+          </div>
+          <div className="mt-1 leading-relaxed text-text-muted">
+            {t('update.availableDesc')}
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={dismissAvailableUpdate}
+              className="rounded border border-surface-100/30 px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:border-surface-100/60 hover:text-text-primary"
+            >
+              {t('update.dismiss')}
+            </button>
+            <button
+              type="button"
+              onClick={openAvailableUpdate}
+              className="rounded border border-accent/35 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-accent transition-colors hover:border-accent/60 hover:bg-accent/15"
+            >
+              {t('update.openRelease')}
+            </button>
+          </div>
+        </div>
+      )}
       <TitleBar onOpenSettings={() => openSettingsSection('general')} />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
@@ -3204,6 +3314,8 @@ export default function App() {
           onOpenDeviceSettings={() => openSettingsSection('device')}
           defaultShowHeatmap={settings.showHeatmapByDefault}
           defaultShowTimeline={settings.showTimelineByDefault}
+          autoFitVideoByAspect={settings.autoFitVideoByAspect}
+          rememberVideoFit={settings.rememberVideoFit}
           timelineHeight={settings.timelineHeight}
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}

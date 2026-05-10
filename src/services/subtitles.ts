@@ -8,6 +8,8 @@ export function parseSubtitleFile(content: string, filePath: string): SubtitleCu
 
   if (extension === '.vtt') return parseVtt(content)
   if (extension === '.srt') return parseSrt(content)
+  if (extension === '.ass' || extension === '.ssa') return parseAss(content)
+  if (extension === '.smi' || extension === '.sami') return parseSmi(content)
   if (extension === '.txt') return parseTimedText(content)
 
   return []
@@ -45,6 +47,93 @@ export function parseVtt(content: string): SubtitleCue[] {
 
 export function parseSrt(content: string): SubtitleCue[] {
   return parseVtt(content)
+}
+
+export function parseAss(content: string): SubtitleCue[] {
+  const lines = normalizeContent(content).split('\n')
+  const cues: SubtitleCue[] = []
+  let inEventsSection = false
+  let formatFields: string[] = []
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) continue
+
+    if (/^\[events\]$/i.test(line)) {
+      inEventsSection = true
+      continue
+    }
+
+    if (/^\[[^\]]+\]$/.test(line)) {
+      inEventsSection = false
+      continue
+    }
+
+    if (!inEventsSection) continue
+
+    const formatMatch = line.match(/^Format\s*:\s*(.+)$/i)
+    if (formatMatch) {
+      formatFields = formatMatch[1].split(',').map((field) => field.trim().toLowerCase())
+      continue
+    }
+
+    const dialogueMatch = line.match(/^Dialogue\s*:\s*(.+)$/i)
+    if (!dialogueMatch) continue
+
+    const fieldCount = Math.max(formatFields.length, 10)
+    const fields = splitAssFields(dialogueMatch[1], fieldCount)
+    const startIndex = formatFields.indexOf('start')
+    const endIndex = formatFields.indexOf('end')
+    const textIndex = formatFields.indexOf('text')
+    const start = parseFlexibleTimestamp(fields[startIndex >= 0 ? startIndex : 1] ?? '')
+    const end = parseFlexibleTimestamp(fields[endIndex >= 0 ? endIndex : 2] ?? '')
+    if (start === null || end === null || end < start) continue
+
+    const resolvedTextIndex = textIndex >= 0 ? textIndex : Math.min(9, fields.length - 1)
+    const text = sanitizeAssCueText(fields.slice(resolvedTextIndex).join(','))
+    if (!text) continue
+
+    cues.push({ start, end, text })
+  }
+
+  return cues.sort((a, b) => a.start - b.start || a.end - b.end)
+}
+
+export function parseSmi(content: string): SubtitleCue[] {
+  const normalized = normalizeContent(content)
+  const syncTags: Array<{ index: number; contentStart: number; start: number }> = []
+  const syncRe = /<sync\b[^>]*\bstart\s*=\s*["']?(\d+)["']?[^>]*>/gi
+  let match: RegExpExecArray | null
+
+  while ((match = syncRe.exec(normalized)) !== null) {
+    syncTags.push({
+      index: match.index,
+      contentStart: syncRe.lastIndex,
+      start: Number(match[1]) / 1000,
+    })
+  }
+
+  const cues: SubtitleCue[] = []
+
+  for (let index = 0; index < syncTags.length; index += 1) {
+    const current = syncTags[index]
+    const next = syncTags[index + 1]
+    const segment = normalized.slice(current.contentStart, next?.index ?? normalized.length)
+    const text = extractSmiCueText(segment)
+    if (!text) continue
+
+    const inferredEnd = next && next.start > current.start
+      ? Math.max(current.start + 0.2, next.start - 0.05)
+      : current.start + inferCueDuration(text)
+
+    cues.push({
+      start: current.start,
+      end: inferredEnd,
+      text,
+    })
+  }
+
+  return cues
 }
 
 export function parseTimedText(content: string): SubtitleCue[] {
@@ -246,15 +335,83 @@ function inferCueDuration(text: string): number {
   return Math.min(8, Math.max(2.5, denseLength * 0.12))
 }
 
+function splitAssFields(value: string, count: number): string[] {
+  if (count <= 1) return [value.trim()]
+
+  const fields: string[] = []
+  let remaining = value
+
+  for (let index = 0; index < count - 1; index += 1) {
+    const commaIndex = remaining.indexOf(',')
+    if (commaIndex === -1) {
+      fields.push(remaining.trim())
+      remaining = ''
+      break
+    }
+
+    fields.push(remaining.slice(0, commaIndex).trim())
+    remaining = remaining.slice(commaIndex + 1)
+  }
+
+  fields.push(remaining.trim())
+  return fields
+}
+
+function sanitizeAssCueText(text: string): string {
+  return sanitizeCueText(
+    text
+      .replace(/\{[^}]*}/g, '')
+      .replace(/\\[Nn]/g, '\n')
+      .replace(/\\h/g, ' ')
+  )
+}
+
+function extractSmiCueText(segment: string): string {
+  const cleaned = segment
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+  const paragraphs: string[] = []
+  const paragraphRe = /<p\b[^>]*>([\s\S]*?)(?=<p\b|$)/gi
+  let match: RegExpExecArray | null
+
+  while ((match = paragraphRe.exec(cleaned)) !== null) {
+    paragraphs.push(match[1])
+  }
+
+  const candidates = paragraphs.length > 0 ? paragraphs : [cleaned]
+  for (const candidate of candidates) {
+    const text = sanitizeCueText(candidate)
+    if (text) return text
+  }
+
+  return ''
+}
+
 function sanitizeCueText(text: string): string {
   return text
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/?[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#39;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, codePoint) => decodeHtmlCodePoint(codePoint, 16))
+    .replace(/&#(\d+);/g, (_match, codePoint) => decodeHtmlCodePoint(codePoint, 10))
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .trim()
+}
+
+function decodeHtmlCodePoint(value: string, radix: number): string {
+  const codePoint = Number.parseInt(value, radix)
+  if (!Number.isFinite(codePoint)) return ''
+
+  try {
+    return String.fromCodePoint(codePoint)
+  } catch {
+    return ''
+  }
 }
 
 interface SubtitleMatchInfo {

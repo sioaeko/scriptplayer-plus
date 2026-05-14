@@ -103,6 +103,7 @@ const SCRIPT_OFFSET_STORAGE_KEY = 'scriptplayer-script-offsets-v1'
 const CURRENT_PLAYLIST_STORAGE_KEY = 'scriptplayer-current-playlist-v1'
 const VOLUME_STORAGE_KEY = 'volume'
 const SIDEBAR_COLLAPSED_FOLDERS_STORAGE_KEY = 'sidebarCollapsedFolders'
+const DEVICE_COMPATIBILITY_PRESET_STORAGE_KEY = 'scriptplayer-device-compatibility-preset-v1'
 const SCRIPT_OFFSET_MIN_MS = -5000
 const SCRIPT_OFFSET_MAX_MS = 5000
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
@@ -110,6 +111,8 @@ const DEFAULT_OSR_SERIAL_BAUD_RATE = 115200
 const DEFAULT_OSR_SERIAL_UPDATE_RATE = 50
 const OSR_SERIAL_NEUTRAL_BURST_COUNT = 3
 const OSR_SERIAL_NEUTRAL_BURST_INTERVAL_MS = 35
+const OSR_SERIAL_IDLE_KEEPALIVE_INTERVAL_MS = 2000
+const BUTTPLUG_IDLE_KEEPALIVE_INTERVAL_MS = 2500
 const HANDY_SEEK_SETTLE_TIMEOUT_MS = 500
 const HANDY_AUTOPLAY_REQUEST_BUFFER_MS = 220
 const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
@@ -130,6 +133,7 @@ const APP_RESET_STORAGE_KEYS = [
   LOOP_CURRENT_MEDIA_STORAGE_KEY,
   PLAYBACK_RATE_STORAGE_KEY,
   DEVICE_PROVIDER_STORAGE_KEY,
+  DEVICE_COMPATIBILITY_PRESET_STORAGE_KEY,
   ...INTIFACE_RESET_STORAGE_KEYS,
   OSR_SERIAL_PORT_PATH_STORAGE_KEY,
   OSR_SERIAL_UPDATE_RATE_STORAGE_KEY,
@@ -144,6 +148,7 @@ const APP_RESET_STORAGE_KEYS = [
 ] as const
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
+type DeviceCompatibilityPreset = 'auto' | 'lovense-vibration' | 'sr1-bluetooth' | 'tcode-raw' | 'multi-axis-strict'
 type StoredButtplugFeatureMapping = ButtplugFeatureMapping
 
 interface PendingScriptMatchState {
@@ -156,6 +161,16 @@ interface StoredCurrentPlaylist {
   name: string
   filePath?: string
   files: VideoFile[]
+}
+
+interface AutoSkipActiveInterval {
+  startMs: number
+  endMs: number
+}
+
+interface AutoSkipMotionModel {
+  hasActions: boolean
+  activeIntervals: AutoSkipActiveInterval[]
 }
 
 interface AppFeedback {
@@ -241,12 +256,51 @@ function loadDeviceProvider(): DeviceProvider {
   return 'handy'
 }
 
+function loadDeviceCompatibilityPreset(): DeviceCompatibilityPreset {
+  try {
+    const stored = localStorage.getItem(DEVICE_COMPATIBILITY_PRESET_STORAGE_KEY)
+    if (
+      stored === 'auto'
+      || stored === 'lovense-vibration'
+      || stored === 'sr1-bluetooth'
+      || stored === 'tcode-raw'
+      || stored === 'multi-axis-strict'
+    ) {
+      return stored
+    }
+  } catch {
+    // Ignore storage failures
+  }
+
+  return 'auto'
+}
+
 function loadButtplugServerUrl(): string {
   try {
     return localStorage.getItem(BUTTPLUG_SERVER_URL_STORAGE_KEY) || DEFAULT_BUTTPLUG_SERVER_URL
   } catch {
     return DEFAULT_BUTTPLUG_SERVER_URL
   }
+}
+
+function allowsLegacyVibrationFallback(preset: DeviceCompatibilityPreset): boolean {
+  return preset !== 'multi-axis-strict'
+}
+
+function prefersRawTCode(preset: DeviceCompatibilityPreset): boolean {
+  return preset === 'tcode-raw' || preset === 'sr1-bluetooth'
+}
+
+function getButtplugIdleKeepAliveIntervalMs(preset: DeviceCompatibilityPreset): number {
+  return preset === 'sr1-bluetooth' || preset === 'tcode-raw'
+    ? 1500
+    : BUTTPLUG_IDLE_KEEPALIVE_INTERVAL_MS
+}
+
+function getOsrSerialIdleKeepAliveIntervalMs(preset: DeviceCompatibilityPreset): number {
+  return preset === 'sr1-bluetooth'
+    ? 1500
+    : OSR_SERIAL_IDLE_KEEPALIVE_INTERVAL_MS
 }
 
 function loadButtplugDeviceIndex(): number | null {
@@ -689,8 +743,9 @@ function hasBundleScripts(bundle: FunscriptBundle | null): boolean {
   return SCRIPT_AXIS_IDS.some((axisId) => Boolean(bundle.scripts[axisId]))
 }
 
-function collectSortedActionTimes(actionMap: AxisActionMap): number[] {
-  const uniqueTimes = new Set<number>()
+function collectAutoSkipMotionModel(actionMap: AxisActionMap, timeOffsetMs = 0): AutoSkipMotionModel {
+  let hasActions = false
+  const activeIntervals: AutoSkipActiveInterval[] = []
 
   for (const axisId of SCRIPT_AXIS_IDS) {
     const actions = actionMap[axisId]
@@ -699,76 +754,134 @@ function collectSortedActionTimes(actionMap: AxisActionMap): number[] {
     const sortedActions = [...actions]
       .filter((action) => Number.isFinite(action.at) && action.at >= 0 && Number.isFinite(action.pos))
       .sort((a, b) => a.at - b.at)
-    let lastMotionPosition: number | null = null
+    if (sortedActions.length > 0) {
+      hasActions = true
+    }
 
-    for (const action of sortedActions) {
-      if (
-        lastMotionPosition === null
-        || Math.abs(action.pos - lastMotionPosition) >= AUTO_SKIP_MIN_POSITION_DELTA
-      ) {
-        uniqueTimes.add(action.at)
-        lastMotionPosition = action.pos
+    for (let index = 1; index < sortedActions.length; index += 1) {
+      const previous = sortedActions[index - 1]
+      const next = sortedActions[index]
+      if (Math.abs(next.pos - previous.pos) < AUTO_SKIP_MIN_POSITION_DELTA) {
+        continue
+      }
+
+      const startMs = Math.max(0, previous.at - timeOffsetMs)
+      const endMs = Math.max(0, next.at - timeOffsetMs)
+      if (endMs > startMs) {
+        activeIntervals.push({ startMs, endMs })
       }
     }
   }
 
-  return Array.from(uniqueTimes).sort((a, b) => a - b)
+  return {
+    hasActions,
+    activeIntervals: mergeAutoSkipActiveIntervals(activeIntervals),
+  }
 }
 
 function findAutoSkipTargetMs(
-  actionTimes: number[],
+  activeIntervals: AutoSkipActiveInterval[],
   currentTimeMs: number,
   minimumGapMs: number,
   leadInMs: number,
   durationMs?: number
 ): number | null {
-  if (actionTimes.length === 0 || minimumGapMs <= 0) {
+  if (minimumGapMs <= 0) {
     return null
   }
 
-  let low = 0
-  let high = actionTimes.length
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2)
-    if (actionTimes[mid] <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
-      low = mid + 1
-    } else {
-      high = mid
+  const timelineEndMs = Number.isFinite(durationMs) && typeof durationMs === 'number' && durationMs > 0
+    ? durationMs
+    : null
+  let gapStartMs = 0
+
+  for (const interval of activeIntervals) {
+    if (timelineEndMs !== null && interval.startMs >= timelineEndMs) {
+      break
     }
+
+    const intervalStartMs = timelineEndMs !== null
+      ? Math.min(interval.startMs, timelineEndMs)
+      : interval.startMs
+    const gapTarget = resolveAutoSkipGapTargetMs(
+      gapStartMs,
+      intervalStartMs,
+      currentTimeMs,
+      minimumGapMs,
+      leadInMs
+    )
+    if (gapTarget !== null) {
+      return gapTarget
+    }
+
+    const intervalEndMs = timelineEndMs !== null
+      ? Math.min(interval.endMs, timelineEndMs)
+      : interval.endMs
+    if (currentTimeMs < intervalEndMs - AUTO_SKIP_TARGET_EPSILON_MS) {
+      return null
+    }
+
+    gapStartMs = Math.max(gapStartMs, intervalEndMs)
   }
 
-  const nextActionTime = actionTimes[low]
-  if (!Number.isFinite(nextActionTime)) {
-    if (!Number.isFinite(durationMs) || typeof durationMs !== 'number' || durationMs <= 0) {
-      return null
-    }
-
-    const gapStartTime = actionTimes[actionTimes.length - 1]
-    const gapDuration = durationMs - gapStartTime
-    if (gapDuration < minimumGapMs) {
-      return null
-    }
-
-    const targetTime = Math.max(gapStartTime, durationMs - AUTO_SKIP_END_LEAD_MS)
-    if (targetTime <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
-      return null
-    }
-
-    return targetTime
-  }
-
-  const gapStartTime = low > 0 ? actionTimes[low - 1] : 0
-  const gapDuration = nextActionTime - gapStartTime
-  if (gapDuration < minimumGapMs) {
+  if (timelineEndMs === null || gapStartMs >= timelineEndMs) {
     return null
   }
 
-  const targetTime = Math.max(gapStartTime, nextActionTime - Math.max(0, leadInMs))
-  if (targetTime <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
+  return resolveAutoSkipGapTargetMs(
+    gapStartMs,
+    timelineEndMs,
+    currentTimeMs,
+    minimumGapMs,
+    AUTO_SKIP_END_LEAD_MS
+  )
+}
+
+function mergeAutoSkipActiveIntervals(intervals: AutoSkipActiveInterval[]): AutoSkipActiveInterval[] {
+  const sorted = intervals
+    .filter((interval) => (
+      Number.isFinite(interval.startMs)
+      && Number.isFinite(interval.endMs)
+      && interval.endMs > interval.startMs
+    ))
+    .sort((a, b) => a.startMs - b.startMs)
+  const merged: AutoSkipActiveInterval[] = []
+
+  for (const interval of sorted) {
+    const last = merged[merged.length - 1]
+    if (!last || interval.startMs > last.endMs + AUTO_SKIP_TARGET_EPSILON_MS) {
+      merged.push({ ...interval })
+      continue
+    }
+
+    last.endMs = Math.max(last.endMs, interval.endMs)
+  }
+
+  return merged
+}
+
+function resolveAutoSkipGapTargetMs(
+  gapStartMs: number,
+  gapEndMs: number,
+  currentTimeMs: number,
+  minimumGapMs: number,
+  leadInMs: number
+): number | null {
+  if (gapEndMs - gapStartMs < minimumGapMs) {
     return null
   }
 
-  return targetTime
+  if (
+    currentTimeMs < gapStartMs - AUTO_SKIP_TARGET_EPSILON_MS
+    || currentTimeMs >= gapEndMs - AUTO_SKIP_TARGET_EPSILON_MS
+  ) {
+    return null
+  }
+
+  const targetTimeMs = Math.max(gapStartMs, gapEndMs - Math.max(0, leadInMs))
+  return targetTimeMs > currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS
+    ? targetTimeMs
+    : null
 }
 
 export default function App() {
@@ -785,6 +898,7 @@ export default function App() {
   const [funscriptBundle, setFunscriptBundle] = useState<FunscriptBundle | null>(null)
   const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([])
   const [deviceProvider, setDeviceProvider] = useState<DeviceProvider>(loadDeviceProvider)
+  const [deviceCompatibilityPreset, setDeviceCompatibilityPreset] = useState<DeviceCompatibilityPreset>(loadDeviceCompatibilityPreset)
   const [handyConnected, setHandyConnected] = useState(false)
   const [scriptUploadUrl, setScriptUploadUrl] = useState<string | null>(null)
   const [handyUploadStatus, setHandyUploadStatus] = useState<HandyUploadStatus>('idle')
@@ -840,6 +954,8 @@ export default function App() {
   const buttplugStreamTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buttplugStreamRunId = useRef(0)
   const osrSerialStreamTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const buttplugIdleKeepAliveTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const osrSerialIdleKeepAliveTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const appFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const osrSerialStreamRunId = useRef(0)
   const autoSkipSuppressedUntilRef = useRef(0)
@@ -1099,9 +1215,9 @@ export default function App() {
     settings.showScriptDebugInfo,
     t,
   ])
-  const allScriptActionTimes = useMemo(
-    () => collectSortedActionTimes(displayAxisActions),
-    [displayAxisActions]
+  const autoSkipMotionModel = useMemo(
+    () => collectAutoSkipMotionModel(runtimeAxisActions, effectiveDeviceTimeOffset),
+    [effectiveDeviceTimeOffset, runtimeAxisActions]
   )
   const displayFiles = useMemo(
     () => files.map((file) => ({
@@ -1314,6 +1430,14 @@ export default function App() {
       // Ignore storage failures
     }
   }, [deviceProvider])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DEVICE_COMPATIBILITY_PRESET_STORAGE_KEY, deviceCompatibilityPreset)
+    } catch {
+      // Ignore storage failures
+    }
+  }, [deviceCompatibilityPreset])
 
   useEffect(() => {
     try {
@@ -1546,7 +1670,11 @@ export default function App() {
         runtimeAxisActions,
         currentTimeMs,
         targetTimeMs,
-        intervalMs
+        intervalMs,
+        {
+          legacyVibrationFallback: allowsLegacyVibrationFallback(deviceCompatibilityPreset),
+          preferRawTCode: prefersRawTCode(deviceCompatibilityPreset),
+        }
       )
 
       await buttplugService.sendDeviceFrame(selectedButtplugDevice.index, command.frame, { rawTCode: command.rawTCode })
@@ -1562,6 +1690,7 @@ export default function App() {
     availableScriptAxes.length,
     buttplugConnected,
     clearButtplugStreamTimer,
+    deviceCompatibilityPreset,
     deviceProvider,
     playbackRate,
     runtimeAxisActions,
@@ -2423,6 +2552,7 @@ export default function App() {
     }
 
     removeStorageKeys(APP_RESET_STORAGE_KEYS)
+    setDeviceCompatibilityPreset('auto')
     saveSettings(defaultAppSettings)
     saveScriptOffsets({})
     clearStoredCurrentPlaylist()
@@ -2553,6 +2683,106 @@ export default function App() {
     [syncDevicesAfterSeek]
   )
 
+  useEffect(() => {
+    if (buttplugIdleKeepAliveTimer.current) {
+      clearInterval(buttplugIdleKeepAliveTimer.current)
+      buttplugIdleKeepAliveTimer.current = null
+    }
+
+    if (deviceProvider !== 'buttplug' || !buttplugConnected || !selectedButtplugDevice) {
+      return
+    }
+
+    const deviceIndex = selectedButtplugDevice.index
+    const hasRawTCodeEndpoint = selectedButtplugDevice.rawWriteEndpoints.length > 0
+    const tick = () => {
+      const media = mediaRef.current
+      if (media && !media.paused) return
+
+      if (hasRawTCodeEndpoint) {
+        const axisIds = availableScriptAxes.length > 0 ? availableScriptAxes : ['L0' as ScriptAxisId]
+        const currentTimeMs = media ? media.currentTime * 1000 + effectiveDeviceTimeOffset : 0
+        const command = buildTCodeCommand(runtimeAxisActions, currentTimeMs, { axisIds })
+          ?? buildDefaultTCodeCommand(axisIds)
+        if (command) {
+          void buttplugService.sendRawCommand(deviceIndex, command)
+        }
+        return
+      }
+
+      void buttplugService.stopDevice(deviceIndex)
+    }
+
+    tick()
+    buttplugIdleKeepAliveTimer.current = setInterval(
+      tick,
+      getButtplugIdleKeepAliveIntervalMs(deviceCompatibilityPreset)
+    )
+
+    return () => {
+      if (buttplugIdleKeepAliveTimer.current) {
+        clearInterval(buttplugIdleKeepAliveTimer.current)
+        buttplugIdleKeepAliveTimer.current = null
+      }
+    }
+  }, [
+    availableScriptAxes,
+    buttplugConnected,
+    deviceCompatibilityPreset,
+    deviceProvider,
+    effectiveDeviceTimeOffset,
+    runtimeAxisActions,
+    selectedButtplugDevice,
+  ])
+
+  useEffect(() => {
+    if (osrSerialIdleKeepAliveTimer.current) {
+      clearInterval(osrSerialIdleKeepAliveTimer.current)
+      osrSerialIdleKeepAliveTimer.current = null
+    }
+
+    if (deviceProvider !== 'serial' || !osrSerialConnected) {
+      return
+    }
+
+    const tick = () => {
+      const media = mediaRef.current
+      if (media && !media.paused) return
+
+      const currentTimeMs = media ? media.currentTime * 1000 + effectiveDeviceTimeOffset : 0
+      const command = buildTCodeCommand(runtimeAxisActions, currentTimeMs, {
+        axisIds: availableOsrSerialAxes,
+        axisOutputOptions: osrSerialAxisOutputOptions,
+      }) ?? buildDefaultTCodeCommand(availableOsrSerialAxes, {
+        axisOutputOptions: osrSerialAxisOutputOptions,
+      })
+      if (command) {
+        void osrSerialService.writeCommand(command)
+      }
+    }
+
+    tick()
+    osrSerialIdleKeepAliveTimer.current = setInterval(
+      tick,
+      getOsrSerialIdleKeepAliveIntervalMs(deviceCompatibilityPreset)
+    )
+
+    return () => {
+      if (osrSerialIdleKeepAliveTimer.current) {
+        clearInterval(osrSerialIdleKeepAliveTimer.current)
+        osrSerialIdleKeepAliveTimer.current = null
+      }
+    }
+  }, [
+    availableOsrSerialAxes,
+    deviceCompatibilityPreset,
+    deviceProvider,
+    effectiveDeviceTimeOffset,
+    osrSerialAxisOutputOptions,
+    osrSerialConnected,
+    runtimeAxisActions,
+  ])
+
   const handleTimeUpdate = useCallback((time: number) => {
     const media = mediaRef.current
     if (
@@ -2561,7 +2791,8 @@ export default function App() {
       || media.seeking
       || handyAutoPlaySyncInProgressRef.current
       || !settings.autoSkipScriptGaps
-      || allScriptActionTimes.length === 0
+      || !autoSkipMotionModel.hasActions
+      || autoSkipMotionModel.activeIntervals.length === 0
     ) {
       return
     }
@@ -2572,7 +2803,7 @@ export default function App() {
     }
 
     const targetTimeMs = findAutoSkipTargetMs(
-      allScriptActionTimes,
+      autoSkipMotionModel.activeIntervals,
       time * 1000,
       settings.autoSkipGapMinDuration * 1000,
       settings.autoSkipGapLeadIn * 1000,
@@ -2588,7 +2819,7 @@ export default function App() {
 
     void performAutoSkip(targetTimeMs / 1000)
   }, [
-    allScriptActionTimes,
+    autoSkipMotionModel,
     performAutoSkip,
     settings.autoSkipGapLeadIn,
     settings.autoSkipGapMinDuration,
@@ -3093,6 +3324,114 @@ export default function App() {
     }
   }, [])
 
+  const handleCopyDeviceDiagnostics = useCallback(async () => {
+    const media = mediaRef.current
+    const currentFileLabel = currentFile ? `${getFileName(currentFile)} (path redacted)` : 'none'
+    const scriptSourceLabel = primaryScriptSource
+      ? primaryScriptSource.startsWith('generated://')
+        ? primaryScriptSource
+        : `${getFileName(primaryScriptSource)} (path redacted)`
+      : 'none'
+    const buttplugMappingLines = selectedButtplugDevice
+      ? selectedButtplugDevice.features.map((feature) => {
+          const mapping = selectedButtplugFeatureMappings[feature.id]
+          return [
+            feature.id,
+            feature.descriptor,
+            `type=${feature.type}`,
+            `actuator=${feature.actuatorType || 'unknown'}`,
+            `axis=${mapping?.axisId || 'none'}`,
+            `invert=${mapping?.invert ? 'yes' : 'no'}`,
+          ].join(' | ')
+        })
+      : []
+    const lines = [
+      'ScriptPlayer+ Device Diagnostics',
+      `Captured: ${new Date().toISOString()}`,
+      '',
+      '[Playback]',
+      `Current file: ${currentFileLabel}`,
+      `Media type: ${currentFileType || 'none'}`,
+      `Playing: ${media ? (!media.paused).toString() : 'no media element'}`,
+      `Current time: ${media ? media.currentTime.toFixed(3) : 'n/a'}`,
+      `Duration: ${Number.isFinite(mediaDurationSeconds) ? mediaDurationSeconds.toFixed(3) : 'n/a'}`,
+      `Playback rate: ${playbackRate}`,
+      '',
+      '[Script]',
+      `Primary axis: ${primaryAxis || 'none'}`,
+      `Available axes: ${availableScriptAxes.join(', ') || 'none'}`,
+      `Runtime axes: ${SCRIPT_AXIS_IDS.filter((axisId) => Boolean(runtimeAxisActions[axisId]?.length)).join(', ') || 'none'}`,
+      `Script source: ${scriptSourceLabel}`,
+      `Script offset: ${scriptOffset}ms`,
+      '',
+      '[Auto Skip]',
+      `Enabled: ${settings.autoSkipScriptGaps}`,
+      `Minimum gap: ${settings.autoSkipGapMinDuration}s`,
+      `Lead-in: ${settings.autoSkipGapLeadIn}s`,
+      `Motion intervals: ${autoSkipMotionModel.activeIntervals.length}`,
+      '',
+      '[Device]',
+      `Provider: ${deviceProvider}`,
+      `Compatibility preset: ${deviceCompatibilityPreset}`,
+      `Handy connected: ${handyConnected}`,
+      `Handy upload status: ${handyUploadStatus}`,
+      `Handy upload error: ${handyUploadError || 'none'}`,
+      `Intiface state: ${buttplugConnectionState}`,
+      `Intiface error: ${buttplugError || 'none'}`,
+      `Intiface URL: ${buttplugServerUrl}`,
+      `Selected Intiface device: ${selectedButtplugDevice ? `${selectedButtplugDevice.displayName} (#${selectedButtplugDevice.index})` : 'none'}`,
+      `Raw endpoints: ${selectedButtplugDevice?.rawWriteEndpoints.join(', ') || 'none'}`,
+      `Serial state: ${osrSerialConnectionState}`,
+      `Serial error: ${osrSerialError || 'none'}`,
+      `Serial port: ${selectedOsrSerialPortPath || 'none'}`,
+      `Serial baud: ${osrSerialService.baudRate || DEFAULT_OSR_SERIAL_BAUD_RATE}`,
+      `Serial update rate: ${osrSerialUpdateRate}Hz`,
+      `Serial profile: ${osrSerialProfile}`,
+      `Serial active axes: ${availableOsrSerialAxes.join(', ') || 'none'}`,
+      '',
+      '[Intiface Feature Mapping]',
+      ...(buttplugMappingLines.length > 0 ? buttplugMappingLines : ['none']),
+    ]
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      showAppFeedback({ tone: 'success', text: 'Device diagnostics copied.' })
+    } catch {
+      showAppFeedback({ tone: 'error', text: 'Failed to copy device diagnostics.' })
+    }
+  }, [
+    autoSkipMotionModel.activeIntervals.length,
+    availableOsrSerialAxes,
+    availableScriptAxes,
+    buttplugConnectionState,
+    buttplugError,
+    buttplugServerUrl,
+    currentFile,
+    currentFileType,
+    deviceCompatibilityPreset,
+    deviceProvider,
+    handyConnected,
+    handyUploadError,
+    handyUploadStatus,
+    mediaDurationSeconds,
+    osrSerialConnectionState,
+    osrSerialError,
+    osrSerialProfile,
+    osrSerialUpdateRate,
+    playbackRate,
+    primaryAxis,
+    primaryScriptSource,
+    runtimeAxisActions,
+    scriptOffset,
+    selectedButtplugDevice,
+    selectedButtplugFeatureMappings,
+    selectedOsrSerialPortPath,
+    settings.autoSkipGapLeadIn,
+    settings.autoSkipGapMinDuration,
+    settings.autoSkipScriptGaps,
+    showAppFeedback,
+  ])
+
   const deviceInfo = useMemo(() => {
     if (deviceProvider === 'handy') {
       const uploadState = handyAutoPlayStatusText
@@ -3222,6 +3561,9 @@ export default function App() {
           manualSubtitlePaths={new Set(Object.keys(manualSubtitleFiles))}
           deviceProvider={deviceProvider}
           onDeviceProviderChange={setDeviceProvider}
+          deviceCompatibilityPreset={deviceCompatibilityPreset}
+          onDeviceCompatibilityPresetChange={setDeviceCompatibilityPreset}
+          onCopyDeviceDiagnostics={handleCopyDeviceDiagnostics}
           handyConnected={handyConnected}
           onHandyConnect={handleHandyConnect}
           onHandyDisconnect={handleHandyDisconnect}

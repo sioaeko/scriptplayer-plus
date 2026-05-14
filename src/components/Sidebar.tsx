@@ -11,6 +11,41 @@ import { useTranslation } from '../i18n'
 import EroScriptsPanel from './EroScriptsPanel'
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
+type DeviceCompatibilityPreset = 'auto' | 'lovense-vibration' | 'sr1-bluetooth' | 'tcode-raw' | 'multi-axis-strict'
+
+const DEVICE_COMPATIBILITY_PRESETS = [
+  {
+    value: 'auto',
+    labelKey: 'device.compatibilityPreset.auto',
+    descriptionKey: 'device.compatibilityPreset.autoDesc',
+  },
+  {
+    value: 'lovense-vibration',
+    labelKey: 'device.compatibilityPreset.lovenseVibration',
+    descriptionKey: 'device.compatibilityPreset.lovenseVibrationDesc',
+  },
+  {
+    value: 'sr1-bluetooth',
+    labelKey: 'device.compatibilityPreset.sr1Bluetooth',
+    descriptionKey: 'device.compatibilityPreset.sr1BluetoothDesc',
+  },
+  {
+    value: 'tcode-raw',
+    labelKey: 'device.compatibilityPreset.tcodeRaw',
+    descriptionKey: 'device.compatibilityPreset.tcodeRawDesc',
+  },
+  {
+    value: 'multi-axis-strict',
+    labelKey: 'device.compatibilityPreset.multiAxisStrict',
+    descriptionKey: 'device.compatibilityPreset.multiAxisStrictDesc',
+  },
+] as const satisfies ReadonlyArray<{
+  value: DeviceCompatibilityPreset
+  labelKey: string
+  descriptionKey: string
+}>
+
+const LOVENSE_VIBRATION_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['V0', 'V1']
 
 interface HandyHistoryEntry {
   key: string
@@ -111,6 +146,9 @@ interface SidebarProps {
   manualSubtitlePaths: Set<string>
   deviceProvider: DeviceProvider
   onDeviceProviderChange: (provider: DeviceProvider) => void
+  deviceCompatibilityPreset: DeviceCompatibilityPreset
+  onDeviceCompatibilityPresetChange: (preset: DeviceCompatibilityPreset) => void
+  onCopyDeviceDiagnostics: () => void | Promise<void>
   handyConnected: boolean
   onHandyConnect: (key: string) => void | Promise<void>
   onHandyDisconnect: () => void | Promise<void>
@@ -224,6 +262,9 @@ export default function Sidebar({
   manualSubtitlePaths,
   deviceProvider,
   onDeviceProviderChange,
+  deviceCompatibilityPreset,
+  onDeviceCompatibilityPresetChange,
+  onCopyDeviceDiagnostics,
   handyConnected,
   onHandyConnect,
   onHandyDisconnect,
@@ -311,6 +352,10 @@ export default function Sidebar({
   const activeDeviceConnected = deviceProvider === 'handy'
     ? handyConnected
     : (deviceProvider === 'serial' ? osrSerialConnected : buttplugConnected)
+  const selectedDeviceCompatibilityPreset = useMemo(
+    () => DEVICE_COMPATIBILITY_PRESETS.find((preset) => preset.value === deviceCompatibilityPreset) ?? DEVICE_COMPATIBILITY_PRESETS[0],
+    [deviceCompatibilityPreset]
+  )
   const selectedButtplugDevice = useMemo(
     () => buttplugDevices.find((device) => device.index === selectedButtplugDeviceIndex) ?? null,
     [buttplugDevices, selectedButtplugDeviceIndex]
@@ -880,6 +925,34 @@ export default function Sidebar({
               </select>
             </div>
 
+            <div className="rounded border border-surface-100/25 bg-surface-300/45 p-2.5 space-y-2">
+              <label className="text-[10px] text-text-muted uppercase tracking-wider block">
+                {t('device.compatibilityPreset')}
+              </label>
+              <select
+                value={deviceCompatibilityPreset}
+                onChange={(event) => onDeviceCompatibilityPresetChange(event.target.value as DeviceCompatibilityPreset)}
+                className="w-full bg-surface-300 text-text-primary text-xs px-3 py-2 rounded border border-surface-100/30 focus:border-accent/50 outline-none"
+              >
+                {DEVICE_COMPATIBILITY_PRESETS.map((preset) => (
+                  <option key={preset.value} value={preset.value}>
+                    {t(preset.labelKey)}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-text-muted leading-relaxed">
+                {t(selectedDeviceCompatibilityPreset.descriptionKey)}
+              </p>
+              <button
+                type="button"
+                onClick={onCopyDeviceDiagnostics}
+                className="w-full py-2 text-xs bg-surface-100/20 text-text-secondary hover:bg-surface-100/30 rounded transition-colors flex items-center justify-center gap-2"
+              >
+                <Copy size={12} />
+                {t('device.copyDiagnostics')}
+              </button>
+            </div>
+
             {deviceProvider === 'handy' ? (
               <>
                 <div>
@@ -1290,12 +1363,36 @@ export default function Sidebar({
                     </label>
                     {buttplugFeatures.map((feature) => {
                       const mapping = buttplugFeatureMappings[feature.id] || { axisId: '', invert: false }
-                      const compatibleAxisOptions = availableAxisOptions.filter((axis) => (
-                        isButtplugFeatureAxisCompatible(feature, axis.id)
-                      ))
                       const mappedAxisId = mapping.axisId && isButtplugFeatureAxisCompatible(feature, mapping.axisId)
                         ? mapping.axisId
                         : ''
+                      const axisOptionById = new Map(availableAxisOptions.map((axis) => [axis.id, axis]))
+                      const compatibleAxisIds = new Set<ScriptAxisId>()
+                      availableAxisOptions.forEach((axis) => {
+                        if (isButtplugFeatureAxisCompatible(feature, axis.id)) {
+                          compatibleAxisIds.add(axis.id)
+                        }
+                      })
+                      if (mappedAxisId) {
+                        compatibleAxisIds.add(mappedAxisId)
+                      }
+                      if (
+                        deviceCompatibilityPreset === 'lovense-vibration' &&
+                        feature.type === 'scalar' &&
+                        `${feature.descriptor} ${feature.actuatorType ?? ''}`.toLowerCase().includes('vib')
+                      ) {
+                        LOVENSE_VIBRATION_FALLBACK_AXIS_IDS.forEach((axisId) => {
+                          if (isButtplugFeatureAxisCompatible(feature, axisId)) {
+                            compatibleAxisIds.add(axisId)
+                          }
+                        })
+                      }
+                      const compatibleAxisOptions = Array.from(compatibleAxisIds).map((axisId) => (
+                        axisOptionById.get(axisId) ?? {
+                          id: axisId,
+                          label: `${axisId} ${getScriptAxisDefinition(axisId).description}`,
+                        }
+                      ))
 
                       return (
                         <div key={feature.id} className="rounded border border-surface-100/30 bg-surface-300/60 p-2 space-y-2">

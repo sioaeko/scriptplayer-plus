@@ -94,15 +94,40 @@ export class OsrSerialService {
 
   async disconnect(): Promise<boolean> {
     await this.initialize()
-    const nextState = await window.electronAPI.osrSerialDisconnect()
-    this.state = nextState
-    this.onStateChange?.(nextState)
-    return nextState.connectionState === 'disconnected'
+    try {
+      const nextState = await window.electronAPI.osrSerialDisconnect()
+      this.state = nextState
+      this.onStateChange?.(nextState)
+      return nextState.connectionState === 'disconnected'
+    } catch (error) {
+      const nextState: OsrSerialState = {
+        connectionState: 'disconnected',
+        connectedPortPath: null,
+        baudRate: this.state.baudRate,
+        error: null,
+      }
+      this.state = nextState
+      this.onStateChange?.(nextState)
+      return false
+    }
   }
 
   async writeCommand(command: string): Promise<boolean> {
     await this.initialize()
-    return window.electronAPI.osrSerialWrite(command)
+    try {
+      return await window.electronAPI.osrSerialWrite(command)
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Failed to write to serial port.'
+      this.state = {
+        ...this.state,
+        connectionState: 'error',
+        error: message,
+      }
+      this.onStateChange?.(this.state)
+      return false
+    }
   }
 
   dispose() {

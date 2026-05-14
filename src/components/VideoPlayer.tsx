@@ -648,16 +648,22 @@ export default function VideoPlayer({
     ? 'rounded-2xl border border-white/14 bg-black px-3 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.6)]'
     : ''
   const mediaStateKey = `${mediaSessionKey}:${videoUrl ?? 'none'}`
-  const toggleVideoFill = useCallback(() => {
-    const nextValue = !videoFillEnabled
-
-    setVideoFillEnabled(nextValue)
+  const setVideoFitInside = useCallback(() => {
+    setVideoFillEnabled(false)
     setVideoFillMode('manual')
 
     if (rememberVideoFit) {
-      saveVideoFitPreference(nextValue)
+      saveVideoFitPreference(false)
     }
-  }, [rememberVideoFit, videoFillEnabled])
+  }, [rememberVideoFit])
+  const setVideoFillCrop = useCallback(() => {
+    setVideoFillEnabled(true)
+    setVideoFillMode('manual')
+
+    if (rememberVideoFit) {
+      saveVideoFitPreference(true)
+    }
+  }, [rememberVideoFit])
   const segmentRepeatStorageKey = currentFilePath || mediaStateKey
   const activeSegmentRepeat = getActiveSegmentRepeatItem(segmentRepeat)
   const segmentRepeatActive = Boolean(segmentRepeat.enabled && activeSegmentRepeat)
@@ -3216,14 +3222,24 @@ export default function VideoPlayer({
                   </button>
                 )}
                 {mediaType === 'video' && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleVideoFill() }}
-                    className={`p-1.5 flex items-center gap-1 rounded transition-colors ${videoFillEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
-                    title="Fill video area"
-                    aria-label="Fill video area"
-                  >
-                    <span className="text-[10px] font-semibold tracking-wide">FIT</span>
-                  </button>
+                  <div className="flex items-center gap-0.5 rounded bg-surface-300/40 p-0.5">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setVideoFitInside() }}
+                      className={`px-1.5 py-1 text-[10px] font-semibold tracking-wide rounded transition-colors ${!videoFillEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                      title="Fit inside video area without cropping"
+                      aria-label="Fit inside video area without cropping"
+                    >
+                      FIT
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setVideoFillCrop() }}
+                      className={`px-1.5 py-1 text-[10px] font-semibold tracking-wide rounded transition-colors ${videoFillEnabled ? 'text-accent bg-accent/10' : 'text-text-secondary hover:text-text-primary'}`}
+                      title="Fill video area and crop if needed"
+                      aria-label="Fill video area and crop if needed"
+                    >
+                      FILL
+                    </button>
+                  </div>
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}
@@ -3313,7 +3329,7 @@ function getVideoClassName({
     return `block h-full w-full object-cover ${isFullscreen ? 'object-center' : 'object-top'}`
   }
 
-  return 'block max-w-full max-h-full object-contain'
+  return 'block h-full w-full object-contain'
 }
 
 function shouldAutoFitVideoByAspect(video: HTMLVideoElement): boolean {

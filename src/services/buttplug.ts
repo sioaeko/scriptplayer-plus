@@ -280,6 +280,11 @@ export class ButtplugService {
     }
   }
 
+  async sendRawCommand(deviceIndex: number, command: string): Promise<boolean> {
+    if (!this.isConnected) return false
+    return this.sendRawTCode(deviceIndex, command)
+  }
+
   private async connectToUrl(url: string): Promise<void> {
     const socket = new WebSocket(url)
     this.socket = socket

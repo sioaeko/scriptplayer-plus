@@ -135,8 +135,13 @@ export class OsrSerialManager {
     this.writeInProgress = false
 
     if (port) {
-      port.removeAllListeners('error')
       port.removeAllListeners('close')
+      port.removeAllListeners('error')
+      port.on('error', () => {
+        // Windows Bluetooth/serial adapters can emit a late write-abort error
+        // while the port is being closed. Keep a no-op listener attached so
+        // teardown errors do not become uncaught main-process exceptions.
+      })
       if (port.isOpen) {
         try {
           await closePort(port)
@@ -211,6 +216,10 @@ export class OsrSerialManager {
       }
       return true
     } catch (error) {
+      if (isExpectedSerialAbortError(error) && (!this.port || !this.port.isOpen)) {
+        return false
+      }
+
       this.state = {
         ...this.state,
         connectionState: 'error',
@@ -339,6 +348,16 @@ function buildPortDisplayName(path: string, manufacturer: string | null, serialN
 
 function normalizeErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+function isExpectedSerialAbortError(error: unknown): boolean {
+  const message = normalizeErrorMessage(error, '').toLowerCase()
+  return (
+    message.includes('operation aborted')
+    || message.includes('operation canceled')
+    || message.includes('operation cancelled')
+    || message.includes('port is closed')
+  )
 }
 
 function openPort(port: RuntimeSerialPort): Promise<void> {

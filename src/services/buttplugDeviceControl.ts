@@ -19,6 +19,11 @@ export type ButtplugTransportCommand = {
   rawTCode: string | null
 }
 
+export type ButtplugTransportOptions = {
+  legacyVibrationFallback?: boolean
+  preferRawTCode?: boolean
+}
+
 export type { AxisActionMap } from './tcode'
 
 export function buildButtplugDeviceSignature(device: ButtplugDevice): string {
@@ -103,11 +108,12 @@ export function buildButtplugTransportCommand(
   actionMap: AxisActionMap,
   currentTimeMs: number,
   targetTimeMs: number,
-  intervalMs: number
+  intervalMs: number,
+  options: ButtplugTransportOptions = {}
 ): ButtplugTransportCommand {
   return {
-    frame: buildButtplugFrame(device, mappings, actionMap, currentTimeMs, targetTimeMs, intervalMs),
-    rawTCode: buildRawTCodeCommand(device, mappings, actionMap, targetTimeMs),
+    frame: buildButtplugFrame(device, mappings, actionMap, currentTimeMs, targetTimeMs, intervalMs, options),
+    rawTCode: buildRawTCodeCommand(device, mappings, actionMap, targetTimeMs, options),
   }
 }
 
@@ -117,7 +123,8 @@ function buildButtplugFrame(
   actionMap: AxisActionMap,
   currentTimeMs: number,
   targetTimeMs: number,
-  intervalMs: number
+  intervalMs: number,
+  options: ButtplugTransportOptions
 ): ButtplugDeviceFrame {
   const frame: ButtplugDeviceFrame = {
     linear: [],
@@ -128,23 +135,20 @@ function buildButtplugFrame(
   for (const feature of device.features) {
     const mapping = mappings[feature.id]
     const mappedAxisId = mapping?.axisId
+    const outputAxisId = resolveButtplugFeatureOutputAxis(feature, mappedAxisId, actionMap, options)
 
-    if (
-      !mappedAxisId
-      || !isButtplugFeatureAxisCompatible(feature, mappedAxisId)
-      || !hasAxisActions(actionMap, mappedAxisId)
-    ) {
+    if (!outputAxisId) {
       continue
     }
 
     const currentValue = applyAxisMappingValue(
-      mappedAxisId,
-      getAxisValueAtTime(mappedAxisId, actionMap, currentTimeMs),
+      outputAxisId,
+      getAxisValueAtTime(outputAxisId, actionMap, currentTimeMs),
       mapping?.invert ?? false
     )
     const targetValue = applyAxisMappingValue(
-      mappedAxisId,
-      getAxisValueAtTime(mappedAxisId, actionMap, targetTimeMs),
+      outputAxisId,
+      getAxisValueAtTime(outputAxisId, actionMap, targetTimeMs),
       mapping?.invert ?? false
     )
 
@@ -179,12 +183,13 @@ function buildRawTCodeCommand(
   device: ButtplugDevice,
   mappings: Record<string, ButtplugFeatureMapping>,
   actionMap: AxisActionMap,
-  timeMs: number
+  timeMs: number,
+  options: ButtplugTransportOptions
 ): string | null {
   if (device.rawWriteEndpoints.length === 0) return null
 
   const axisIds = collectRawTCodeAxisIds(actionMap, mappings)
-  if (!shouldPreferRawTCode(axisIds)) return null
+  if (!options.preferRawTCode && !shouldPreferRawTCode(axisIds)) return null
 
   const inversionByAxis = deriveAxisInversionMap(mappings)
   const segments = axisIds.map((axisId) => buildTCodeAxisCommand(
@@ -222,6 +227,42 @@ function collectRawTCodeAxisIds(
 
 function hasAxisActions(actionMap: AxisActionMap, axisId: ScriptAxisId): boolean {
   return Boolean(actionMap[axisId]?.length)
+}
+
+function resolveButtplugFeatureOutputAxis(
+  feature: ButtplugFeature,
+  mappedAxisId: ScriptAxisId | '' | undefined,
+  actionMap: AxisActionMap,
+  options: ButtplugTransportOptions
+): ScriptAxisId | null {
+  if (!mappedAxisId || !isButtplugFeatureAxisCompatible(feature, mappedAxisId)) {
+    return null
+  }
+
+  if (hasAxisActions(actionMap, mappedAxisId)) {
+    return mappedAxisId
+  }
+
+  if (
+    options.legacyVibrationFallback !== false
+    && isVibrationScalarFeature(feature)
+    && isVibrationAxis(mappedAxisId)
+    && hasAxisActions(actionMap, 'L0')
+  ) {
+    return 'L0'
+  }
+
+  return null
+}
+
+function isVibrationScalarFeature(feature: ButtplugFeature): boolean {
+  if (feature.type !== 'scalar') return false
+  const text = `${feature.descriptor} ${feature.actuatorType || ''}`.toLowerCase()
+  return text.includes('vib')
+}
+
+function isVibrationAxis(axisId: ScriptAxisId): boolean {
+  return axisId === 'V0' || axisId === 'V1'
 }
 
 function shouldPreferRawTCode(axisIds: ScriptAxisId[]): boolean {

@@ -163,14 +163,9 @@ interface StoredCurrentPlaylist {
   files: VideoFile[]
 }
 
-interface AutoSkipActiveInterval {
-  startMs: number
-  endMs: number
-}
-
 interface AutoSkipMotionModel {
   hasActions: boolean
-  activeIntervals: AutoSkipActiveInterval[]
+  motionTimes: number[]
 }
 
 interface AppFeedback {
@@ -745,7 +740,7 @@ function hasBundleScripts(bundle: FunscriptBundle | null): boolean {
 
 function collectAutoSkipMotionModel(actionMap: AxisActionMap, timeOffsetMs = 0): AutoSkipMotionModel {
   let hasActions = false
-  const activeIntervals: AutoSkipActiveInterval[] = []
+  const uniqueMotionTimes = new Set<number>()
 
   for (const axisId of SCRIPT_AXIS_IDS) {
     const actions = actionMap[axisId]
@@ -758,130 +753,78 @@ function collectAutoSkipMotionModel(actionMap: AxisActionMap, timeOffsetMs = 0):
       hasActions = true
     }
 
-    for (let index = 1; index < sortedActions.length; index += 1) {
-      const previous = sortedActions[index - 1]
-      const next = sortedActions[index]
-      if (Math.abs(next.pos - previous.pos) < AUTO_SKIP_MIN_POSITION_DELTA) {
-        continue
-      }
-
-      const startMs = Math.max(0, previous.at - timeOffsetMs)
-      const endMs = Math.max(0, next.at - timeOffsetMs)
-      if (endMs > startMs) {
-        activeIntervals.push({ startMs, endMs })
+    let lastMotionPosition: number | null = null
+    for (const action of sortedActions) {
+      if (
+        lastMotionPosition === null
+        || Math.abs(action.pos - lastMotionPosition) >= AUTO_SKIP_MIN_POSITION_DELTA
+      ) {
+        uniqueMotionTimes.add(Math.max(0, action.at - timeOffsetMs))
+        lastMotionPosition = action.pos
       }
     }
   }
 
   return {
     hasActions,
-    activeIntervals: mergeAutoSkipActiveIntervals(activeIntervals),
+    motionTimes: Array.from(uniqueMotionTimes).sort((a, b) => a - b),
   }
 }
 
 function findAutoSkipTargetMs(
-  activeIntervals: AutoSkipActiveInterval[],
+  actionTimes: number[],
   currentTimeMs: number,
   minimumGapMs: number,
   leadInMs: number,
   durationMs?: number
 ): number | null {
-  if (minimumGapMs <= 0) {
+  if (actionTimes.length === 0 || minimumGapMs <= 0) {
     return null
   }
 
-  const timelineEndMs = Number.isFinite(durationMs) && typeof durationMs === 'number' && durationMs > 0
-    ? durationMs
-    : null
-  let gapStartMs = 0
-
-  for (const interval of activeIntervals) {
-    if (timelineEndMs !== null && interval.startMs >= timelineEndMs) {
-      break
+  let low = 0
+  let high = actionTimes.length
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2)
+    if (actionTimes[mid] <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
+      low = mid + 1
+    } else {
+      high = mid
     }
+  }
 
-    const intervalStartMs = timelineEndMs !== null
-      ? Math.min(interval.startMs, timelineEndMs)
-      : interval.startMs
-    const gapTarget = resolveAutoSkipGapTargetMs(
-      gapStartMs,
-      intervalStartMs,
-      currentTimeMs,
-      minimumGapMs,
-      leadInMs
-    )
-    if (gapTarget !== null) {
-      return gapTarget
-    }
-
-    const intervalEndMs = timelineEndMs !== null
-      ? Math.min(interval.endMs, timelineEndMs)
-      : interval.endMs
-    if (currentTimeMs < intervalEndMs - AUTO_SKIP_TARGET_EPSILON_MS) {
+  const nextActionTime = actionTimes[low]
+  if (!Number.isFinite(nextActionTime)) {
+    if (!Number.isFinite(durationMs) || typeof durationMs !== 'number' || durationMs <= 0) {
       return null
     }
 
-    gapStartMs = Math.max(gapStartMs, intervalEndMs)
-  }
-
-  if (timelineEndMs === null || gapStartMs >= timelineEndMs) {
-    return null
-  }
-
-  return resolveAutoSkipGapTargetMs(
-    gapStartMs,
-    timelineEndMs,
-    currentTimeMs,
-    minimumGapMs,
-    AUTO_SKIP_END_LEAD_MS
-  )
-}
-
-function mergeAutoSkipActiveIntervals(intervals: AutoSkipActiveInterval[]): AutoSkipActiveInterval[] {
-  const sorted = intervals
-    .filter((interval) => (
-      Number.isFinite(interval.startMs)
-      && Number.isFinite(interval.endMs)
-      && interval.endMs > interval.startMs
-    ))
-    .sort((a, b) => a.startMs - b.startMs)
-  const merged: AutoSkipActiveInterval[] = []
-
-  for (const interval of sorted) {
-    const last = merged[merged.length - 1]
-    if (!last || interval.startMs > last.endMs + AUTO_SKIP_TARGET_EPSILON_MS) {
-      merged.push({ ...interval })
-      continue
+    const gapStartTime = actionTimes[actionTimes.length - 1]
+    const gapDuration = durationMs - gapStartTime
+    if (gapDuration < minimumGapMs) {
+      return null
     }
 
-    last.endMs = Math.max(last.endMs, interval.endMs)
+    const targetTime = Math.max(gapStartTime, durationMs - AUTO_SKIP_END_LEAD_MS)
+    if (targetTime <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
+      return null
+    }
+
+    return targetTime
   }
 
-  return merged
-}
-
-function resolveAutoSkipGapTargetMs(
-  gapStartMs: number,
-  gapEndMs: number,
-  currentTimeMs: number,
-  minimumGapMs: number,
-  leadInMs: number
-): number | null {
-  if (gapEndMs - gapStartMs < minimumGapMs) {
+  const gapStartTime = low > 0 ? actionTimes[low - 1] : 0
+  const gapDuration = nextActionTime - gapStartTime
+  if (gapDuration < minimumGapMs) {
     return null
   }
 
-  if (
-    currentTimeMs < gapStartMs - AUTO_SKIP_TARGET_EPSILON_MS
-    || currentTimeMs >= gapEndMs - AUTO_SKIP_TARGET_EPSILON_MS
-  ) {
+  const targetTime = Math.max(gapStartTime, nextActionTime - Math.max(0, leadInMs))
+  if (targetTime <= currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS) {
     return null
   }
 
-  const targetTimeMs = Math.max(gapStartMs, gapEndMs - Math.max(0, leadInMs))
-  return targetTimeMs > currentTimeMs + AUTO_SKIP_TARGET_EPSILON_MS
-    ? targetTimeMs
-    : null
+  return targetTime
 }
 
 export default function App() {
@@ -2246,10 +2189,12 @@ export default function App() {
       const handyAutoplayRequiresUpload = deviceProvider === 'handy'
         && handyConnected
         && settings.handyAutoPlayAfterSync
-      const waitForHandyUpload = handyAutoplayRequiresUpload
-        && (hasBundleScripts(parsedBundle) || settings.noScriptRandomStrokeEnabled)
 
-      if (waitForHandyUpload) {
+      if (handyAutoplayRequiresUpload) {
+        if (!hasBundleScripts(parsedBundle) && !settings.noScriptRandomStrokeEnabled) {
+          setHandyAutoPlayStatusText('Waiting for script...')
+          setHandyAutoPlayStatusTone('busy')
+        }
         setPendingAutoPlayAfterHandyUpload(true)
       } else {
         setAutoPlayRequestId((prev) => prev + 1)
@@ -2792,7 +2737,7 @@ export default function App() {
       || handyAutoPlaySyncInProgressRef.current
       || !settings.autoSkipScriptGaps
       || !autoSkipMotionModel.hasActions
-      || autoSkipMotionModel.activeIntervals.length === 0
+      || autoSkipMotionModel.motionTimes.length === 0
     ) {
       return
     }
@@ -2803,7 +2748,7 @@ export default function App() {
     }
 
     const targetTimeMs = findAutoSkipTargetMs(
-      autoSkipMotionModel.activeIntervals,
+      autoSkipMotionModel.motionTimes,
       time * 1000,
       settings.autoSkipGapMinDuration * 1000,
       settings.autoSkipGapLeadIn * 1000,
@@ -3368,7 +3313,7 @@ export default function App() {
       `Enabled: ${settings.autoSkipScriptGaps}`,
       `Minimum gap: ${settings.autoSkipGapMinDuration}s`,
       `Lead-in: ${settings.autoSkipGapLeadIn}s`,
-      `Motion intervals: ${autoSkipMotionModel.activeIntervals.length}`,
+      `Motion points: ${autoSkipMotionModel.motionTimes.length}`,
       '',
       '[Device]',
       `Provider: ${deviceProvider}`,
@@ -3400,7 +3345,7 @@ export default function App() {
       showAppFeedback({ tone: 'error', text: 'Failed to copy device diagnostics.' })
     }
   }, [
-    autoSkipMotionModel.activeIntervals.length,
+    autoSkipMotionModel.motionTimes.length,
     availableOsrSerialAxes,
     availableScriptAxes,
     buttplugConnectionState,

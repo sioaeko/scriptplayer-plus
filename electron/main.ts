@@ -62,9 +62,9 @@ const osrSerialManager = new OsrSerialManager((state) => {
 
 if (!app.isPackaged) {
   const sharedUserDataPath = path.join(app.getPath('appData'), 'scriptplayer-plus')
-  const targetUserDataPath = process.env.SCRIPTPLAYER_USE_SHARED_PROFILE === '1'
-    ? sharedUserDataPath
-    : `${sharedUserDataPath}-dev`
+  const targetUserDataPath = process.env.SCRIPTPLAYER_USE_DEV_PROFILE === '1'
+    ? `${sharedUserDataPath}-dev`
+    : sharedUserDataPath
   app.setPath('userData', targetUserDataPath)
 }
 
@@ -246,8 +246,12 @@ function createWindow() {
     },
   })
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL || (!app.isPackaged ? 'http://localhost:5173' : '')
+  if (devServerUrl) {
+    void mainWindow.loadURL(devServerUrl).catch(() => {
+      if (!mainWindow) return
+      void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    })
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }

@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "vite",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "vite build --mode development && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build:linux": "vite build && electron-builder --linux",
     "build:win": "vite build && electron-builder --win && node scripts/set-icon.js",
     "build:mac": "vite build && electron-builder --mac",

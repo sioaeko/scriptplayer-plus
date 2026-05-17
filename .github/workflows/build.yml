@@ -19,7 +19,7 @@ on:
         type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare:
@@ -88,11 +88,18 @@ jobs:
             Remove-Item -LiteralPath $zip -Force
           }
           Compress-Archive -Path release/win-unpacked/* -DestinationPath $zip
-      - uses: actions/upload-artifact@v6
-        with:
-          name: release-windows
-          path: release/ScriptPlayerPlus-*-win-x64.zip
-          if-no-files-found: error
+      - name: Upload Windows release assets
+        if: needs.prepare.outputs.should_publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ needs.prepare.outputs.release_tag }}'
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --generate-notes
+          }
+          gh release upload $tag release/ScriptPlayerPlus-*-win-x64.zip --clobber
 
   build-mac:
     needs: prepare
@@ -111,13 +118,14 @@ jobs:
       - run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-      - uses: actions/upload-artifact@v6
-        with:
-          name: release-mac
-          path: |
-            release/*.zip
-            release/*.zip.blockmap
-          if-no-files-found: error
+      - name: Upload macOS release assets
+        if: needs.prepare.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ needs.prepare.outputs.release_tag }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes || true
+          gh release upload "$tag" release/*.zip release/*.zip.blockmap --clobber
 
   build-linux:
     needs: prepare
@@ -134,13 +142,14 @@ jobs:
       - run: npm ci
       - run: npx vite build
       - run: npx electron-builder --linux --publish never
-      - uses: actions/upload-artifact@v6
-        with:
-          name: release-linux
-          path: |
-            release/*.AppImage
-            release/latest-linux.yml
-          if-no-files-found: error
+      - name: Upload Linux release assets
+        if: needs.prepare.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ needs.prepare.outputs.release_tag }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes || true
+          gh release upload "$tag" release/*.AppImage release/latest-linux.yml --clobber
 
   publish-release:
     runs-on: ubuntu-latest
@@ -149,7 +158,7 @@ jobs:
       - build-windows
       - build-mac
       - build-linux
-    if: needs.prepare.outputs.should_publish == 'true'
+    if: false
     permissions:
       contents: write
     steps:

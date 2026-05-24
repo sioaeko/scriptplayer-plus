@@ -123,6 +123,23 @@ jobs:
       - run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Verify macOS app signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          found=0
+          while IFS= read -r -d '' app; do
+            found=1
+            echo "Verifying $app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign -dv --verbose=4 "$app" 2>&1 | grep -E 'Signature=|Info.plist=|Sealed Resources='
+          done < <(find release -maxdepth 3 -type d -name 'ScriptPlayerPlus.app' -print0)
+
+          if [[ "$found" -ne 1 ]]; then
+            echo "No macOS app bundle found to verify."
+            exit 1
+          fi
       - name: Upload macOS release assets
         if: needs.prepare.outputs.should_publish == 'true'
         env:

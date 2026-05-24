@@ -99,6 +99,7 @@
       "artifactName": "ScriptPlayerPlus Setup ${version}.${ext}"
     },
     "mac": {
+      "identity": null,
       "target": [
         {
           "target": "zip",

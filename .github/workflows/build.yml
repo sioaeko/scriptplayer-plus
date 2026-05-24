@@ -141,6 +141,14 @@ jobs:
             echo "$details" | grep -E 'Signature=|Info.plist|Sealed Resources'
             echo "$details" | grep -q 'Info.plist'
             echo "$details" | grep -q 'Sealed Resources'
+
+            requirement="$(codesign -d -r- "$app" 2>&1)"
+            echo "$requirement"
+            echo "$requirement" | grep -q 'designated => identifier "com.scriptplayerplus.app"'
+            if echo "$requirement" | grep -q 'designated => cdhash'; then
+              echo "Unexpected cdhash designated requirement for $app"
+              exit 1
+            fi
           done < <(find release -maxdepth 3 -type d -name 'ScriptPlayerPlus.app' -print0)
 
           if [[ "$found" -ne 1 ]]; then

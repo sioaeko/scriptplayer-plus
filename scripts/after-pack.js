@@ -2,6 +2,9 @@ const path = require('path')
 const { execFileSync } = require('child_process')
 const { updateExecutableIcon } = require('./set-icon')
 
+const MAC_DESIGNATED_REQUIREMENT =
+  '=designated => identifier "com.scriptplayerplus.app"'
+
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName === 'darwin') {
     const appName = `${context.packager.appInfo.productFilename}.app`
@@ -10,6 +13,14 @@ exports.default = async function afterPack(context) {
     execFileSync('codesign', ['--force', '--deep', '--sign', '-', appPath], {
       stdio: 'inherit',
     })
+
+    execFileSync(
+      'codesign',
+      ['--force', '--sign', '-', '--requirements', MAC_DESIGNATED_REQUIREMENT, appPath],
+      {
+        stdio: 'inherit',
+      },
+    )
 
     execFileSync(
       'codesign',

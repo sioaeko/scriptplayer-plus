@@ -132,8 +132,15 @@ jobs:
           while IFS= read -r -d '' app; do
             found=1
             echo "Verifying $app"
+            if [[ ! -f "$app/Contents/_CodeSignature/CodeResources" ]]; then
+              echo "Missing $app/Contents/_CodeSignature/CodeResources"
+              exit 1
+            fi
             codesign --verify --deep --strict --verbose=2 "$app"
-            codesign -dv --verbose=4 "$app" 2>&1 | grep -E 'Signature=|Info.plist=|Sealed Resources='
+            details="$(codesign -dv --verbose=4 "$app" 2>&1)"
+            echo "$details" | grep -E 'Signature=|Info.plist|Sealed Resources'
+            echo "$details" | grep -q 'Info.plist'
+            echo "$details" | grep -q 'Sealed Resources'
           done < <(find release -maxdepth 3 -type d -name 'ScriptPlayerPlus.app' -print0)
 
           if [[ "$found" -ne 1 ]]; then

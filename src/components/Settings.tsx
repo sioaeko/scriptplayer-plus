@@ -26,6 +26,7 @@ import {
   NO_SCRIPT_RANDOM_FILL_GAP_MIN_SECONDS,
   NO_SCRIPT_RANDOM_FILL_GAP_STEP_SECONDS,
   UI_SCALE_OPTIONS,
+  VIDEO_COMPATIBILITY_MODES,
 } from '../services/settings'
 import {
   getNoScriptStrokePatternForPreset,
@@ -44,6 +45,7 @@ import {
   ShortcutActionId,
 } from '../services/shortcuts'
 import { useTranslation } from '../i18n'
+import type { UpdaterState } from '../types'
 
 interface SettingsProps {
   open: boolean
@@ -54,8 +56,11 @@ interface SettingsProps {
   onAutoNextPlayChange: (enabled: boolean) => void
   onResetIntifaceSettings: () => void | Promise<void>
   onResetAllSettings: () => void | Promise<void>
+  onDeviceTestCommand?: (command: DeviceTestCommand) => void | Promise<void>
   initialSection?: SettingsSection
 }
+
+type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
 
 export type SettingsSection =
   | 'general'
@@ -138,6 +143,51 @@ function formatSecondsLabel(value: number): string {
 
 function formatSpeedLabel(value: number): string {
   return `${Math.round(value)} spm`
+}
+
+function getVideoCompatibilityModeLabel(mode: AppSettings['videoCompatibilityMode']): string {
+  switch (mode) {
+    case 'disable-gpu-video-decode':
+      return 'Disable GPU video decode'
+    case 'disable-hardware-acceleration':
+      return 'Disable hardware acceleration'
+    case 'software-renderer':
+      return 'Software renderer'
+    case 'auto':
+    default:
+      return 'Auto'
+  }
+}
+
+function formatUpdaterStatus(state: UpdaterState | null): string {
+  if (!state) return ''
+
+  if (!state.autoUpdateSupported) {
+    return 'Manual update mode. ZIP/portable users should download new releases from GitHub.'
+  }
+
+  switch (state.phase) {
+    case 'checking':
+      return 'Checking for updates...'
+    case 'available':
+      return state.latestVersion
+        ? `Update ${state.latestVersion} is available.`
+        : 'An update is available.'
+    case 'downloading':
+      return state.progressPercent !== null
+        ? `Downloading update... ${Math.round(state.progressPercent)}%`
+        : 'Downloading update...'
+    case 'downloaded':
+      return 'Update downloaded. Restart to install.'
+    case 'error':
+      return state.error || 'Update check failed.'
+    case 'idle':
+    default:
+      if (state.updateAvailable === false) {
+        return 'You are on the latest version.'
+      }
+      return ''
+  }
 }
 
 function ShortcutCaptureButton({
@@ -278,6 +328,10 @@ function AppearanceSection({
   const { t } = useTranslation()
   const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
     onChange({ ...settings, [key]: val })
+  const updateVideoCompatibilityMode = (mode: AppSettings['videoCompatibilityMode']) => {
+    update('videoCompatibilityMode', mode)
+    void window.electronAPI?.setRuntimePreferences?.({ videoCompatibilityMode: mode })
+  }
   return (
     <div>
       <SectionHeading>{t('settings.appearance')}</SectionHeading>
@@ -686,6 +740,25 @@ function TimelineSection({
           onChange={(v) => update('rememberVideoFit', v)}
         />
       </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label="Video Compatibility Mode"
+        description="Applied after restart. Try these if Linux video or thumbnail previews are black."
+      >
+        <select
+          value={settings.videoCompatibilityMode}
+          onChange={(e) => updateVideoCompatibilityMode(e.target.value as AppSettings['videoCompatibilityMode'])}
+          className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[210px] focus:border-accent/50"
+        >
+          {VIDEO_COMPATIBILITY_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {getVideoCompatibilityModeLabel(mode)}
+            </option>
+          ))}
+        </select>
+      </FieldRow>
     </div>
   )
 }
@@ -693,9 +766,11 @@ function TimelineSection({
 function DeviceSection({
   settings,
   onChange,
+  onDeviceTestCommand,
 }: {
   settings: AppSettings
   onChange: (s: AppSettings) => void
+  onDeviceTestCommand?: (command: DeviceTestCommand) => void | Promise<void>
 }) {
   const { t } = useTranslation()
   const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
@@ -848,6 +923,34 @@ function DeviceSection({
           onChange={(v) => update('showScriptDebugInfo', v)}
         />
       </FieldRow>
+
+      <Divider />
+
+      <div className="rounded-lg border border-surface-100/25 bg-surface-300/45 p-3">
+        <div className="text-xs font-medium text-text-primary">
+          Device Test Panel
+        </div>
+        <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
+          Send a short manual command to verify the selected device output and axis mapping.
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(['L0', 'V0', 'V1', 'R0', 'stop'] as DeviceTestCommand[]).map((command) => (
+            <button
+              key={command}
+              type="button"
+              disabled={!onDeviceTestCommand}
+              onClick={() => void onDeviceTestCommand?.(command)}
+              className={`rounded border px-2.5 py-1.5 text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                command === 'stop'
+                  ? 'border-red-400/30 bg-red-500/10 text-red-200 hover:border-red-300/55'
+                  : 'border-surface-100/30 bg-surface-200 text-text-secondary hover:border-accent/45 hover:text-accent'
+              }`}
+            >
+              {command === 'stop' ? 'Stop' : command}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
@@ -972,6 +1075,7 @@ function ShortcutsSection({
 
 function AboutSection() {
   const { t } = useTranslation()
+  const [updaterState, setUpdaterState] = useState<UpdaterState | null>(null)
   const [updateCheck, setUpdateCheck] = useState<{
     checking: boolean
     result: UpdateCheckResult | null
@@ -983,6 +1087,23 @@ function AboutSection() {
   })
   const openLink = useCallback((url: string) => {
     void window.electronAPI?.openExternal?.(url)
+  }, [])
+  useEffect(() => {
+    let active = true
+    const initialStatePromise = window.electronAPI?.updaterGetState?.()
+    if (initialStatePromise) {
+      void initialStatePromise.then((state) => {
+        if (active) setUpdaterState(state)
+      })
+    }
+    const unsubscribe = window.electronAPI?.updaterOnState?.((state) => {
+      setUpdaterState(state)
+    })
+
+    return () => {
+      active = false
+      unsubscribe?.()
+    }
   }, [])
   const handleCheckForUpdates = useCallback(() => {
     setUpdateCheck((state) => ({
@@ -1006,8 +1127,34 @@ function AboutSection() {
           error: true,
         })
       })
+
+    if (updaterState?.autoUpdateSupported) {
+      const nativeCheckPromise = window.electronAPI?.updaterCheckForUpdates?.()
+      if (nativeCheckPromise) {
+        void nativeCheckPromise
+          .then(setUpdaterState)
+          .catch(() => {
+            // The manual GitHub release check above remains the fallback.
+          })
+      }
+    }
+  }, [updaterState?.autoUpdateSupported])
+
+  const handleDownloadUpdate = useCallback(() => {
+    const downloadPromise = window.electronAPI?.updaterDownloadUpdate?.()
+    if (downloadPromise) {
+      void downloadPromise.then(setUpdaterState)
+    }
   }, [])
 
+  const handleInstallUpdate = useCallback(() => {
+    const installPromise = window.electronAPI?.updaterQuitAndInstall?.()
+    if (installPromise) {
+      void installPromise
+    }
+  }, [])
+
+  const updaterStatusText = formatUpdaterStatus(updaterState)
   const updateStatusText = updateCheck.error
     ? t('settings.updateCheckFailed')
     : updateCheck.result?.updateAvailable
@@ -1050,26 +1197,44 @@ function AboutSection() {
               {t('settings.updates')}
             </div>
             <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
-              {updateStatusText || t('settings.updateCheckDesc')}
+              {updateStatusText || updaterStatusText || t('settings.updateCheckDesc')}
             </div>
           </div>
-          <div className="flex flex-shrink-0 gap-2">
-            {updateCheck.result?.updateAvailable && (
+          <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
+            {(updateCheck.result?.updateAvailable || updaterState?.updateAvailable) && (
               <button
                 type="button"
-                onClick={() => openLink(updateCheck.result?.releaseUrl || APP_LINKS.releases)}
+                onClick={() => openLink(updaterState?.releaseUrl || updateCheck.result?.releaseUrl || APP_LINKS.releases)}
                 className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15"
               >
                 {t('settings.openRelease')}
               </button>
             )}
+            {updaterState?.canDownloadUpdate && updaterState.phase === 'available' && (
+              <button
+                type="button"
+                onClick={handleDownloadUpdate}
+                className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15"
+              >
+                Download update
+              </button>
+            )}
+            {updaterState?.phase === 'downloaded' && (
+              <button
+                type="button"
+                onClick={handleInstallUpdate}
+                className="inline-flex h-8 items-center rounded border border-green-400/35 bg-green-500/10 px-3 text-xs text-green-200 transition-colors hover:border-green-300/55 hover:bg-green-500/15"
+              >
+                Restart and install
+              </button>
+            )}
             <button
               type="button"
               onClick={handleCheckForUpdates}
-              disabled={updateCheck.checking}
+              disabled={updateCheck.checking || updaterState?.phase === 'checking' || updaterState?.phase === 'downloading'}
               className="inline-flex h-8 items-center rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {updateCheck.checking ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
+              {updateCheck.checking || updaterState?.phase === 'checking' ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
             </button>
           </div>
         </div>
@@ -1237,6 +1402,7 @@ export default function Settings({
   onAutoNextPlayChange,
   onResetIntifaceSettings,
   onResetAllSettings,
+  onDeviceTestCommand,
   initialSection = 'general',
 }: SettingsProps) {
   const { t } = useTranslation()
@@ -1294,7 +1460,7 @@ export default function Settings({
       case 'timeline':
         return <TimelineSection settings={settings} onChange={handleChange} />
       case 'device':
-        return <DeviceSection settings={settings} onChange={handleChange} />
+        return <DeviceSection settings={settings} onChange={handleChange} onDeviceTestCommand={onDeviceTestCommand} />
       case 'shortcuts':
         return <ShortcutsSection settings={settings} onChange={handleChange} />
       case 'recovery':

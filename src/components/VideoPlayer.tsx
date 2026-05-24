@@ -132,6 +132,7 @@ interface VideoPlayerProps {
   defaultShowTimeline?: boolean
   autoFitVideoByAspect?: boolean
   rememberVideoFit?: boolean
+  videoCompatibilityMode?: string
   timelineHeight?: number
   timelineWindow?: number
   speedColors?: boolean
@@ -543,6 +544,7 @@ export default function VideoPlayer({
   defaultShowTimeline = false,
   autoFitVideoByAspect = false,
   rememberVideoFit = false,
+  videoCompatibilityMode = 'auto',
   timelineHeight = 64,
   timelineWindow = 10,
   speedColors = true,
@@ -610,6 +612,7 @@ export default function VideoPlayer({
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const diagnosticsEventsRef = useRef<PlaybackDiagnosticsEvents>(createEmptyPlaybackDiagnosticsEvents())
   const diagnosticsFramesRef = useRef<PlaybackDiagnosticsFrames>(createEmptyPlaybackDiagnosticsFrames())
+  const diagnosticsBlackFrameSampleRef = useRef<PlaybackBlackFrameSample | null>(null)
   const diagnosticsCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const playbackFrameRef = useRef<number | null>(null)
   const handledAutoPlayRequest = useRef(0)
@@ -669,7 +672,7 @@ export default function VideoPlayer({
   const segmentRepeatActive = Boolean(segmentRepeat.enabled && activeSegmentRepeat)
   const segmentRepeatReady = Boolean(activeSegmentRepeat)
   const hasSegmentRepeatDraft = segmentRepeat.draftStart !== null || segmentRepeat.draftEnd !== null
-  const fullscreenDrawerFiles = playlistFiles.slice(0, 240)
+  const fullscreenDrawerFiles = playlistFiles
   const fullscreenDrawerHasFiles = fullscreenDrawerFiles.length > 0
   const fullscreenDrawerHasScripts = Boolean(scriptSource || scriptVariants.length > 0 || onManualScriptSelect)
   const fullscreenDrawerHasDevice = Boolean(deviceInfo || onOpenDeviceSettings)
@@ -747,6 +750,7 @@ export default function VideoPlayer({
       hardwareConcurrency: navigator.hardwareConcurrency || null,
       deviceMemory: typeof deviceMemory === 'number' ? deviceMemory : null,
       mediaType,
+      videoCompatibilityMode,
       fileName: currentFileName || '',
       hasSource: Boolean(videoUrl),
       videoWidth: media instanceof HTMLVideoElement ? media.videoWidth : 0,
@@ -757,14 +761,16 @@ export default function VideoPlayer({
       readyState: media?.readyState ?? 0,
       networkState: media?.networkState ?? 0,
       paused: media?.paused ?? true,
+      mediaError: getMediaErrorSnapshot(media),
       events: { ...diagnosticsEventsRef.current },
       frames,
       quality,
       renderer,
+      blackFrameSample: diagnosticsBlackFrameSampleRef.current,
       actionCount: actions.length,
       subtitleCount: subtitleCues.length,
     }
-  }, [actions.length, currentFileName, mediaRef, mediaType, subtitleCues.length, videoUrl])
+  }, [actions.length, currentFileName, mediaRef, mediaType, subtitleCues.length, videoCompatibilityMode, videoUrl])
 
   const handleCopyDiagnostics = useCallback(async () => {
     const snapshot = collectDiagnosticsSnapshot()
@@ -831,6 +837,35 @@ export default function VideoPlayer({
       media.removeEventListener('error', handleError)
     }
   }, [mediaRef, mediaStateKey, videoUrl])
+
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!(media instanceof HTMLVideoElement) || !videoUrl || mediaType !== 'video') {
+      diagnosticsBlackFrameSampleRef.current = null
+      return
+    }
+
+    let lastSampleAt = 0
+    const sampleFrame = () => {
+      const now = performance.now()
+      if (now - lastSampleAt < 1000) return
+      lastSampleAt = now
+      diagnosticsBlackFrameSampleRef.current = sampleVideoBlackFrame(media)
+    }
+
+    const intervalId = window.setInterval(sampleFrame, 1500)
+    media.addEventListener('loadeddata', sampleFrame)
+    media.addEventListener('seeked', sampleFrame)
+    media.addEventListener('timeupdate', sampleFrame)
+    sampleFrame()
+
+    return () => {
+      window.clearInterval(intervalId)
+      media.removeEventListener('loadeddata', sampleFrame)
+      media.removeEventListener('seeked', sampleFrame)
+      media.removeEventListener('timeupdate', sampleFrame)
+    }
+  }, [mediaRef, mediaStateKey, mediaType, videoUrl])
 
   useEffect(() => {
     const media = mediaRef.current as HTMLMediaElementWithVideoFrameCallback | null
@@ -1251,6 +1286,49 @@ export default function VideoPlayer({
   const hideTopNav = useCallback(() => {
     setShowTopNav(false)
   }, [])
+
+  useEffect(() => {
+    if (!isFullscreen) return
+
+    const hideTransientFullscreenUi = () => {
+      setShowFullscreenFileDrawer(false)
+      setShowTopNav(false)
+      setShowStrokeControls(false)
+      setShowScriptOffsetControls(false)
+      setShowPlaybackRatePopover(false)
+      setShowSegmentRepeatControls(false)
+      setProgressThumbnail(null)
+
+      if (playing) {
+        clearHideControlsTimer()
+        setShowControls(false)
+      }
+    }
+
+    const handleWindowMouseOut = (event: MouseEvent) => {
+      if (event.relatedTarget) return
+      hideTransientFullscreenUi()
+    }
+    const handleWindowBlur = () => hideTransientFullscreenUi()
+    const handleVisibilityChange = () => {
+      if (document.hidden) hideTransientFullscreenUi()
+    }
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) hideTransientFullscreenUi()
+    }
+
+    window.addEventListener('mouseout', handleWindowMouseOut)
+    window.addEventListener('blur', handleWindowBlur)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+    return () => {
+      window.removeEventListener('mouseout', handleWindowMouseOut)
+      window.removeEventListener('blur', handleWindowBlur)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [clearHideControlsTimer, isFullscreen, playing])
 
   // Show device overlay for connection/status changes.
   const prevDeviceConnected = useRef<boolean | undefined>(undefined)
@@ -3424,6 +3502,24 @@ type PlaybackDiagnosticsQuality = {
   corruptedVideoFrames: number | null
 }
 
+type PlaybackMediaErrorSnapshot = {
+  code: number
+  label: string
+  message: string
+}
+
+type PlaybackBlackFrameSample = {
+  sampledAt: string
+  available: boolean
+  reason: string
+  videoWidth: number
+  videoHeight: number
+  sampleWidth: number
+  sampleHeight: number
+  averageLuma: number | null
+  nonBlackRatio: number | null
+}
+
 type WebGlRendererInfo = {
   vendor: string
   renderer: string
@@ -3442,6 +3538,7 @@ type PlaybackDiagnosticsSnapshot = {
   hardwareConcurrency: number | null
   deviceMemory: number | null
   mediaType: MediaType | null
+  videoCompatibilityMode: string
   fileName: string
   hasSource: boolean
   videoWidth: number
@@ -3452,10 +3549,12 @@ type PlaybackDiagnosticsSnapshot = {
   readyState: number
   networkState: number
   paused: boolean
+  mediaError: PlaybackMediaErrorSnapshot | null
   events: PlaybackDiagnosticsEvents
   frames: PlaybackDiagnosticsFrameSummary
   quality: PlaybackDiagnosticsQuality
   renderer: WebGlRendererInfo
+  blackFrameSample: PlaybackBlackFrameSample | null
   actionCount: number
   subtitleCount: number
 }
@@ -3523,6 +3622,113 @@ function getVideoPlaybackQualitySnapshot(media: HTMLMediaElement | null): Playba
   }
 }
 
+function getMediaErrorSnapshot(media: HTMLMediaElement | null): PlaybackMediaErrorSnapshot | null {
+  const error = media?.error
+  if (!error) return null
+
+  return {
+    code: error.code,
+    label: getMediaErrorLabel(error.code),
+    message: error.message || '',
+  }
+}
+
+function getMediaErrorLabel(code: number): string {
+  switch (code) {
+    case 1:
+      return 'aborted'
+    case 2:
+      return 'network'
+    case 3:
+      return 'decode'
+    case 4:
+      return 'source-not-supported'
+    default:
+      return 'unknown'
+  }
+}
+
+function sampleVideoBlackFrame(video: HTMLVideoElement): PlaybackBlackFrameSample {
+  const videoWidth = video.videoWidth || 0
+  const videoHeight = video.videoHeight || 0
+  const base = {
+    sampledAt: new Date().toISOString(),
+    videoWidth,
+    videoHeight,
+    sampleWidth: 0,
+    sampleHeight: 0,
+    averageLuma: null,
+    nonBlackRatio: null,
+  }
+
+  if (!videoWidth || !videoHeight) {
+    return {
+      ...base,
+      available: false,
+      reason: 'no-video-dimensions',
+    }
+  }
+
+  if (video.readyState < 2) {
+    return {
+      ...base,
+      available: false,
+      reason: 'no-current-frame',
+    }
+  }
+
+  try {
+    const sampleWidth = 24
+    const sampleHeight = 24
+    const canvas = document.createElement('canvas')
+    canvas.width = sampleWidth
+    canvas.height = sampleHeight
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) {
+      return {
+        ...base,
+        available: false,
+        reason: 'canvas-unavailable',
+      }
+    }
+
+    context.drawImage(video, 0, 0, sampleWidth, sampleHeight)
+    const data = context.getImageData(0, 0, sampleWidth, sampleHeight).data
+    let lumaSum = 0
+    let nonBlackPixels = 0
+    const pixelCount = sampleWidth * sampleHeight
+
+    for (let index = 0; index < data.length; index += 4) {
+      const luma = (data[index] * 0.2126) + (data[index + 1] * 0.7152) + (data[index + 2] * 0.0722)
+      lumaSum += luma
+      if (luma > 8 || data[index + 3] < 245) {
+        nonBlackPixels += 1
+      }
+    }
+
+    const averageLuma = lumaSum / pixelCount
+    const nonBlackRatio = nonBlackPixels / pixelCount
+
+    return {
+      sampledAt: base.sampledAt,
+      available: true,
+      reason: averageLuma <= 4 && nonBlackRatio <= 0.01 ? 'mostly-black-frame' : 'visible-frame',
+      videoWidth,
+      videoHeight,
+      sampleWidth,
+      sampleHeight,
+      averageLuma,
+      nonBlackRatio,
+    }
+  } catch (error) {
+    return {
+      ...base,
+      available: false,
+      reason: error instanceof Error && error.name ? error.name : 'sample-failed',
+    }
+  }
+}
+
 function getWebGlRendererInfo(): WebGlRendererInfo {
   if (cachedWebGlRendererInfo) {
     return cachedWebGlRendererInfo
@@ -3578,6 +3784,27 @@ function formatDiagnosticMs(value: number | null): string {
   return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)}ms` : 'unknown'
 }
 
+function formatMediaError(error: PlaybackMediaErrorSnapshot | null): string {
+  if (!error) return 'none'
+  return `${error.code} ${error.label}${error.message ? ` (${error.message})` : ''}`
+}
+
+function formatBlackFrameSample(sample: PlaybackBlackFrameSample | null): string {
+  if (!sample) return 'none'
+  if (!sample.available) {
+    return `${sample.reason} (${sample.videoWidth}x${sample.videoHeight})`
+  }
+
+  return [
+    sample.reason,
+    `${sample.videoWidth}x${sample.videoHeight}`,
+    `sample ${sample.sampleWidth}x${sample.sampleHeight}`,
+    `avg luma ${sample.averageLuma?.toFixed(2) ?? 'unknown'}`,
+    `non-black ${(sample.nonBlackRatio ?? 0).toFixed(3)}`,
+    `at ${sample.sampledAt}`,
+  ].join(', ')
+}
+
 function formatPlaybackDiagnostics(snapshot: PlaybackDiagnosticsSnapshot): string {
   return [
     'ScriptPlayer+ playback diagnostics',
@@ -3593,14 +3820,17 @@ function formatPlaybackDiagnostics(snapshot: PlaybackDiagnosticsSnapshot): strin
     `WebGL renderer: ${snapshot.renderer.renderer || 'unknown'}`,
     `Hardware renderer: ${getHardwareRendererLabel(snapshot.renderer.hardwareLikely)}`,
     `Media type: ${snapshot.mediaType}`,
+    `Video compatibility mode: ${snapshot.videoCompatibilityMode}`,
     `File: ${snapshot.fileName || 'unknown'}`,
     `Video: ${snapshot.videoWidth}x${snapshot.videoHeight}`,
     `Time: ${snapshot.currentTime.toFixed(3)} / ${snapshot.duration.toFixed(3)}`,
     `Playback rate: ${snapshot.playbackRate}`,
     `Ready/network state: ${snapshot.readyState}/${snapshot.networkState}`,
     `Paused: ${snapshot.paused}`,
+    `Media error: ${formatMediaError(snapshot.mediaError)}`,
     `Frames total/dropped/corrupted: ${formatDiagnosticInteger(snapshot.quality.totalVideoFrames)} / ${formatDiagnosticInteger(snapshot.quality.droppedVideoFrames)} / ${formatDiagnosticInteger(snapshot.quality.corruptedVideoFrames)}`,
     `Frame gaps samples/p95/max/large: ${snapshot.frames.samples} / ${formatDiagnosticMs(snapshot.frames.p95WallDeltaMs)} / ${formatDiagnosticMs(snapshot.frames.maxWallDeltaMs)} / ${snapshot.frames.largeGaps}`,
+    `Black frame sample: ${formatBlackFrameSample(snapshot.blackFrameSample)}`,
     `Events waiting/stalled/suspend/error: ${snapshot.events.waiting} / ${snapshot.events.stalled} / ${snapshot.events.suspend} / ${snapshot.events.error}`,
     `Script actions: ${snapshot.actionCount}`,
     `Subtitles: ${snapshot.subtitleCount}`,

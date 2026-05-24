@@ -16,6 +16,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showItemInFolder: (filePath: string) => ipcRenderer.invoke('shell:showItemInFolder', filePath),
   trashItem: (filePath: string) => ipcRenderer.invoke('shell:trashItem', filePath),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+  getRuntimePreferences: () => ipcRenderer.invoke('app:getRuntimePreferences'),
+  setRuntimePreferences: (preferences: { videoCompatibilityMode: string }) =>
+    ipcRenderer.invoke('app:setRuntimePreferences', preferences),
+  onMainProcessError: (listener: (error: { source: string; message: string; recoverable: boolean }) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, error: { source: string; message: string; recoverable: boolean }) => listener(error)
+    ipcRenderer.on('app:mainProcessError', wrapped)
+    return () => {
+      ipcRenderer.removeListener('app:mainProcessError', wrapped)
+    }
+  },
+  updaterGetState: () => ipcRenderer.invoke('updater:getState'),
+  updaterCheckForUpdates: () => ipcRenderer.invoke('updater:checkForUpdates'),
+  updaterDownloadUpdate: () => ipcRenderer.invoke('updater:downloadUpdate'),
+  updaterQuitAndInstall: () => ipcRenderer.invoke('updater:quitAndInstall'),
+  updaterOnState: (listener: (state: any) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: any) => listener(state)
+    ipcRenderer.on('updater:state', wrapped)
+    return () => {
+      ipcRenderer.removeListener('updater:state', wrapped)
+    }
+  },
 
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),

@@ -78,7 +78,6 @@ jobs:
         run: |
           npx vite build
           npx electron-builder --win --publish never
-          node scripts/set-icon.js
       - name: Package Windows release
         shell: pwsh
         run: |
@@ -99,7 +98,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --generate-notes
           }
-          gh release upload $tag release/ScriptPlayerPlus-*-win-x64.zip --clobber
+          $assets = @()
+          foreach ($pattern in @('release/ScriptPlayerPlus-*-win-x64.zip', 'release/*.exe', 'release/*.exe.blockmap', 'release/latest.yml')) {
+            $assets += Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          }
+          if ($assets.Count -gt 0) {
+            gh release upload $tag $assets --clobber
+          }
 
   build-mac:
     needs: prepare
@@ -123,9 +128,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          shopt -s nullglob
           tag="${{ needs.prepare.outputs.release_tag }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes || true
-          gh release upload "$tag" release/*.zip release/*.zip.blockmap --clobber
+          assets=(release/*.zip release/*.zip.blockmap release/*.dmg release/*.dmg.blockmap)
+          if [[ -f release/latest-mac.yml ]]; then
+            assets+=(release/latest-mac.yml)
+          fi
+          gh release upload "$tag" "${assets[@]}" --clobber
 
   build-linux:
     needs: prepare
@@ -147,9 +157,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          shopt -s nullglob
           tag="${{ needs.prepare.outputs.release_tag }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes || true
-          gh release upload "$tag" release/*.AppImage release/latest-linux.yml --clobber
+          assets=(release/*.AppImage release/*.AppImage.blockmap release/*.deb release/*.tar.gz)
+          if [[ -f release/latest-linux.yml ]]; then
+            assets+=(release/latest-linux.yml)
+          fi
+          gh release upload "$tag" "${assets[@]}" --clobber
 
   publish-release:
     runs-on: ubuntu-latest

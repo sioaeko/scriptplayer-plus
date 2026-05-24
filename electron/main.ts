@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, session, shell, clipboard } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
@@ -60,6 +61,35 @@ const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
 
+type VideoCompatibilityMode = 'auto' | 'disable-gpu-video-decode' | 'disable-hardware-acceleration' | 'software-renderer'
+
+interface RuntimePreferences {
+  videoCompatibilityMode: VideoCompatibilityMode
+}
+
+const RUNTIME_PREFERENCES_FILE = 'runtime-preferences.json'
+const PUBLIC_RELEASES_URL = 'https://github.com/sioaeko/scriptplayer-plus/releases'
+const DEFAULT_RUNTIME_PREFERENCES: RuntimePreferences = {
+  videoCompatibilityMode: 'auto',
+}
+
+type UpdaterPhase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+type InstallationType = 'development' | 'installer' | 'portable' | 'appimage' | 'app-bundle' | 'packaged'
+
+interface UpdaterState {
+  currentVersion: string
+  phase: UpdaterPhase
+  updateAvailable: boolean | null
+  latestVersion: string | null
+  releaseName: string | null
+  releaseUrl: string
+  error: string | null
+  progressPercent: number | null
+  autoUpdateSupported: boolean
+  canDownloadUpdate: boolean
+  installationType: InstallationType
+}
+
 if (!app.isPackaged) {
   const sharedUserDataPath = path.join(app.getPath('appData'), 'scriptplayer-plus')
   const targetUserDataPath = process.env.SCRIPTPLAYER_USE_DEV_PROFILE === '1'
@@ -68,7 +98,21 @@ if (!app.isPackaged) {
   app.setPath('userData', targetUserDataPath)
 }
 
+let runtimePreferences = loadRuntimePreferences()
+applyRuntimePreferences(runtimePreferences)
+let updaterConfigured = false
+let updaterState: UpdaterState = createInitialUpdaterState()
+
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
+process.on('uncaughtException', (error) => {
+  handleMainProcessError(error, 'uncaughtException')
+})
+
+process.on('unhandledRejection', (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason))
+  handleMainProcessError(error, 'unhandledRejection')
+})
 
 type BundledScriptAxisIndex = Map<string, Map<string, Set<ScriptAxisId>>>
 type BundledScriptLocationIndex = Map<string, Map<string, { path: string; topLevelGroup: string }>>
@@ -227,6 +271,228 @@ function isSamePathOrChildPath(targetPath: string, rootPath: string): boolean {
   return targetPath.startsWith(normalizedRoot)
 }
 
+function getRuntimePreferencesPath(): string {
+  return path.join(app.getPath('userData'), RUNTIME_PREFERENCES_FILE)
+}
+
+function normalizeVideoCompatibilityMode(value: unknown): VideoCompatibilityMode {
+  switch (value) {
+    case 'disable-gpu-video-decode':
+    case 'disable-hardware-acceleration':
+    case 'software-renderer':
+      return value
+    default:
+      return 'auto'
+  }
+}
+
+function normalizeRuntimePreferences(value: unknown): RuntimePreferences {
+  const input = value && typeof value === 'object'
+    ? value as Partial<RuntimePreferences>
+    : {}
+
+  return {
+    videoCompatibilityMode: normalizeVideoCompatibilityMode(input.videoCompatibilityMode),
+  }
+}
+
+function loadRuntimePreferences(): RuntimePreferences {
+  try {
+    const raw = fs.readFileSync(getRuntimePreferencesPath(), 'utf8')
+    return normalizeRuntimePreferences(JSON.parse(raw))
+  } catch {
+    return DEFAULT_RUNTIME_PREFERENCES
+  }
+}
+
+function saveRuntimePreferences(preferences: RuntimePreferences): RuntimePreferences {
+  const normalized = normalizeRuntimePreferences(preferences)
+  fs.mkdirSync(path.dirname(getRuntimePreferencesPath()), { recursive: true })
+  fs.writeFileSync(getRuntimePreferencesPath(), JSON.stringify(normalized, null, 2))
+  runtimePreferences = normalized
+  return normalized
+}
+
+function applyRuntimePreferences(preferences: RuntimePreferences): void {
+  switch (preferences.videoCompatibilityMode) {
+    case 'disable-gpu-video-decode':
+      app.commandLine.appendSwitch('disable-accelerated-video-decode')
+      break
+    case 'disable-hardware-acceleration':
+      app.disableHardwareAcceleration()
+      app.commandLine.appendSwitch('disable-accelerated-video-decode')
+      break
+    case 'software-renderer':
+      app.disableHardwareAcceleration()
+      app.commandLine.appendSwitch('disable-gpu')
+      app.commandLine.appendSwitch('disable-accelerated-video-decode')
+      break
+    case 'auto':
+    default:
+      break
+  }
+}
+
+function handleMainProcessError(error: Error, source: string): void {
+  const message = error?.message || String(error)
+  const stack = error?.stack || message
+  console.error(`[main:${source}]`, stack)
+
+  mainWindow?.webContents.send('app:mainProcessError', {
+    source,
+    message,
+    recoverable: /GetOverlappedResult|Operation aborted|Writing to COM port/i.test(message),
+  })
+}
+
+function createInitialUpdaterState(): UpdaterState {
+  const installationType = detectInstallationType()
+  const autoUpdateSupported = isAutoUpdateSupported(installationType)
+
+  return {
+    currentVersion: app.getVersion(),
+    phase: 'idle',
+    updateAvailable: null,
+    latestVersion: null,
+    releaseName: null,
+    releaseUrl: `${PUBLIC_RELEASES_URL}/latest`,
+    error: null,
+    progressPercent: null,
+    autoUpdateSupported,
+    canDownloadUpdate: autoUpdateSupported,
+    installationType,
+  }
+}
+
+function detectInstallationType(): InstallationType {
+  if (!app.isPackaged) {
+    return 'development'
+  }
+
+  if (process.platform === 'linux') {
+    return process.env.APPIMAGE ? 'appimage' : 'packaged'
+  }
+
+  if (process.platform === 'darwin') {
+    return 'app-bundle'
+  }
+
+  if (process.platform === 'win32') {
+    const exePath = app.getPath('exe').toLowerCase()
+    const localPrograms = path.join(app.getPath('home'), 'AppData', 'Local', 'Programs').toLowerCase()
+    const programFiles = (process.env.ProgramFiles || 'C:\\Program Files').toLowerCase()
+    const programFilesX86 = (process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)').toLowerCase()
+
+    if (exePath.startsWith(localPrograms) || exePath.startsWith(programFiles) || exePath.startsWith(programFilesX86)) {
+      return 'installer'
+    }
+
+    return 'portable'
+  }
+
+  return 'packaged'
+}
+
+function isAutoUpdateSupported(installationType: InstallationType): boolean {
+  if (!app.isPackaged) return false
+  if (installationType === 'development' || installationType === 'portable' || installationType === 'packaged') return false
+  return true
+}
+
+function configureAutoUpdater(): void {
+  if (updaterConfigured) return
+  updaterConfigured = true
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.allowPrerelease = false
+  autoUpdater.allowDowngrade = false
+
+  autoUpdater.on('checking-for-update', () => {
+    setUpdaterState({
+      phase: 'checking',
+      error: null,
+      progressPercent: null,
+    })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    setUpdaterState({
+      phase: 'available',
+      updateAvailable: true,
+      latestVersion: info.version || null,
+      releaseName: info.releaseName || `v${info.version}`,
+      releaseUrl: `${PUBLIC_RELEASES_URL}/tag/v${info.version}`,
+      error: null,
+      progressPercent: null,
+    })
+  })
+
+  autoUpdater.on('update-not-available', (info) => {
+    setUpdaterState({
+      phase: 'idle',
+      updateAvailable: false,
+      latestVersion: info.version || app.getVersion(),
+      releaseName: info.releaseName || `v${info.version || app.getVersion()}`,
+      releaseUrl: `${PUBLIC_RELEASES_URL}/latest`,
+      error: null,
+      progressPercent: null,
+    })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    setUpdaterState({
+      phase: 'downloading',
+      progressPercent: Number.isFinite(progress.percent) ? progress.percent : null,
+      error: null,
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    setUpdaterState({
+      phase: 'downloaded',
+      updateAvailable: true,
+      latestVersion: info.version || updaterState.latestVersion,
+      releaseName: info.releaseName || updaterState.releaseName,
+      releaseUrl: `${PUBLIC_RELEASES_URL}/tag/v${info.version || updaterState.latestVersion}`,
+      progressPercent: 100,
+      error: null,
+    })
+  })
+
+  autoUpdater.on('error', (error) => {
+    setUpdaterState({
+      phase: 'error',
+      error: error instanceof Error && error.message ? error.message : String(error),
+      progressPercent: null,
+    })
+  })
+}
+
+function setUpdaterState(patch: Partial<UpdaterState>): UpdaterState {
+  const installationType = detectInstallationType()
+  const autoUpdateSupported = isAutoUpdateSupported(installationType)
+
+  updaterState = {
+    ...updaterState,
+    ...patch,
+    currentVersion: app.getVersion(),
+    installationType,
+    autoUpdateSupported,
+    canDownloadUpdate: autoUpdateSupported && (patch.updateAvailable ?? updaterState.updateAvailable) === true,
+  }
+  mainWindow?.webContents.send('updater:state', updaterState)
+  return updaterState
+}
+
+function getUpdaterUnavailableState(message: string): UpdaterState {
+  return setUpdaterState({
+    phase: 'error',
+    error: message,
+    progressPercent: null,
+  })
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1480,
@@ -262,6 +528,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  configureAutoUpdater()
+
   // Register protocol for local video files
   protocol.registerFileProtocol('local-video', (request, callback) => {
     const filePath = decodeURIComponent(request.url.replace('local-video://', ''))
@@ -269,6 +537,14 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  if (updaterState.autoUpdateSupported) {
+    setTimeout(() => {
+      void autoUpdater.checkForUpdates().catch(() => {
+        // The updater state is updated by the error event.
+      })
+    }, 10000)
+  }
 
   // macOS: re-create window when dock icon clicked
   app.on('activate', () => {
@@ -293,6 +569,46 @@ ipcMain.on('window:close', () => mainWindow?.close())
 ipcMain.handle('window:setAlwaysOnTop', (_event, enabled: boolean) => {
   mainWindow?.setAlwaysOnTop(Boolean(enabled))
   return mainWindow?.isAlwaysOnTop() ?? false
+})
+
+ipcMain.handle('app:getRuntimePreferences', () => runtimePreferences)
+
+ipcMain.handle('app:setRuntimePreferences', (_event, preferences: RuntimePreferences) => (
+  saveRuntimePreferences(preferences)
+))
+
+ipcMain.handle('updater:getState', () => updaterState)
+
+ipcMain.handle('updater:checkForUpdates', async () => {
+  if (!updaterState.autoUpdateSupported) {
+    return getUpdaterUnavailableState('Automatic install is not available for this build. Please use the release page.')
+  }
+
+  configureAutoUpdater()
+  await autoUpdater.checkForUpdates()
+  return updaterState
+})
+
+ipcMain.handle('updater:downloadUpdate', async () => {
+  if (!updaterState.canDownloadUpdate) {
+    return getUpdaterUnavailableState('Automatic download is not available for this build. Please use the release page.')
+  }
+
+  configureAutoUpdater()
+  setUpdaterState({ phase: 'downloading', error: null, progressPercent: 0 })
+  await autoUpdater.downloadUpdate()
+  return updaterState
+})
+
+ipcMain.handle('updater:quitAndInstall', () => {
+  if (updaterState.phase !== 'downloaded') {
+    return false
+  }
+
+  setImmediate(() => {
+    autoUpdater.quitAndInstall(false, true)
+  })
+  return true
 })
 
 ipcMain.handle('clipboard:writeText', async (_event, text: string) => {

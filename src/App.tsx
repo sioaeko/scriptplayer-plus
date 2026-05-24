@@ -118,6 +118,7 @@ const HANDY_AUTOPLAY_REQUEST_BUFFER_MS = 220
 const AUTO_SKIP_AFTER_SEEK_SUPPRESS_MS = 1200
 const AUTO_SKIP_COOLDOWN_MS = 1000
 const AUTO_SKIP_TARGET_EPSILON_MS = 250
+type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
 const AUTO_SKIP_END_LEAD_MS = 350
 const AUTO_SKIP_MIN_POSITION_DELTA = 2
 const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
@@ -835,6 +836,8 @@ export default function App() {
   const [playlistName, setPlaylistName] = useState(() => initialStoredPlaylist?.name ?? '')
   const [playlistFilePath, setPlaylistFilePath] = useState<string | undefined>(() => initialStoredPlaylist?.filePath)
   const [currentFile, setCurrentFile] = useState<string | null>(null)
+  const [shufflePlaybackHistory, setShufflePlaybackHistory] = useState<string[]>([])
+  const [shufflePlaybackFuture, setShufflePlaybackFuture] = useState<string[]>([])
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [currentFileType, setCurrentFileType] = useState<MediaType | null>(null)
   const [artworkUrl, setArtworkUrl] = useState<string | null>(null)
@@ -883,6 +886,8 @@ export default function App() {
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCheckResult | null>(null)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const currentFileRef = useRef<string | null>(null)
+  const shufflePlaybackHistoryRef = useRef<string[]>([])
+  const shufflePlaybackFutureRef = useRef<string[]>([])
   const currentFolderPathRef = useRef<string | null>(null)
   const manualScriptPathsRef = useRef<Record<string, string>>(manualScriptPaths)
   const scriptFolderRef = useRef<string>(settings.scriptFolder)
@@ -901,6 +906,23 @@ export default function App() {
   const osrSerialIdleKeepAliveTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const appFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const osrSerialStreamRunId = useRef(0)
+
+  const commitShufflePlaybackStacks = useCallback((history: string[], future: string[]) => {
+    shufflePlaybackHistoryRef.current = history
+    shufflePlaybackFutureRef.current = future
+    setShufflePlaybackHistory(history)
+    setShufflePlaybackFuture(future)
+  }, [])
+
+  const resetShufflePlaybackStacks = useCallback(() => {
+    commitShufflePlaybackStacks([], [])
+  }, [commitShufflePlaybackStacks])
+
+  const appendShufflePlaybackHistory = useCallback((history: string[], filePath: string | null) => {
+    if (!filePath) return history
+    if (history[history.length - 1] === filePath) return history
+    return [...history, filePath]
+  }, [])
   const autoSkipSuppressedUntilRef = useRef(0)
   const autoSkipCooldownUntilRef = useRef(0)
 
@@ -1061,6 +1083,25 @@ export default function App() {
     settings.noScriptRandomStrokeEnabled,
   ])
   const primaryAxis = useMemo(() => getPrimaryAxis(effectiveFunscriptBundle), [effectiveFunscriptBundle])
+  const autoSkipAxisActions = useMemo(
+    () => buildAxisActionMap(
+      funscriptBundle?.scripts,
+      (axisId, actions, source) => {
+        const scriptInverted = !Array.isArray(source) && Boolean(source.inverted)
+
+        return transformFunscriptActions(actions, axisId === 'L0'
+          ? {
+              strokeMin: settings.strokeRangeMin,
+              strokeMax: settings.strokeRangeMax,
+              invert: scriptInverted !== settings.invertStroke,
+            }
+          : {
+              invert: scriptInverted,
+            })
+      }
+    ),
+    [funscriptBundle?.scripts, settings.invertStroke, settings.strokeRangeMax, settings.strokeRangeMin]
+  )
   const displayAxisActions = useMemo(
     () => buildAxisActionMap(
       effectiveFunscriptBundle?.scripts,
@@ -1159,8 +1200,8 @@ export default function App() {
     t,
   ])
   const autoSkipMotionModel = useMemo(
-    () => collectAutoSkipMotionModel(runtimeAxisActions, effectiveDeviceTimeOffset),
-    [effectiveDeviceTimeOffset, runtimeAxisActions]
+    () => collectAutoSkipMotionModel(autoSkipAxisActions, effectiveDeviceTimeOffset),
+    [autoSkipAxisActions, effectiveDeviceTimeOffset]
   )
   const displayFiles = useMemo(
     () => files.map((file) => ({
@@ -1186,6 +1227,22 @@ export default function App() {
     () => getAdjacentVideoFile(orderedFiles, currentFile, 'next'),
     [currentFile, orderedFiles]
   )
+  const canGoToPreviousFile = playbackMode === 'shuffle'
+    ? shufflePlaybackHistory.some((filePath) => fileEntryByPath.has(filePath))
+    : Boolean(previousSequentialFile)
+  const canGoToNextFile = playbackMode === 'shuffle'
+    ? Boolean(currentFile) && orderedFiles.length > 1
+    : Boolean(nextSequentialFile)
+  const getRandomShufflePlaybackFile = useCallback((currentPath: string, history: string[]) => {
+    const historyPaths = new Set(history)
+    const preferredCandidates = orderedFiles.filter((file) => file.path !== currentPath && !historyPaths.has(file.path))
+    const candidates = preferredCandidates.length > 0
+      ? preferredCandidates
+      : orderedFiles.filter((file) => file.path !== currentPath)
+
+    if (candidates.length === 0) return null
+    return candidates[Math.floor(Math.random() * candidates.length)] ?? null
+  }, [orderedFiles])
   const currentSidebarFile = useMemo(
     () => orderedFiles.find((file) => file.path === currentFile) ?? null,
     [currentFile, orderedFiles]
@@ -1220,6 +1277,18 @@ export default function App() {
   useEffect(() => {
     currentFileRef.current = currentFile
   }, [currentFile])
+
+  useEffect(() => {
+    const availablePaths = new Set(orderedFiles.map((file) => file.path))
+    const nextHistory = shufflePlaybackHistoryRef.current.filter((filePath) => availablePaths.has(filePath))
+    const nextFuture = shufflePlaybackFutureRef.current.filter((filePath) => availablePaths.has(filePath))
+    const historyChanged = nextHistory.length !== shufflePlaybackHistoryRef.current.length
+    const futureChanged = nextFuture.length !== shufflePlaybackFutureRef.current.length
+
+    if (historyChanged || futureChanged) {
+      commitShufflePlaybackStacks(nextHistory, nextFuture)
+    }
+  }, [commitShufflePlaybackStacks, orderedFiles])
 
   useEffect(() => {
     manualScriptPathsRef.current = manualScriptPaths
@@ -1565,6 +1634,17 @@ export default function App() {
     }, feedback.tone === 'error' ? 4200 : 2600)
   }, [])
 
+  useEffect(() => {
+    return window.electronAPI?.onMainProcessError?.((error) => {
+      showAppFeedback({
+        tone: error.recoverable ? 'error' : 'info',
+        text: error.recoverable
+          ? `Device I/O recovered: ${error.message}`
+          : `Main process warning: ${error.message}`,
+      })
+    })
+  }, [showAppFeedback])
+
   const stopButtplugPlayback = useCallback(
     async (options?: { stopDevice?: boolean }) => {
       buttplugStreamRunId.current += 1
@@ -1580,6 +1660,48 @@ export default function App() {
     },
     [clearButtplugStreamTimer, selectedButtplugDeviceIndex]
   )
+
+  const sendButtplugDeviceTest = useCallback(async (axisId: ScriptAxisId): Promise<boolean> => {
+    if (!selectedButtplugDevice || !buttplugConnected) return false
+
+    const actionMap: AxisActionMap = {
+      [axisId]: [
+        { at: 0, pos: axisId.startsWith('R') ? 40 : 18 },
+        { at: 220, pos: axisId.startsWith('R') ? 78 : 86 },
+      ],
+    }
+    const command = buildButtplugTransportCommand(
+      selectedButtplugDevice,
+      selectedButtplugFeatureMappings,
+      actionMap,
+      0,
+      220,
+      300,
+      {
+        legacyVibrationFallback: allowsLegacyVibrationFallback(deviceCompatibilityPreset),
+        preferRawTCode: prefersRawTCode(deviceCompatibilityPreset),
+      }
+    )
+
+    return buttplugService.sendDeviceFrame(selectedButtplugDevice.index, command.frame, { rawTCode: command.rawTCode })
+  }, [buttplugConnected, deviceCompatibilityPreset, selectedButtplugDevice, selectedButtplugFeatureMappings])
+
+  const sendOsrSerialDeviceTest = useCallback(async (axisId: ScriptAxisId): Promise<boolean> => {
+    if (!osrSerialConnected || !availableOsrSerialAxes.includes(axisId)) return false
+
+    const actionMap: AxisActionMap = {
+      [axisId]: [
+        { at: 0, pos: axisId.startsWith('R') ? 40 : 18 },
+        { at: 220, pos: axisId.startsWith('R') ? 78 : 86 },
+      ],
+    }
+    const command = buildTCodeCommand(actionMap, 220, {
+      axisIds: [axisId],
+      axisOutputOptions: osrSerialAxisOutputOptions,
+    })
+
+    return command ? osrSerialService.writeCommand(command) : false
+  }, [availableOsrSerialAxes, osrSerialAxisOutputOptions, osrSerialConnected])
 
   const startButtplugPlayback = useCallback(async () => {
     const media = mediaRef.current
@@ -1620,7 +1742,10 @@ export default function App() {
         }
       )
 
-      await buttplugService.sendDeviceFrame(selectedButtplugDevice.index, command.frame, { rawTCode: command.rawTCode })
+      const sent = await buttplugService.sendDeviceFrame(selectedButtplugDevice.index, command.frame, { rawTCode: command.rawTCode })
+      if (!sent) {
+        void buttplugService.refreshDevices()
+      }
 
       if (runId !== buttplugStreamRunId.current) return
       buttplugStreamTimer.current = setTimeout(() => {
@@ -2282,33 +2407,118 @@ export default function App() {
   ])
 
   const handleFileSelect = useCallback(async (file: VideoFile) => {
+    resetShufflePlaybackStacks()
     await openMediaFile(file.path, file.type, {
       autoplay: settings.handyAutoPlayAfterSync && deviceProvider === 'handy' && handyConnected,
       preferredScriptPath: file.autoScriptPath,
     })
-  }, [deviceProvider, handyConnected, openMediaFile, settings.handyAutoPlayAfterSync])
+  }, [deviceProvider, handyConnected, openMediaFile, resetShufflePlaybackStacks, settings.handyAutoPlayAfterSync])
 
   const handleNextFile = useCallback(async (options?: { autoplay?: boolean }) => {
+    const shouldAutoplay = options?.autoplay ?? Boolean(mediaRef.current && !mediaRef.current.paused)
+
+    if (playbackMode === 'shuffle') {
+      const activeFilePath = currentFileRef.current
+      if (!activeFilePath || orderedFiles.length <= 1) return
+
+      const history = shufflePlaybackHistoryRef.current
+      let future = shufflePlaybackFutureRef.current
+      let nextFile: VideoFile | null = null
+      const futurePath = future[future.length - 1]
+
+      if (futurePath && futurePath !== activeFilePath) {
+        const futureFile = fileEntryByPath.get(futurePath)
+        if (futureFile) {
+          nextFile = futureFile
+          future = future.slice(0, -1)
+        } else {
+          future = future.filter((filePath) => fileEntryByPath.has(filePath))
+        }
+      }
+
+      const nextHistory = appendShufflePlaybackHistory(history, activeFilePath)
+      if (!nextFile) {
+        nextFile = getRandomShufflePlaybackFile(activeFilePath, nextHistory)
+        future = []
+      }
+      if (!nextFile) return
+
+      await openMediaFile(nextFile.path, nextFile.type, {
+        autoplay: shouldAutoplay,
+        preferredScriptPath: nextFile.autoScriptPath,
+      })
+      commitShufflePlaybackStacks(nextHistory, future)
+      return
+    }
+
     const nextFile = getAdjacentVideoFile(orderedFiles, currentFile, 'next')
     if (!nextFile) return
 
-    const shouldAutoplay = options?.autoplay ?? Boolean(mediaRef.current && !mediaRef.current.paused)
     await openMediaFile(nextFile.path, nextFile.type, {
       autoplay: shouldAutoplay,
       preferredScriptPath: nextFile.autoScriptPath,
     })
-  }, [currentFile, openMediaFile, orderedFiles])
+  }, [
+    appendShufflePlaybackHistory,
+    commitShufflePlaybackStacks,
+    currentFile,
+    fileEntryByPath,
+    getRandomShufflePlaybackFile,
+    openMediaFile,
+    orderedFiles,
+    playbackMode,
+  ])
 
   const handlePreviousFile = useCallback(async (options?: { autoplay?: boolean }) => {
+    const shouldAutoplay = options?.autoplay ?? Boolean(mediaRef.current && !mediaRef.current.paused)
+
+    if (playbackMode === 'shuffle') {
+      const activeFilePath = currentFileRef.current
+      let nextHistory = shufflePlaybackHistoryRef.current
+      if (!activeFilePath || nextHistory.length === 0) return
+
+      let previousFile: VideoFile | null = null
+      while (!previousFile && nextHistory.length > 0) {
+        const previousPath = nextHistory[nextHistory.length - 1]
+        nextHistory = nextHistory.slice(0, -1)
+        if (previousPath !== activeFilePath) {
+          previousFile = fileEntryByPath.get(previousPath) ?? null
+        }
+      }
+
+      if (!previousFile) {
+        commitShufflePlaybackStacks(nextHistory, shufflePlaybackFutureRef.current)
+        return
+      }
+
+      const nextFuture = [
+        ...shufflePlaybackFutureRef.current.filter((filePath) => filePath !== activeFilePath),
+        activeFilePath,
+      ]
+
+      await openMediaFile(previousFile.path, previousFile.type, {
+        autoplay: shouldAutoplay,
+        preferredScriptPath: previousFile.autoScriptPath,
+      })
+      commitShufflePlaybackStacks(nextHistory, nextFuture)
+      return
+    }
+
     const previousFile = getAdjacentVideoFile(orderedFiles, currentFile, 'previous')
     if (!previousFile) return
 
-    const shouldAutoplay = options?.autoplay ?? Boolean(mediaRef.current && !mediaRef.current.paused)
     await openMediaFile(previousFile.path, previousFile.type, {
       autoplay: shouldAutoplay,
       preferredScriptPath: previousFile.autoScriptPath,
     })
-  }, [currentFile, openMediaFile, orderedFiles])
+  }, [
+    commitShufflePlaybackStacks,
+    currentFile,
+    fileEntryByPath,
+    openMediaFile,
+    orderedFiles,
+    playbackMode,
+  ])
 
   const handleManualScriptSelect = useCallback(async (file: VideoFile) => {
     const scriptPath = await window.electronAPI.openScriptFile()
@@ -2772,13 +2982,37 @@ export default function App() {
   ])
 
   const handleEnded = useCallback(async () => {
+    if (playbackMode === 'shuffle') {
+      const activeFilePath = currentFileRef.current
+      if (!activeFilePath || orderedFiles.length <= 1) return
+
+      const nextHistory = appendShufflePlaybackHistory(shufflePlaybackHistoryRef.current, activeFilePath)
+      const nextFile = getRandomShufflePlaybackFile(activeFilePath, nextHistory)
+      if (!nextFile) return
+
+      await openMediaFile(nextFile.path, nextFile.type, {
+        autoplay: true,
+        preferredScriptPath: nextFile.autoScriptPath,
+      })
+      commitShufflePlaybackStacks(nextHistory, [])
+      return
+    }
+
     const nextFile = getNextPlaybackFile(orderedFiles, currentFile, playbackMode)
     if (!nextFile) return
     await openMediaFile(nextFile.path, nextFile.type, {
       autoplay: true,
       preferredScriptPath: nextFile.autoScriptPath,
     })
-  }, [currentFile, openMediaFile, orderedFiles, playbackMode])
+  }, [
+    appendShufflePlaybackHistory,
+    commitShufflePlaybackStacks,
+    currentFile,
+    getRandomShufflePlaybackFile,
+    openMediaFile,
+    orderedFiles,
+    playbackMode,
+  ])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3377,6 +3611,50 @@ export default function App() {
     showAppFeedback,
   ])
 
+  const handleDeviceTestCommand = useCallback(async (command: DeviceTestCommand) => {
+    try {
+      if (command === 'stop') {
+        if (deviceProvider === 'buttplug') {
+          await stopButtplugPlayback({ stopDevice: true })
+        } else if (deviceProvider === 'serial') {
+          await stopOsrSerialPlayback({ homeDevice: true })
+        } else if (deviceProvider === 'handy') {
+          await handyService.hsspStop()
+        }
+        showAppFeedback({ tone: 'success', text: 'Device stop command sent.' })
+        return
+      }
+
+      const axisId = command as ScriptAxisId
+      let ok = false
+
+      if (deviceProvider === 'buttplug') {
+        await stopButtplugPlayback({ stopDevice: false })
+        ok = await sendButtplugDeviceTest(axisId)
+      } else if (deviceProvider === 'serial') {
+        await stopOsrSerialPlayback({ homeDevice: false })
+        ok = await sendOsrSerialDeviceTest(axisId)
+      }
+
+      showAppFeedback({
+        tone: ok ? 'success' : 'error',
+        text: ok ? `${command} test command sent.` : `${command} test is not available for the current device.`,
+      })
+    } catch (error) {
+      showAppFeedback({
+        tone: 'error',
+        text: error instanceof Error && error.message ? error.message : 'Device test failed.',
+      })
+    }
+  }, [
+    deviceProvider,
+    sendButtplugDeviceTest,
+    sendOsrSerialDeviceTest,
+    showAppFeedback,
+    stopButtplugPlayback,
+    stopOsrSerialPlayback,
+  ])
+
   const deviceInfo = useMemo(() => {
     if (deviceProvider === 'handy') {
       const uploadState = handyAutoPlayStatusText
@@ -3576,9 +3854,9 @@ export default function App() {
           playlistFiles={orderedFiles}
           onPlaylistFileSelect={handleFileSelect}
           autoPlayRequestId={autoPlayRequestId}
-          canGoToPreviousFile={Boolean(previousSequentialFile)}
+          canGoToPreviousFile={canGoToPreviousFile}
           onPreviousFile={handlePreviousFile}
-          canGoToNextFile={Boolean(nextSequentialFile)}
+          canGoToNextFile={canGoToNextFile}
           onNextFile={handleNextFile}
           playbackMode={playbackMode}
           onPlaybackModeChange={setPlaybackMode}
@@ -3603,6 +3881,7 @@ export default function App() {
           defaultShowTimeline={settings.showTimelineByDefault}
           autoFitVideoByAspect={settings.autoFitVideoByAspect}
           rememberVideoFit={settings.rememberVideoFit}
+          videoCompatibilityMode={settings.videoCompatibilityMode}
           timelineHeight={settings.timelineHeight}
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}
@@ -3627,6 +3906,7 @@ export default function App() {
         onAutoNextPlayChange={handleAutoNextPlayChange}
         onResetIntifaceSettings={handleResetIntifaceSettings}
         onResetAllSettings={handleResetAllSettings}
+        onDeviceTestCommand={handleDeviceTestCommand}
         initialSection={settingsSection}
       />
     </div>

@@ -1,3 +1,4 @@
+import { VideoCompatibilityMode } from '../types'
 import { createDefaultShortcutBindings, normalizeShortcutBindings, ShortcutBindings } from './shortcuts'
 import {
   NO_SCRIPT_STROKE_MAX_SPM,
@@ -22,6 +23,12 @@ export const MOTION_SPEED_LIMIT_PRESET_VALUES: Record<Exclude<MotionSpeedLimitPr
 export const NO_SCRIPT_RANDOM_FILL_GAP_MIN_SECONDS = 2
 export const NO_SCRIPT_RANDOM_FILL_GAP_MAX_SECONDS = 60
 export const NO_SCRIPT_RANDOM_FILL_GAP_STEP_SECONDS = 1
+export const VIDEO_COMPATIBILITY_MODES: VideoCompatibilityMode[] = [
+  'auto',
+  'disable-gpu-video-decode',
+  'disable-hardware-acceleration',
+  'software-renderer',
+]
 
 export type UiScaleValue = typeof UI_SCALE_OPTIONS[number]
 export type MotionSpeedLimitPreset = typeof MOTION_SPEED_LIMIT_PRESETS[number]
@@ -39,6 +46,7 @@ export interface AppSettings {
   subtitleFontSize: number // px, 14-32
   autoFitVideoByAspect: boolean
   rememberVideoFit: boolean
+  videoCompatibilityMode: VideoCompatibilityMode
 
   // Timeline
   showHeatmapByDefault: boolean
@@ -91,6 +99,7 @@ function createDefaultSettings(): AppSettings {
     subtitleFontSize: 20,
     autoFitVideoByAspect: false,
     rememberVideoFit: false,
+    videoCompatibilityMode: 'auto',
     showHeatmapByDefault: false,
     showTimelineByDefault: false,
     timelineHeight: 64,
@@ -187,6 +196,12 @@ function inferMotionSpeedLimitPreset(enabled: boolean, limit: number): MotionSpe
   return 'custom'
 }
 
+function normalizeVideoCompatibilityMode(value: unknown): VideoCompatibilityMode {
+  return VIDEO_COMPATIBILITY_MODES.includes(value as VideoCompatibilityMode)
+    ? value as VideoCompatibilityMode
+    : createDefaultSettings().videoCompatibilityMode
+}
+
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -231,6 +246,7 @@ export function loadSettings(): AppSettings {
       rememberVideoFit: typeof (parsed as { rememberVideoFit?: unknown })?.rememberVideoFit === 'boolean'
         ? (parsed as { rememberVideoFit: boolean }).rememberVideoFit
         : defaults.rememberVideoFit,
+      videoCompatibilityMode: normalizeVideoCompatibilityMode((parsed as { videoCompatibilityMode?: unknown })?.videoCompatibilityMode),
       noScriptRandomFillGapMinDuration,
       keyboardShortcuts: normalizeShortcutBindings((parsed as { keyboardShortcuts?: unknown })?.keyboardShortcuts),
     }

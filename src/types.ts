@@ -47,6 +47,23 @@ export interface FunscriptBundle {
 
 export type MediaType = 'video' | 'audio'
 export type PlaybackMode = 'none' | 'sequential' | 'shuffle'
+export type VideoCompatibilityMode = 'auto' | 'disable-gpu-video-decode' | 'disable-hardware-acceleration' | 'software-renderer'
+export type UpdaterPhase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+export type InstallationType = 'development' | 'installer' | 'portable' | 'appimage' | 'app-bundle' | 'packaged'
+
+export interface UpdaterState {
+  currentVersion: string
+  phase: UpdaterPhase
+  updateAvailable: boolean | null
+  latestVersion: string | null
+  releaseName: string | null
+  releaseUrl: string
+  error: string | null
+  progressPercent: number | null
+  autoUpdateSupported: boolean
+  canDownloadUpdate: boolean
+  installationType: InstallationType
+}
 
 export interface VideoFile {
   name: string
@@ -117,6 +134,14 @@ declare global {
       showItemInFolder: (filePath: string) => Promise<boolean>
       trashItem: (filePath: string) => Promise<boolean>
       openExternal: (url: string) => Promise<boolean>
+      getRuntimePreferences: () => Promise<{ videoCompatibilityMode: VideoCompatibilityMode }>
+      setRuntimePreferences: (preferences: { videoCompatibilityMode: VideoCompatibilityMode }) => Promise<{ videoCompatibilityMode: VideoCompatibilityMode }>
+      onMainProcessError: (listener: (error: { source: string; message: string; recoverable: boolean }) => void) => () => void
+      updaterGetState: () => Promise<UpdaterState>
+      updaterCheckForUpdates: () => Promise<UpdaterState>
+      updaterDownloadUpdate: () => Promise<UpdaterState>
+      updaterQuitAndInstall: () => Promise<boolean>
+      updaterOnState: (listener: (state: UpdaterState) => void) => () => void
       minimize: () => void
       maximize: () => void
       close: () => void

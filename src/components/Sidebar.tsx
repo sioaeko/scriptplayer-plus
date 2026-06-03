@@ -11,7 +11,7 @@ import { useTranslation } from '../i18n'
 import EroScriptsPanel from './EroScriptsPanel'
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
-type DeviceCompatibilityPreset = 'auto' | 'lovense-vibration' | 'sr1-bluetooth' | 'tcode-raw' | 'multi-axis-strict'
+type DeviceCompatibilityPreset = 'auto' | 'lovense-vibration' | 'sr1-bluetooth' | 'sr-safe-pause' | 'tcode-raw' | 'multi-axis-strict'
 
 const DEVICE_COMPATIBILITY_PRESETS = [
   {
@@ -30,6 +30,11 @@ const DEVICE_COMPATIBILITY_PRESETS = [
     descriptionKey: 'device.compatibilityPreset.sr1BluetoothDesc',
   },
   {
+    value: 'sr-safe-pause',
+    labelKey: 'device.compatibilityPreset.srSafePause',
+    descriptionKey: 'device.compatibilityPreset.srSafePauseDesc',
+  },
+  {
     value: 'tcode-raw',
     labelKey: 'device.compatibilityPreset.tcodeRaw',
     descriptionKey: 'device.compatibilityPreset.tcodeRawDesc',
@@ -46,6 +51,102 @@ const DEVICE_COMPATIBILITY_PRESETS = [
 }>
 
 const LOVENSE_VIBRATION_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['V0', 'V1']
+
+interface InlineOption {
+  value: string
+  label: string
+  description?: string
+}
+
+interface InlineOptionMenuProps {
+  value: string
+  options: InlineOption[]
+  onChange: (value: string) => void
+  ariaLabel: string
+  disabled?: boolean
+  className?: string
+}
+
+function InlineOptionMenu({ value, options, onChange, ariaLabel, disabled = false, className = '' }: InlineOptionMenuProps) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const selectedOption = options.find((option) => option.value === value) ?? options[0]
+
+  useEffect(() => {
+    if (!open) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div ref={menuRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+        className={`flex w-full items-center justify-between gap-2 rounded border border-surface-100/30 bg-surface-300 px-3 py-2 text-left text-xs text-text-primary outline-none transition-colors hover:border-accent/35 disabled:cursor-not-allowed disabled:opacity-50 ${
+          open ? 'border-accent/45' : ''
+        }`}
+      >
+        <span className="min-w-0 truncate">{selectedOption?.label ?? value}</span>
+        <ChevronDown size={14} className={`shrink-0 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="absolute left-0 right-0 z-[90] mt-1 max-h-64 overflow-y-auto rounded-lg border border-surface-100/35 bg-surface-300 p-1 shadow-2xl"
+        >
+          {options.map((option) => {
+            const active = option.value === value
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(option.value)
+                  setOpen(false)
+                }}
+                className={`w-full rounded px-2.5 py-2 text-left transition-colors ${
+                  active
+                    ? 'bg-accent/10 text-accent'
+                    : 'text-text-secondary hover:bg-surface-200/70 hover:text-text-primary'
+                }`}
+              >
+                <div className="truncate text-xs font-medium">{option.label}</div>
+                {option.description && (
+                  <div className={`mt-0.5 line-clamp-2 text-[10px] ${active ? 'text-accent/75' : 'text-text-muted'}`}>
+                    {option.description}
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface HandyHistoryEntry {
   key: string
@@ -149,6 +250,8 @@ interface SidebarProps {
   deviceCompatibilityPreset: DeviceCompatibilityPreset
   onDeviceCompatibilityPresetChange: (preset: DeviceCompatibilityPreset) => void
   onCopyDeviceDiagnostics: () => void | Promise<void>
+  onCopyIssueReport: () => void | Promise<void>
+  onCopyLastIssueReport: () => void | Promise<void>
   handyConnected: boolean
   onHandyConnect: (key: string) => void | Promise<void>
   onHandyDisconnect: () => void | Promise<void>
@@ -265,6 +368,8 @@ export default function Sidebar({
   deviceCompatibilityPreset,
   onDeviceCompatibilityPresetChange,
   onCopyDeviceDiagnostics,
+  onCopyIssueReport,
+  onCopyLastIssueReport,
   handyConnected,
   onHandyConnect,
   onHandyDisconnect,
@@ -318,9 +423,11 @@ export default function Sidebar({
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null)
   const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null)
   const [copiedScriptPath, setCopiedScriptPath] = useState<string | null>(null)
+  const [scriptMatchReportCopied, setScriptMatchReportCopied] = useState(false)
   const autoConnectAttempted = useRef(false)
   const hoverPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copiedScriptPathTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copiedScriptMatchReportTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hoverPreviewRequestId = useRef(0)
   const hoverPreviewUrlCache = useRef(new Map<string, string>())
 
@@ -346,7 +453,19 @@ export default function Sidebar({
     [folderGroups]
   )
   const currentScriptPath = isRealScriptSource(currentScriptSource) ? currentScriptSource : null
-  const showScriptVariantPanel = Boolean(currentFile) && (scriptVariants.length > 1 || scriptVariantOverrideActive || Boolean(currentScriptPath))
+  const scriptMatchModeLabel = currentScriptSource?.startsWith('generated://')
+    ? t('sidebar.scriptMatchModeGenerated')
+    : scriptVariantOverrideActive
+      ? t('sidebar.scriptMatchModeManual')
+      : currentScriptPath
+        ? t('sidebar.scriptMatchModeAuto')
+        : t('sidebar.scriptMatchModeNone')
+  const showScriptVariantPanel = Boolean(currentFile) && (
+    scriptVariants.length > 0 ||
+    scriptVariantOverrideActive ||
+    Boolean(currentScriptPath) ||
+    Boolean(scriptFolder)
+  )
   const hasSubfolders = folderGroups.length > 1 || (folderGroups.length === 1 && folderGroups[0].folder !== '')
   const hasRefreshableFiles = files.length > 0
   const activeDeviceConnected = deviceProvider === 'handy'
@@ -439,6 +558,41 @@ export default function Sidebar({
       setCopiedScriptPath(null)
     }, 1200)
   }, [])
+
+  const copyScriptMatchReport = useCallback(async () => {
+    const lines = [
+      'ScriptPlayer+ script match report',
+      `Captured: ${new Date().toISOString()}`,
+      `Current media: ${currentFile ? `${getFileName(currentFile)} (path redacted)` : 'none'}`,
+      `Mode: ${scriptMatchModeLabel}`,
+      `Active script: ${currentScriptPath ? `${getFileName(currentScriptPath)} (path redacted)` : 'none'}`,
+      `Manual override: ${scriptVariantOverrideActive ? 'yes' : 'no'}`,
+      `Script folder: ${scriptFolder ? 'configured (path redacted)' : 'none'}`,
+      `Variants: ${scriptVariants.length}`,
+      ...(
+        scriptVariants.length > 0
+          ? scriptVariants.map((variant, index) => {
+              return [
+                `${index + 1}. ${getFileName(variant.path)} (path redacted)`,
+                `source=${variant.source}`,
+                `axes=${variant.axes.join('/') || 'none'}`,
+                `default=${variant.isDefault ? 'yes' : 'no'}`,
+                `active=${currentScriptSource === variant.path ? 'yes' : 'no'}`,
+              ].join(' | ')
+            })
+          : ['No variants found.']
+      ),
+    ]
+    const ok = await window.electronAPI.writeClipboardText(lines.join('\n'))
+    if (!ok) return
+
+    setScriptMatchReportCopied(true)
+    if (copiedScriptMatchReportTimer.current) clearTimeout(copiedScriptMatchReportTimer.current)
+    copiedScriptMatchReportTimer.current = setTimeout(() => {
+      copiedScriptMatchReportTimer.current = null
+      setScriptMatchReportCopied(false)
+    }, 1400)
+  }, [currentFile, currentScriptPath, currentScriptSource, scriptFolder, scriptMatchModeLabel, scriptVariantOverrideActive, scriptVariants])
 
   const openScriptFolder = useCallback(async (scriptPath: string) => {
     await window.electronAPI.showItemInFolder(scriptPath)
@@ -574,6 +728,9 @@ export default function Sidebar({
   useEffect(() => () => {
     if (copiedScriptPathTimer.current) {
       clearTimeout(copiedScriptPathTimer.current)
+    }
+    if (copiedScriptMatchReportTimer.current) {
+      clearTimeout(copiedScriptMatchReportTimer.current)
     }
   }, [])
 
@@ -753,16 +910,17 @@ export default function Sidebar({
               </button>
             </div>
             <div className="px-2 pb-2 flex gap-2">
-              <select
+              <InlineOptionMenu
                 value={videoSort.field}
-                onChange={(event) => handleSortFieldChange(event.target.value as VideoSortState['field'])}
-                className="flex-1 bg-surface-300 text-text-secondary text-[10px] px-2.5 py-1.5 rounded border border-surface-100/30 outline-none hover:text-text-primary"
-                aria-label={t('sidebar.sortBy')}
-              >
-                <option value="path">{t('sidebar.sortByPath')}</option>
-                <option value="name">{t('sidebar.sortByName')}</option>
-                <option value="modified">{t('sidebar.sortByModified')}</option>
-              </select>
+                onChange={(value) => handleSortFieldChange(value as VideoSortState['field'])}
+                ariaLabel={t('sidebar.sortBy')}
+                className="flex-1"
+                options={[
+                  { value: 'path', label: t('sidebar.sortByPath') },
+                  { value: 'name', label: t('sidebar.sortByName') },
+                  { value: 'modified', label: t('sidebar.sortByModified') },
+                ]}
+              />
               <button
                 onClick={handleSortDirectionToggle}
                 className="min-w-[56px] px-2.5 py-1.5 rounded border border-surface-100/30 bg-surface-300 text-[10px] text-text-secondary transition-colors hover:text-text-primary"
@@ -829,8 +987,47 @@ export default function Sidebar({
                       {getFileName(currentScriptPath)}
                     </div>
                   )}
+                  <div className="mb-2 rounded border border-surface-100/20 bg-surface-200/30 px-2 py-1.5 text-[10px] text-text-muted">
+                    <div className="mb-1 font-medium uppercase tracking-wider text-text-secondary">
+                      {t('sidebar.scriptMatchDebug')}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span>{t('sidebar.scriptMatchMode')}</span>
+                        <span className="truncate text-text-secondary">{scriptMatchModeLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>{t('sidebar.scriptMatchActive')}</span>
+                        <span className="truncate text-text-secondary">
+                          {currentScriptPath ? getFileName(currentScriptPath) : t('sidebar.scriptMatchNone')}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>{t('sidebar.scriptMatchVariantsFound')}</span>
+                        <span className="text-text-secondary">{scriptVariants.length}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span>{t('sidebar.scriptMatchFolder')}</span>
+                        <span className="text-text-secondary">
+                          {scriptFolder ? t('sidebar.configured') : t('sidebar.notConfigured')}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void copyScriptMatchReport()}
+                      className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-surface-100/25 bg-surface-100/15 px-2 text-[10px] text-text-secondary transition-colors hover:border-accent/35 hover:text-accent"
+                    >
+                      <Copy size={11} />
+                      {scriptMatchReportCopied ? t('sidebar.scriptMatchReportCopied') : t('sidebar.copyScriptMatchReport')}
+                    </button>
+                  </div>
                   <div className="space-y-1.5">
-                    {scriptVariants.map((variant) => {
+                    {scriptVariants.length === 0 ? (
+                      <div className="rounded border border-surface-100/20 bg-surface-200/30 px-2.5 py-2 text-[10px] text-text-muted">
+                        {t('sidebar.scriptMatchNoVariants')}
+                      </div>
+                    ) : scriptVariants.map((variant) => {
                       const active = currentScriptSource === variant.path
                       const meta = [
                         variant.source === 'local'
@@ -914,32 +1111,32 @@ export default function Sidebar({
               <label className="text-[10px] text-text-muted uppercase tracking-wider block mb-1.5">
                 {t('device.provider')}
               </label>
-              <select
+              <InlineOptionMenu
                 value={deviceProvider}
-                onChange={(event) => onDeviceProviderChange(event.target.value as DeviceProvider)}
-                className="w-full bg-surface-300 text-text-primary text-xs px-3 py-2 rounded border border-surface-100/30 focus:border-accent/50 outline-none"
-              >
-                <option value="handy">{t('device.providerHandy')}</option>
-                <option value="serial">{t('device.providerSerial')}</option>
-                <option value="buttplug">{t('device.providerIntiface')}</option>
-              </select>
+                onChange={(value) => onDeviceProviderChange(value as DeviceProvider)}
+                ariaLabel={t('device.provider')}
+                options={[
+                  { value: 'handy', label: t('device.providerHandy') },
+                  { value: 'serial', label: t('device.providerSerial') },
+                  { value: 'buttplug', label: t('device.providerIntiface') },
+                ]}
+              />
             </div>
 
             <div className="rounded border border-surface-100/25 bg-surface-300/45 p-2.5 space-y-2">
               <label className="text-[10px] text-text-muted uppercase tracking-wider block">
                 {t('device.compatibilityPreset')}
               </label>
-              <select
+              <InlineOptionMenu
                 value={deviceCompatibilityPreset}
-                onChange={(event) => onDeviceCompatibilityPresetChange(event.target.value as DeviceCompatibilityPreset)}
-                className="w-full bg-surface-300 text-text-primary text-xs px-3 py-2 rounded border border-surface-100/30 focus:border-accent/50 outline-none"
-              >
-                {DEVICE_COMPATIBILITY_PRESETS.map((preset) => (
-                  <option key={preset.value} value={preset.value}>
-                    {t(preset.labelKey)}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => onDeviceCompatibilityPresetChange(value as DeviceCompatibilityPreset)}
+                ariaLabel={t('device.compatibilityPreset')}
+                options={DEVICE_COMPATIBILITY_PRESETS.map((preset) => ({
+                  value: preset.value,
+                  label: t(preset.labelKey),
+                  description: t(preset.descriptionKey),
+                }))}
+              />
               <p className="text-[10px] text-text-muted leading-relaxed">
                 {t(selectedDeviceCompatibilityPreset.descriptionKey)}
               </p>
@@ -950,6 +1147,22 @@ export default function Sidebar({
               >
                 <Copy size={12} />
                 {t('device.copyDiagnostics')}
+              </button>
+              <button
+                type="button"
+                onClick={onCopyIssueReport}
+                className="w-full py-2 text-xs bg-accent/10 text-accent hover:bg-accent/15 rounded transition-colors flex items-center justify-center gap-2"
+              >
+                <Copy size={12} />
+                {t('device.copyIssueReport')}
+              </button>
+              <button
+                type="button"
+                onClick={onCopyLastIssueReport}
+                className="w-full py-2 text-xs bg-surface-100/15 text-text-muted hover:bg-surface-100/25 hover:text-text-secondary rounded transition-colors flex items-center justify-center gap-2"
+              >
+                <Clock size={12} />
+                {t('device.copyLastIssueReport')}
               </button>
             </div>
 

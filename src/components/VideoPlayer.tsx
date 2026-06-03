@@ -133,6 +133,7 @@ interface VideoPlayerProps {
   autoFitVideoByAspect?: boolean
   rememberVideoFit?: boolean
   videoCompatibilityMode?: string
+  onTryVideoCompatibilityMode?: () => void | Promise<void>
   timelineHeight?: number
   timelineWindow?: number
   speedColors?: boolean
@@ -545,6 +546,7 @@ export default function VideoPlayer({
   autoFitVideoByAspect = false,
   rememberVideoFit = false,
   videoCompatibilityMode = 'auto',
+  onTryVideoCompatibilityMode,
   timelineHeight = 64,
   timelineWindow = 10,
   speedColors = true,
@@ -571,6 +573,8 @@ export default function VideoPlayer({
   const fullscreenFileDrawerRef = useRef<HTMLDivElement>(null)
   const fullscreenScriptOverlayRef = useRef<HTMLDivElement>(null)
   const fullscreenControlsOverlayRef = useRef<HTMLDivElement>(null)
+  const fullscreenDrawerCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fullscreenDrawerHoldUntilRef = useRef(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [diagnosticsSnapshot, setDiagnosticsSnapshot] = useState<PlaybackDiagnosticsSnapshot | null>(null)
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false)
@@ -1267,6 +1271,36 @@ export default function VideoPlayer({
     setShowFullscreenFileDrawer(event.clientX <= FULLSCREEN_FILE_DRAWER_TRIGGER_PX || keepDrawerOpen)
   }, [fullscreenDrawerAvailable, isFullscreen, resetHideTimer, showFullscreenFileDrawer])
 
+  const clearFullscreenDrawerCloseTimer = useCallback(() => {
+    if (fullscreenDrawerCloseTimer.current) {
+      clearTimeout(fullscreenDrawerCloseTimer.current)
+      fullscreenDrawerCloseTimer.current = null
+    }
+  }, [])
+
+  const holdFullscreenDrawerOpen = useCallback((durationMs = 1800) => {
+    fullscreenDrawerHoldUntilRef.current = Date.now() + durationMs
+    clearFullscreenDrawerCloseTimer()
+    setShowFullscreenFileDrawer(true)
+  }, [clearFullscreenDrawerCloseTimer])
+
+  const scheduleFullscreenDrawerClose = useCallback((delayMs = 360) => {
+    clearFullscreenDrawerCloseTimer()
+    const closeWhenReady = () => {
+      fullscreenDrawerCloseTimer.current = null
+      const remainingHoldMs = fullscreenDrawerHoldUntilRef.current - Date.now()
+      if (remainingHoldMs > 0) {
+        fullscreenDrawerCloseTimer.current = setTimeout(
+          closeWhenReady,
+          Math.min(remainingHoldMs + 120, 1200),
+        )
+        return
+      }
+      setShowFullscreenFileDrawer(false)
+    }
+    fullscreenDrawerCloseTimer.current = setTimeout(closeWhenReady, delayMs)
+  }, [clearFullscreenDrawerCloseTimer])
+
   const handleContainerMouseLeave = useCallback(() => {
     if (playing) {
       setShowControls(false)
@@ -1524,6 +1558,7 @@ export default function VideoPlayer({
       if (deviceOverlayTimer.current) clearTimeout(deviceOverlayTimer.current)
       if (scriptOffsetFeedbackTimer.current) clearTimeout(scriptOffsetFeedbackTimer.current)
       if (scriptPathCopiedTimer.current) clearTimeout(scriptPathCopiedTimer.current)
+      if (fullscreenDrawerCloseTimer.current) clearTimeout(fullscreenDrawerCloseTimer.current)
     }
   }, [clearHideControlsTimer, clearStrokeCommitTimer])
 
@@ -1954,6 +1989,9 @@ export default function VideoPlayer({
     return cleanup
   }, [autoPlayRequestId, mediaRef, mediaStateKey, videoUrl])
 
+  const videoDiagnosticsIssueKey = getVideoDiagnosticsIssueKey(diagnosticsSnapshot)
+  const showVideoDiagnosticsPrompt = Boolean(videoUrl && mediaType === 'video' && diagnosticsSnapshot && videoDiagnosticsIssueKey)
+
   return (
     <div
       ref={containerRef}
@@ -2150,7 +2188,7 @@ export default function VideoPlayer({
                     className="inline-flex h-6 items-center gap-1 rounded border border-white/10 bg-white/5 px-2 text-[10px] text-white/72 transition-colors hover:border-accent/40 hover:text-accent"
                   >
                     <Copy size={11} />
-                    {diagnosticsCopied ? '복사됨' : '진단 복사'}
+                    {diagnosticsCopied ? t('player.videoDiagnosticsCopied') : t('player.copyVideoDiagnostics')}
                   </button>
                 </div>
                 <div className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1 font-mono text-white/62">
@@ -2199,6 +2237,50 @@ export default function VideoPlayer({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {showVideoDiagnosticsPrompt && diagnosticsSnapshot && videoDiagnosticsIssueKey && (
+          <div
+            className="absolute right-3 top-3 z-20 w-[min(22rem,calc(100%-1.5rem))] rounded-xl border border-amber-300/25 bg-black/78 p-3 text-xs text-white shadow-[0_16px_44px_rgba(0,0,0,0.45)] backdrop-blur-sm"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 font-semibold text-amber-200">
+              <AlertCircle size={15} />
+              <span>{t('player.videoIssueDetected')}</span>
+            </div>
+            <p className="mt-1.5 leading-relaxed text-white/72">
+              {t(videoDiagnosticsIssueKey)}
+            </p>
+            <p className="mt-1 leading-relaxed text-white/52">
+              {t('player.videoCompatibilityHint')}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {videoCompatibilityMode === 'auto' && onTryVideoCompatibilityMode && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void onTryVideoCompatibilityMode()
+                  }}
+                  className="inline-flex h-8 items-center gap-1.5 rounded border border-amber-300/30 bg-amber-300/10 px-2.5 text-[11px] text-amber-200 transition-colors hover:border-amber-300/55 hover:bg-amber-300/15"
+                >
+                  <RefreshCw size={12} />
+                  {t('player.tryVideoCompatibilityMode')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void handleCopyDiagnostics()
+                }}
+                className="inline-flex h-8 items-center gap-1.5 rounded border border-white/10 bg-white/5 px-2.5 text-[11px] text-white/78 transition-colors hover:border-amber-300/45 hover:text-amber-200"
+              >
+                <Copy size={12} />
+                {diagnosticsCopied ? t('player.videoDiagnosticsCopied') : t('player.copyVideoDiagnostics')}
+              </button>
+            </div>
           </div>
         )}
 
@@ -2265,8 +2347,13 @@ export default function VideoPlayer({
               maxWidth: 'calc(100vw - 0.75rem)',
             }}
             onClick={(event) => event.stopPropagation()}
-            onMouseEnter={() => setShowFullscreenFileDrawer(true)}
-            onMouseLeave={() => setShowFullscreenFileDrawer(false)}
+            onFocusCapture={() => holdFullscreenDrawerOpen()}
+            onPointerDownCapture={() => holdFullscreenDrawerOpen(2600)}
+            onMouseEnter={() => {
+              clearFullscreenDrawerCloseTimer()
+              setShowFullscreenFileDrawer(true)
+            }}
+            onMouseLeave={() => scheduleFullscreenDrawerClose()}
           >
             <div className="flex h-full min-h-0 flex-col">
               <div className="border-b border-white/10 px-3 py-3">
@@ -3771,9 +3858,57 @@ function getWebGlRendererInfo(): WebGlRendererInfo {
 }
 
 function getHardwareRendererLabel(value: boolean | null): string {
-  if (value === true) return '하드웨어 렌더러로 보임'
-  if (value === false) return '소프트웨어 렌더러 의심'
-  return '확인 불가'
+  if (value === true) return 'hardware renderer likely'
+  if (value === false) return 'software renderer suspected'
+  return 'unknown'
+}
+
+function getVideoDiagnosticsIssueKey(snapshot: PlaybackDiagnosticsSnapshot | null): string | null {
+  if (!snapshot || snapshot.mediaType !== 'video' || !snapshot.hasSource) return null
+
+  if (snapshot.mediaError) {
+    return snapshot.mediaError.label === 'decode'
+      ? 'player.videoIssueDecode'
+      : 'player.videoIssueMediaError'
+  }
+
+  if (
+    snapshot.readyState >= 2 &&
+    snapshot.currentTime >= 1 &&
+    (snapshot.videoWidth <= 0 || snapshot.videoHeight <= 0)
+  ) {
+    return 'player.videoIssueNoVideoFrame'
+  }
+
+  if (
+    snapshot.currentTime >= 5 &&
+    snapshot.blackFrameSample?.available &&
+    snapshot.blackFrameSample.reason === 'mostly-black-frame'
+  ) {
+    return 'player.videoIssueBlackFrame'
+  }
+
+  const droppedFrames = snapshot.quality.droppedVideoFrames ?? 0
+  const totalFrames = snapshot.quality.totalVideoFrames ?? 0
+  const droppedFrameRatio = totalFrames > 0 ? droppedFrames / totalFrames : 0
+  const maxGap = snapshot.frames.maxWallDeltaMs ?? 0
+  const shouldEvaluateFrameDrops =
+    !snapshot.paused &&
+    snapshot.currentTime >= 5 &&
+    snapshot.frames.samples >= 120 &&
+    maxGap < 5000
+
+  if (
+    shouldEvaluateFrameDrops &&
+    (
+      snapshot.frames.largeGaps >= 18 ||
+      (droppedFrames >= 30 && droppedFrameRatio >= 0.04 && maxGap >= 250)
+    )
+  ) {
+    return 'player.videoIssueFrameDrops'
+  }
+
+  return null
 }
 
 function formatDiagnosticInteger(value: number | null): string {

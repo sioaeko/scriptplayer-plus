@@ -104,6 +104,7 @@ const CURRENT_PLAYLIST_STORAGE_KEY = 'scriptplayer-current-playlist-v1'
 const VOLUME_STORAGE_KEY = 'volume'
 const SIDEBAR_COLLAPSED_FOLDERS_STORAGE_KEY = 'sidebarCollapsedFolders'
 const DEVICE_COMPATIBILITY_PRESET_STORAGE_KEY = 'scriptplayer-device-compatibility-preset-v1'
+const RECENT_ISSUE_REPORTS_STORAGE_KEY = 'scriptplayer-recent-issue-reports-v1'
 const SCRIPT_OFFSET_MIN_MS = -5000
 const SCRIPT_OFFSET_MAX_MS = 5000
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
@@ -149,7 +150,7 @@ const APP_RESET_STORAGE_KEYS = [
 ] as const
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
-type DeviceCompatibilityPreset = 'auto' | 'lovense-vibration' | 'sr1-bluetooth' | 'tcode-raw' | 'multi-axis-strict'
+type DeviceCompatibilityPreset = 'auto' | 'lovense-vibration' | 'sr1-bluetooth' | 'sr-safe-pause' | 'tcode-raw' | 'multi-axis-strict'
 type StoredButtplugFeatureMapping = ButtplugFeatureMapping
 
 interface PendingScriptMatchState {
@@ -174,6 +175,11 @@ interface AppFeedback {
   tone: 'success' | 'info' | 'error'
 }
 
+interface RecentIssueReport {
+  capturedAt: string
+  text: string
+}
+
 function getMediaTypeFromPath(filePath: string): MediaType | null {
   const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
   if (VIDEO_EXTS.includes(ext)) return 'video'
@@ -184,6 +190,37 @@ function getMediaTypeFromPath(filePath: string): MediaType | null {
 function isScriptFilePath(filePath: string): boolean {
   const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '')
   return SCRIPT_EXTS.includes(ext)
+}
+
+function loadRecentIssueReports(): RecentIssueReport[] {
+  try {
+    const raw = localStorage.getItem(RECENT_ISSUE_REPORTS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is RecentIssueReport => (
+          item &&
+          typeof item === 'object' &&
+          typeof item.capturedAt === 'string' &&
+          typeof item.text === 'string'
+        )).slice(0, 3)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function saveRecentIssueReport(text: string, capturedAt: string) {
+  try {
+    const reports = loadRecentIssueReports()
+    const nextReports = [
+      { capturedAt, text },
+      ...reports.filter((report) => report.text !== text),
+    ].slice(0, 3)
+    localStorage.setItem(RECENT_ISSUE_REPORTS_STORAGE_KEY, JSON.stringify(nextReports))
+  } catch {
+    // Ignore storage failures
+  }
 }
 
 function removeStorageKeys(keys: readonly string[]) {
@@ -259,6 +296,7 @@ function loadDeviceCompatibilityPreset(): DeviceCompatibilityPreset {
       stored === 'auto'
       || stored === 'lovense-vibration'
       || stored === 'sr1-bluetooth'
+      || stored === 'sr-safe-pause'
       || stored === 'tcode-raw'
       || stored === 'multi-axis-strict'
     ) {
@@ -284,19 +322,23 @@ function allowsLegacyVibrationFallback(preset: DeviceCompatibilityPreset): boole
 }
 
 function prefersRawTCode(preset: DeviceCompatibilityPreset): boolean {
-  return preset === 'tcode-raw' || preset === 'sr1-bluetooth'
+  return preset === 'tcode-raw' || preset === 'sr1-bluetooth' || preset === 'sr-safe-pause'
 }
 
 function getButtplugIdleKeepAliveIntervalMs(preset: DeviceCompatibilityPreset): number {
-  return preset === 'sr1-bluetooth' || preset === 'tcode-raw'
+  return preset === 'sr1-bluetooth' || preset === 'sr-safe-pause' || preset === 'tcode-raw'
     ? 1500
     : BUTTPLUG_IDLE_KEEPALIVE_INTERVAL_MS
 }
 
 function getOsrSerialIdleKeepAliveIntervalMs(preset: DeviceCompatibilityPreset): number {
-  return preset === 'sr1-bluetooth'
+  return preset === 'sr1-bluetooth' || preset === 'sr-safe-pause'
     ? 1500
     : OSR_SERIAL_IDLE_KEEPALIVE_INTERVAL_MS
+}
+
+function getDevicePauseSuppressDurationMs(preset: DeviceCompatibilityPreset): number {
+  return preset === 'sr-safe-pause' ? 3500 : 1800
 }
 
 function loadButtplugDeviceIndex(): number | null {
@@ -906,6 +948,7 @@ export default function App() {
   const osrSerialIdleKeepAliveTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const appFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const osrSerialStreamRunId = useRef(0)
+  const devicePauseSuppressUntilRef = useRef(0)
 
   const commitShufflePlaybackStacks = useCallback((history: string[], future: string[]) => {
     shufflePlaybackHistoryRef.current = history
@@ -2291,14 +2334,30 @@ export default function App() {
     setScriptVariants([])
     setArtworkUrl(null)
 
-    const [url, nextSubtitleCues, parsedBundle, artworkPath] = await Promise.all([
+    const [url, nextSubtitleCues, initialParsedBundle, nextScriptVariants, artworkPath] = await Promise.all([
       window.electronAPI.getVideoUrl(filePath),
       loadSubtitleCues(filePath, resolvedType),
       loadScriptBundle(filePath, options?.preferredScriptPath),
+      loadScriptVariants(filePath).catch(() => []),
       resolvedType === 'audio'
         ? window.electronAPI.findArtwork(filePath)
         : Promise.resolve<string | null>(null),
     ])
+
+    let parsedBundle = initialParsedBundle
+    if (
+      !hasBundleScripts(parsedBundle)
+      && !manualScriptPathsRef.current[filePath]
+      && nextScriptVariants.length > 0
+    ) {
+      const fallbackVariant = nextScriptVariants.find((variant) => variant.isDefault) ?? nextScriptVariants[0]
+      if (fallbackVariant?.path) {
+        const fallbackBundle = await loadParsedScriptBundle(filePath, fallbackVariant.path)
+        if (hasBundleScripts(fallbackBundle)) {
+          parsedBundle = fallbackBundle
+        }
+      }
+    }
 
     if (requestId !== openMediaRequestId.current) {
       return
@@ -2310,6 +2369,7 @@ export default function App() {
     setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
+    setScriptVariants(nextScriptVariants)
     if (shouldAutoplay) {
       const handyAutoplayRequiresUpload = deviceProvider === 'handy'
         && handyConnected
@@ -2326,15 +2386,6 @@ export default function App() {
       }
     }
 
-    void loadScriptVariants(filePath)
-      .then((nextScriptVariants) => {
-        if (requestId !== openMediaRequestId.current) {
-          return
-        }
-        setScriptVariants(nextScriptVariants)
-      })
-      .catch(() => {})
-
     if (artworkPath) {
       const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
       if (requestId !== openMediaRequestId.current) {
@@ -2346,6 +2397,7 @@ export default function App() {
     cancelPendingHandySync,
     deviceProvider,
     handyConnected,
+    loadParsedScriptBundle,
     loadScriptBundle,
     loadScriptVariants,
     loadSubtitleCues,
@@ -2779,6 +2831,8 @@ export default function App() {
   }, [deviceProvider, startButtplugPlayback, startOsrSerialPlayback, syncHandyPlaybackToCurrentMedia])
 
   const handlePause = useCallback(async () => {
+    devicePauseSuppressUntilRef.current = Date.now() + getDevicePauseSuppressDurationMs(deviceCompatibilityPreset)
+
     if (deviceProvider === 'handy' && handyService.isConnected) {
       cancelPendingHandySync()
       resetHandyAutoPlayState()
@@ -2792,9 +2846,9 @@ export default function App() {
     }
 
     if (deviceProvider === 'serial' && osrSerialConnected) {
-      await stopOsrSerialPlayback({ homeDevice: true })
+      await stopOsrSerialPlayback({ homeDevice: false })
     }
-  }, [cancelPendingHandySync, deviceProvider, osrSerialConnected, resetHandyAutoPlayState, stopButtplugPlayback, stopOsrSerialPlayback])
+  }, [cancelPendingHandySync, deviceCompatibilityPreset, deviceProvider, osrSerialConnected, resetHandyAutoPlayState, stopButtplugPlayback, stopOsrSerialPlayback])
 
   const syncDevicesAfterSeek = useCallback(async () => {
     if (deviceProvider === 'handy' && handyService.isConnected && scriptUploadUrl) {
@@ -2853,6 +2907,7 @@ export default function App() {
     const tick = () => {
       const media = mediaRef.current
       if (media && !media.paused) return
+      if (media && media.paused && Date.now() < devicePauseSuppressUntilRef.current) return
 
       if (hasRawTCodeEndpoint) {
         const axisIds = availableScriptAxes.length > 0 ? availableScriptAxes : ['L0' as ScriptAxisId]
@@ -2903,6 +2958,7 @@ export default function App() {
     const tick = () => {
       const media = mediaRef.current
       if (media && !media.paused) return
+      if (media && media.paused && Date.now() < devicePauseSuppressUntilRef.current) return
 
       const currentTimeMs = media ? media.currentTime * 1000 + effectiveDeviceTimeOffset : 0
       const command = buildTCodeCommand(runtimeAxisActions, currentTimeMs, {
@@ -3506,10 +3562,33 @@ export default function App() {
   const handleCopyDeviceDiagnostics = useCallback(async () => {
     const media = mediaRef.current
     const currentFileLabel = currentFile ? `${getFileName(currentFile)} (path redacted)` : 'none'
+    const scriptFolderLabel = settings.scriptFolder ? 'configured (path redacted)' : 'none'
+    const intifaceUrlLabel = buttplugServerUrl ? 'configured (redacted)' : 'none'
+    const serialPortLabel = selectedOsrSerialPortPath ? 'selected (path redacted)' : 'none'
     const scriptSourceLabel = primaryScriptSource
       ? primaryScriptSource.startsWith('generated://')
         ? primaryScriptSource
         : `${getFileName(primaryScriptSource)} (path redacted)`
+      : 'none'
+    const generatedScriptActive = primaryScriptSource?.startsWith('generated://') ?? false
+    const scriptVariantLines = scriptVariants.length > 0
+      ? scriptVariants.map((variant, index) => {
+          return [
+            `${index + 1}. ${getFileName(variant.path)} (path redacted)`,
+            `source=${variant.source}`,
+            `axes=${variant.axes.join('/') || 'none'}`,
+            `default=${variant.isDefault ? 'yes' : 'no'}`,
+            `active=${primaryScriptSource === variant.path ? 'yes' : 'no'}`,
+          ].join(' | ')
+        })
+      : ['none']
+    const selectedButtplugFeatureSummary = selectedButtplugDevice
+      ? [
+          `linear=${selectedButtplugDevice.features.filter((feature) => String(feature.type).toLowerCase() === 'linear').length}`,
+          `rotate=${selectedButtplugDevice.features.filter((feature) => String(feature.type).toLowerCase() === 'rotate').length}`,
+          `scalar=${selectedButtplugDevice.features.filter((feature) => String(feature.type).toLowerCase() === 'scalar').length}`,
+          `rawWrite=${selectedButtplugDevice.rawWriteEndpoints.length > 0 ? 'yes' : 'no'}`,
+        ].join(' | ')
       : 'none'
     const buttplugMappingLines = selectedButtplugDevice
       ? selectedButtplugDevice.features.map((feature) => {
@@ -3541,7 +3620,16 @@ export default function App() {
       `Available axes: ${availableScriptAxes.join(', ') || 'none'}`,
       `Runtime axes: ${SCRIPT_AXIS_IDS.filter((axisId) => Boolean(runtimeAxisActions[axisId]?.length)).join(', ') || 'none'}`,
       `Script source: ${scriptSourceLabel}`,
+      `Script folder: ${scriptFolderLabel}`,
+      `Manual script overrides: ${manualScriptPaths.size}`,
+      `Script variants: ${scriptVariants.length}`,
+      `Generated fallback active: ${generatedScriptActive ? 'yes' : 'no'}`,
+      `No-script random generation: ${settings.noScriptRandomStrokeEnabled}`,
+      `Random gap fill: ${settings.noScriptRandomFillGapsEnabled}`,
       `Script offset: ${scriptOffset}ms`,
+      '',
+      '[Script Variants]',
+      ...scriptVariantLines,
       '',
       '[Auto Skip]',
       `Enabled: ${settings.autoSkipScriptGaps}`,
@@ -3557,12 +3645,13 @@ export default function App() {
       `Handy upload error: ${handyUploadError || 'none'}`,
       `Intiface state: ${buttplugConnectionState}`,
       `Intiface error: ${buttplugError || 'none'}`,
-      `Intiface URL: ${buttplugServerUrl}`,
+      `Intiface URL: ${intifaceUrlLabel}`,
       `Selected Intiface device: ${selectedButtplugDevice ? `${selectedButtplugDevice.displayName} (#${selectedButtplugDevice.index})` : 'none'}`,
+      `Selected Intiface features: ${selectedButtplugFeatureSummary}`,
       `Raw endpoints: ${selectedButtplugDevice?.rawWriteEndpoints.join(', ') || 'none'}`,
       `Serial state: ${osrSerialConnectionState}`,
       `Serial error: ${osrSerialError || 'none'}`,
-      `Serial port: ${selectedOsrSerialPortPath || 'none'}`,
+      `Serial port: ${serialPortLabel}`,
       `Serial baud: ${osrSerialService.baudRate || DEFAULT_OSR_SERIAL_BAUD_RATE}`,
       `Serial update rate: ${osrSerialUpdateRate}Hz`,
       `Serial profile: ${osrSerialProfile}`,
@@ -3592,6 +3681,7 @@ export default function App() {
     handyConnected,
     handyUploadError,
     handyUploadStatus,
+    manualScriptPaths,
     mediaDurationSeconds,
     osrSerialConnectionState,
     osrSerialError,
@@ -3602,14 +3692,166 @@ export default function App() {
     primaryScriptSource,
     runtimeAxisActions,
     scriptOffset,
+    scriptVariants,
     selectedButtplugDevice,
     selectedButtplugFeatureMappings,
     selectedOsrSerialPortPath,
     settings.autoSkipGapLeadIn,
     settings.autoSkipGapMinDuration,
     settings.autoSkipScriptGaps,
+    settings.noScriptRandomFillGapsEnabled,
+    settings.noScriptRandomStrokeEnabled,
+    settings.scriptFolder,
     showAppFeedback,
   ])
+
+  const handleCopyIssueReport = useCallback(async () => {
+    const media = mediaRef.current
+    const capturedAt = new Date().toISOString()
+    const video = media instanceof HTMLVideoElement ? media : null
+    const mediaError = media?.error
+      ? `${media.error.code}${media.error.message ? ` ${media.error.message}` : ''}`
+      : 'none'
+    const activeScriptVariant = scriptVariants.find((variant) => variant.path === primaryScriptSource) ?? null
+    const scriptSourceLabel = primaryScriptSource
+      ? primaryScriptSource.startsWith('generated://')
+        ? primaryScriptSource
+        : `${getFileName(primaryScriptSource)} (path redacted)`
+      : 'none'
+    const currentFileLabel = currentFile ? `${getFileName(currentFile)} (path redacted)` : 'none'
+    const issueReportLines = [
+      'ScriptPlayer+ issue report',
+      `Captured: ${capturedAt}`,
+      '',
+      '[App]',
+      `Version hint: ${navigator.userAgent.match(/scriptplayer-plus\/([^ ]+)/)?.[1] || 'unknown'}`,
+      `Platform: ${window.electronAPI?.platform || navigator.platform}`,
+      `Electron: ${window.electronAPI?.versions?.electron || 'unknown'}`,
+      `Chrome: ${window.electronAPI?.versions?.chrome || 'unknown'}`,
+      '',
+      '[Playback]',
+      `Current file: ${currentFileLabel}`,
+      `Media type: ${currentFileType || 'none'}`,
+      `Video compatibility mode: ${settings.videoCompatibilityMode}`,
+      `Playing: ${media ? (!media.paused).toString() : 'no media element'}`,
+      `Time: ${media && Number.isFinite(media.currentTime) ? media.currentTime.toFixed(3) : 'n/a'}`,
+      `Duration: ${Number.isFinite(mediaDurationSeconds) ? mediaDurationSeconds.toFixed(3) : 'n/a'}`,
+      `Playback rate: ${playbackRate}`,
+      `Ready/network state: ${media ? `${media.readyState}/${media.networkState}` : 'n/a'}`,
+      `Media error: ${mediaError}`,
+      `Video size: ${video ? `${video.videoWidth}x${video.videoHeight}` : 'n/a'}`,
+      '',
+      '[Script Matching]',
+      `Script source: ${scriptSourceLabel}`,
+      `Manual override: ${currentFile && manualScriptPaths[currentFile] ? 'yes' : 'no'}`,
+      `Script folder: ${settings.scriptFolder ? 'configured (path redacted)' : 'none'}`,
+      `Active variant: ${activeScriptVariant ? `${activeScriptVariant.label} (${activeScriptVariant.source})` : 'none'}`,
+      `Script variants: ${scriptVariants.length}`,
+      `Available axes: ${availableScriptAxes.join(', ') || 'none'}`,
+      `Runtime axes: ${SCRIPT_AXIS_IDS.filter((axisId) => Boolean(runtimeAxisActions[axisId]?.length)).join(', ') || 'none'}`,
+      `Actions: ${primaryAxis ? runtimeAxisActions[primaryAxis]?.length ?? 0 : 0}`,
+      `Script offset: ${scriptOffset}ms`,
+      '',
+      '[Auto Skip / Generated Script]',
+      `Auto skip: ${settings.autoSkipScriptGaps}`,
+      `Auto skip min gap: ${settings.autoSkipGapMinDuration}s`,
+      `Auto skip lead-in: ${settings.autoSkipGapLeadIn}s`,
+      `Motion points: ${autoSkipMotionModel.motionTimes.length}`,
+      `No-script random generation: ${settings.noScriptRandomStrokeEnabled}`,
+      `Random gap fill: ${settings.noScriptRandomFillGapsEnabled}`,
+      '',
+      '[Device]',
+      `Provider: ${deviceProvider}`,
+      `Compatibility preset: ${deviceCompatibilityPreset}`,
+      `Handy connected: ${handyConnected}`,
+      `Handy upload status: ${handyUploadStatus}`,
+      `Intiface state: ${buttplugConnectionState}`,
+      `Selected Intiface device: ${selectedButtplugDevice ? `${selectedButtplugDevice.displayName} (#${selectedButtplugDevice.index})` : 'none'}`,
+      `Intiface features: ${selectedButtplugDevice ? selectedButtplugDevice.features.length : 0}`,
+      `Raw endpoints: ${selectedButtplugDevice?.rawWriteEndpoints.join(', ') || 'none'}`,
+      `Serial state: ${osrSerialConnectionState}`,
+      `Serial port: ${selectedOsrSerialPortPath ? 'selected (path redacted)' : 'none'}`,
+      `Serial update rate: ${osrSerialUpdateRate}Hz`,
+      `Serial profile: ${osrSerialProfile}`,
+      `Serial active axes: ${availableOsrSerialAxes.join(', ') || 'none'}`,
+    ]
+
+    try {
+      const text = issueReportLines.join('\n')
+      if (window.electronAPI?.writeClipboardText) {
+        await window.electronAPI.writeClipboardText(text)
+      } else {
+        await navigator.clipboard.writeText(text)
+      }
+      saveRecentIssueReport(text, capturedAt)
+      showAppFeedback({ tone: 'success', text: t('device.issueReportCopied') })
+    } catch {
+      showAppFeedback({ tone: 'error', text: t('device.issueReportCopyFailed') })
+    }
+  }, [
+    autoSkipMotionModel.motionTimes.length,
+    availableOsrSerialAxes,
+    availableScriptAxes,
+    buttplugConnectionState,
+    currentFile,
+    currentFileType,
+    deviceCompatibilityPreset,
+    deviceProvider,
+    handyConnected,
+    handyUploadStatus,
+    manualScriptPaths,
+    mediaDurationSeconds,
+    osrSerialConnectionState,
+    osrSerialProfile,
+    osrSerialUpdateRate,
+    playbackRate,
+    primaryAxis,
+    primaryScriptSource,
+    runtimeAxisActions,
+    scriptOffset,
+    scriptVariants,
+    selectedButtplugDevice,
+    selectedOsrSerialPortPath,
+    settings.autoSkipGapLeadIn,
+    settings.autoSkipGapMinDuration,
+    settings.autoSkipScriptGaps,
+    settings.noScriptRandomFillGapsEnabled,
+    settings.noScriptRandomStrokeEnabled,
+    settings.scriptFolder,
+    settings.videoCompatibilityMode,
+    showAppFeedback,
+    t,
+  ])
+
+  const handleCopyLastIssueReport = useCallback(async () => {
+    const lastReport = loadRecentIssueReports()[0]
+    if (!lastReport) {
+      showAppFeedback({ tone: 'info', text: t('device.noRecentIssueReport') })
+      return
+    }
+
+    try {
+      if (window.electronAPI?.writeClipboardText) {
+        await window.electronAPI.writeClipboardText(lastReport.text)
+      } else {
+        await navigator.clipboard.writeText(lastReport.text)
+      }
+      showAppFeedback({ tone: 'success', text: t('device.lastIssueReportCopied') })
+    } catch {
+      showAppFeedback({ tone: 'error', text: t('device.issueReportCopyFailed') })
+    }
+  }, [showAppFeedback, t])
+
+  const handleTryVideoCompatibilityMode = useCallback(async () => {
+    const nextMode: AppSettings['videoCompatibilityMode'] = 'disable-gpu-video-decode'
+    patchSettings({ videoCompatibilityMode: nextMode })
+    try {
+      await window.electronAPI?.setRuntimePreferences?.({ videoCompatibilityMode: nextMode })
+    } catch {
+      // The setting is still saved; runtime preference failures are non-fatal.
+    }
+    showAppFeedback({ tone: 'success', text: t('player.videoCompatibilityApplied') })
+  }, [patchSettings, showAppFeedback, t])
 
   const handleDeviceTestCommand = useCallback(async (command: DeviceTestCommand) => {
     try {
@@ -3787,6 +4029,8 @@ export default function App() {
           deviceCompatibilityPreset={deviceCompatibilityPreset}
           onDeviceCompatibilityPresetChange={setDeviceCompatibilityPreset}
           onCopyDeviceDiagnostics={handleCopyDeviceDiagnostics}
+          onCopyIssueReport={handleCopyIssueReport}
+          onCopyLastIssueReport={handleCopyLastIssueReport}
           handyConnected={handyConnected}
           onHandyConnect={handleHandyConnect}
           onHandyDisconnect={handleHandyDisconnect}
@@ -3882,6 +4126,7 @@ export default function App() {
           autoFitVideoByAspect={settings.autoFitVideoByAspect}
           rememberVideoFit={settings.rememberVideoFit}
           videoCompatibilityMode={settings.videoCompatibilityMode}
+          onTryVideoCompatibilityMode={handleTryVideoCompatibilityMode}
           timelineHeight={settings.timelineHeight}
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}

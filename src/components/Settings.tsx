@@ -644,6 +644,10 @@ function TimelineSection({
   const { t } = useTranslation()
   const update = <K extends keyof AppSettings>(key: K, val: AppSettings[K]) =>
     onChange({ ...settings, [key]: val })
+  const updateVideoCompatibilityMode = (mode: AppSettings['videoCompatibilityMode']) => {
+    update('videoCompatibilityMode', mode)
+    void window.electronAPI?.setRuntimePreferences?.({ videoCompatibilityMode: mode })
+  }
 
   return (
     <div>
@@ -744,8 +748,8 @@ function TimelineSection({
       <Divider />
 
       <FieldRow
-        label="Video Compatibility Mode"
-        description="Applied after restart. Try these if Linux video or thumbnail previews are black."
+        label={t('settings.videoCompatibilityMode')}
+        description={t('settings.videoCompatibilityModeDesc')}
       >
         <select
           value={settings.videoCompatibilityMode}
@@ -1079,11 +1083,11 @@ function AboutSection() {
   const [updateCheck, setUpdateCheck] = useState<{
     checking: boolean
     result: UpdateCheckResult | null
-    error: boolean
+    error: string | null
   }>({
     checking: false,
     result: null,
-    error: false,
+    error: null,
   })
   const openLink = useCallback((url: string) => {
     void window.electronAPI?.openExternal?.(url)
@@ -1109,7 +1113,7 @@ function AboutSection() {
     setUpdateCheck((state) => ({
       ...state,
       checking: true,
-      error: false,
+      error: null,
     }))
 
     void checkForUpdates()
@@ -1117,14 +1121,14 @@ function AboutSection() {
         setUpdateCheck({
           checking: false,
           result,
-          error: false,
+          error: null,
         })
       })
-      .catch(() => {
+      .catch((error) => {
         setUpdateCheck({
           checking: false,
           result: null,
-          error: true,
+          error: error instanceof Error ? error.message : t('settings.updateCheckFailed'),
         })
       })
 
@@ -1138,7 +1142,7 @@ function AboutSection() {
           })
       }
     }
-  }, [updaterState?.autoUpdateSupported])
+  }, [t, updaterState?.autoUpdateSupported])
 
   const handleDownloadUpdate = useCallback(() => {
     const downloadPromise = window.electronAPI?.updaterDownloadUpdate?.()
@@ -1155,8 +1159,11 @@ function AboutSection() {
   }, [])
 
   const updaterStatusText = formatUpdaterStatus(updaterState)
+  const latestVersionLabel = updateCheck.result?.latestVersion
+    ?? updaterState?.latestVersion
+    ?? null
   const updateStatusText = updateCheck.error
-    ? t('settings.updateCheckFailed')
+    ? `${t('settings.updateCheckFailed')} ${updateCheck.error}`
     : updateCheck.result?.updateAvailable
       ? t('settings.updateAvailable', { version: updateCheck.result.latestVersion })
       : updateCheck.result
@@ -1196,12 +1203,16 @@ function AboutSection() {
             <div className="text-xs font-medium text-text-primary">
               {t('settings.updates')}
             </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-text-muted">
+              <span>{t('settings.currentVersion', { version: APP_VERSION })}</span>
+              <span>{t('settings.latestVersion', { version: latestVersionLabel || '-' })}</span>
+            </div>
             <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
               {updateStatusText || updaterStatusText || t('settings.updateCheckDesc')}
             </div>
           </div>
           <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
-            {(updateCheck.result?.updateAvailable || updaterState?.updateAvailable) && (
+            {(updateCheck.result || updaterState?.updateAvailable) && (
               <button
                 type="button"
                 onClick={() => openLink(updaterState?.releaseUrl || updateCheck.result?.releaseUrl || APP_LINKS.releases)}
@@ -1216,7 +1227,7 @@ function AboutSection() {
                 onClick={handleDownloadUpdate}
                 className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15"
               >
-                Download update
+                {t('settings.downloadUpdate')}
               </button>
             )}
             {updaterState?.phase === 'downloaded' && (
@@ -1225,7 +1236,7 @@ function AboutSection() {
                 onClick={handleInstallUpdate}
                 className="inline-flex h-8 items-center rounded border border-green-400/35 bg-green-500/10 px-3 text-xs text-green-200 transition-colors hover:border-green-300/55 hover:bg-green-500/15"
               >
-                Restart and install
+                {t('settings.restartAndInstall')}
               </button>
             )}
             <button

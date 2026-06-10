@@ -70,6 +70,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('fs:listMediaMatchesForScript', scriptPath, candidateMediaPaths, preferredMediaPath),
   readFunscriptFile: (filePath: string) => ipcRenderer.invoke('fs:readFunscriptFile', filePath),
   saveFunscript: (videoPath: string, data: string) => ipcRenderer.invoke('fs:saveFunscript', videoPath, data),
+  saveGeneratedFunscript: (videoPath: string, data: string, label?: string) =>
+    ipcRenderer.invoke('fs:saveGeneratedFunscript', videoPath, data, label),
   readSegmentRepeatStore: (scriptFolder: string) => ipcRenderer.invoke('fs:readSegmentRepeatStore', scriptFolder),
   writeSegmentRepeatStore: (scriptFolder: string, content: string) =>
     ipcRenderer.invoke('fs:writeSegmentRepeatStore', scriptFolder, content),

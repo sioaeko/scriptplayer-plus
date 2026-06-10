@@ -1,7 +1,7 @@
 import { ScriptAxisId } from '../types'
 import { OSR_SERIAL_AXIS_ORDER, TCodeAxisOutputOptions } from './tcode'
 
-export type OsrSerialProfile = 'funosrPro' | 'sr1' | 'sr6' | 'custom'
+export type OsrSerialProfile = 'funosrPro' | 'sr1' | 'sr6' | 'craftyHandySr6' | 'custom'
 
 export interface OsrSerialAxisConfig {
   enabled: boolean
@@ -12,10 +12,15 @@ export interface OsrSerialAxisConfig {
 
 export type OsrSerialAxisConfigMap = Partial<Record<ScriptAxisId, OsrSerialAxisConfig>>
 
-export const OSR_SERIAL_PROFILES: OsrSerialProfile[] = ['funosrPro', 'sr6', 'sr1', 'custom']
+export const OSR_SERIAL_PROFILES: OsrSerialProfile[] = ['funosrPro', 'sr6', 'craftyHandySr6', 'sr1', 'custom']
 
 export function normalizeOsrSerialProfile(value: unknown): OsrSerialProfile {
-  return value === 'funosrPro' || value === 'sr1' || value === 'custom' ? value : 'sr6'
+  return value === 'funosrPro'
+    || value === 'sr1'
+    || value === 'craftyHandySr6'
+    || value === 'custom'
+    ? value
+    : 'sr6'
 }
 
 export function createDefaultOsrSerialAxisConfigs(): OsrSerialAxisConfigMap {
@@ -62,7 +67,7 @@ export function getOsrSerialProfileAxisIds(
     return ['L0']
   }
 
-  if (profile === 'funosrPro' || profile === 'sr6') {
+  if (profile === 'funosrPro' || profile === 'sr6' || profile === 'craftyHandySr6') {
     return [...OSR_SERIAL_AXIS_ORDER]
   }
 

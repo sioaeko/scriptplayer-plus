@@ -1,6 +1,24 @@
 import { Funscript, FunscriptAction } from '../types'
 
-export const NO_SCRIPT_STROKE_PATTERNS = ['random', 'steady', 'wave', 'burst', 'tease', 'pulse', 'ramp', 'drill', 'chaos'] as const
+export const NO_SCRIPT_STROKE_PATTERNS = [
+  'random',
+  'steady',
+  'wave',
+  'burst',
+  'tease',
+  'pulse',
+  'ramp',
+  'drill',
+  'chaos',
+  'double',
+  'triplet',
+  'heartbeat',
+  'breath',
+  'stair',
+  'tremor',
+  'edge',
+  'swing',
+] as const
 export type NoScriptStrokePattern = (typeof NO_SCRIPT_STROKE_PATTERNS)[number]
 
 export const NO_SCRIPT_STROKE_PRESETS = ['natural', 'gentle', 'intense', 'edging', 'surge', 'extreme', 'custom'] as const
@@ -253,6 +271,117 @@ export function buildNoScriptRandomFunscript(
           pauseChance *= 0.08
           holdChance *= 0.06
         }
+        break
+      }
+      case 'double': {
+        const pairPhase = stepIndex % 4
+        const isSecondHit = pairPhase === 1 || pairPhase === 3
+        strokesPerMinute = lerp(minSpm, maxSpm, isSecondHit ? lerp(0.72, 0.96, random()) : lerp(0.46, 0.74, random()))
+        span = lerp(profile.minSpan, profile.maxSpan, isSecondHit ? lerp(0.72, 1, random()) : lerp(0.48, 0.78, random()))
+        durationJitter = isSecondHit ? lerp(0.74, 0.92, random()) : lerp(0.98, 1.22, random())
+        pauseChance *= pairPhase === 3 ? 1.3 : 0.24
+        holdChance *= isSecondHit ? 0.45 : 0.8
+        break
+      }
+      case 'triplet': {
+        const tripletPhase = stepIndex % 6
+        const activeTriplet = tripletPhase < 3
+        if (activeTriplet) {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.62 + tripletPhase * 0.08, 0.92, random()))
+          span = lerp(profile.minSpan, profile.maxSpan, lerp(0.56 + tripletPhase * 0.08, 1, random()))
+          durationJitter = lerp(0.72, 0.94, random())
+          pauseChance *= 0.16
+          holdChance *= 0.3
+        } else {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.28, 0.5, random()))
+          span = clampNumber(span * lerp(0.42, 0.7, random()), 8, 34)
+          durationJitter = lerp(1.08, 1.34, random())
+          pauseChance *= 1.45
+          holdChance *= 1.2
+        }
+        break
+      }
+      case 'heartbeat': {
+        const heartbeatPhase = stepIndex % 8
+        if (heartbeatPhase === 0 || heartbeatPhase === 1) {
+          strokesPerMinute = lerp(minSpm, maxSpm, heartbeatPhase === 0 ? lerp(0.58, 0.78, random()) : lerp(0.82, 1, random()))
+          span = lerp(profile.minSpan, profile.maxSpan, heartbeatPhase === 0 ? lerp(0.45, 0.72, random()) : lerp(0.74, 1, random()))
+          durationJitter = heartbeatPhase === 0 ? lerp(0.86, 1.02, random()) : lerp(0.68, 0.88, random())
+          pauseChance *= 0.12
+          holdChance *= 0.25
+        } else {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.18, 0.42, random()))
+          span = clampNumber(span * lerp(0.28, 0.52, random()), 6, 30)
+          durationJitter = lerp(1.12, 1.45, random())
+          pauseChance *= heartbeatPhase >= 5 ? 1.75 : 1.1
+          holdChance *= 1.35
+        }
+        break
+      }
+      case 'breath': {
+        const cycleIndex = stepIndex % Math.max(waveCycleSteps, 1)
+        const progress = cycleIndex / Math.max(waveCycleSteps - 1, 1)
+        const breathShape = (1 - Math.cos(progress * Math.PI * 2)) / 2
+        const softened = Math.pow(breathShape, 1.35)
+        strokesPerMinute = lerp(minSpm, maxSpm, clampNumber(0.18 + softened * 0.62 + random() * 0.08, 0, 1))
+        span = lerp(profile.minSpan, profile.maxSpan, clampNumber(0.22 + softened * 0.68 + random() * 0.08, 0, 1))
+        durationJitter = lerp(1.02, 1.28, random())
+        pauseChance *= progress > 0.74 ? 1.4 : 0.72
+        holdChance *= 1.15
+
+        if ((stepIndex + 1) % Math.max(waveCycleSteps, 1) === 0) {
+          waveCycleSteps = randomInt(profile.waveCycleMinSteps, profile.waveCycleMaxSteps, random)
+        }
+        break
+      }
+      case 'stair': {
+        const stairPhase = stepIndex % Math.max(waveCycleSteps, 1)
+        const stairT = Math.floor((stairPhase / Math.max(waveCycleSteps - 1, 1)) * 5) / 4
+        strokesPerMinute = lerp(minSpm, maxSpm, clampNumber(0.18 + stairT * 0.78 + random() * 0.06, 0, 1))
+        span = lerp(profile.minSpan, profile.maxSpan, clampNumber(0.24 + stairT * 0.72 + random() * 0.07, 0, 1))
+        durationJitter = lerp(0.9, 1.08, random())
+        pauseChance *= stairT > 0.86 ? 1.3 : 0.48
+        holdChance *= stairT > 0.86 ? 0.75 : 0.45
+
+        if ((stepIndex + 1) % Math.max(waveCycleSteps, 1) === 0) {
+          waveCycleSteps = randomInt(profile.waveCycleMinSteps, profile.waveCycleMaxSteps, random)
+        }
+        break
+      }
+      case 'tremor':
+        strokesPerMinute = lerp(minSpm, maxSpm, sampleBiasedUnit(random, 0.38))
+        span = lerp(8, Math.min(profile.maxSpan, 24), random())
+        durationJitter = lerp(0.72, 0.94, random())
+        pauseChance *= 0.06
+        holdChance *= 0.08
+        break
+      case 'edge': {
+        const edgeRoll = random()
+        if (edgeRoll < 0.22) {
+          strokesPerMinute = lerp(minSpm, maxSpm, lerp(0.72, 1, random()))
+          span = lerp(profile.minSpan, profile.maxSpan, lerp(0.62, 1, random()))
+          durationJitter = lerp(0.78, 0.98, random())
+          pauseChance *= 0.15
+          holdChance *= 0.2
+        } else {
+          strokesPerMinute = lerp(minSpm, maxSpm, sampleBiasedUnit(random, 1.7))
+          span = lerp(profile.minSpan, profile.maxSpan, Math.pow(random(), 1.7))
+          if (random() < profile.teaseMidpointChance * 1.6) {
+            span *= lerp(0.25, 0.58, random())
+          }
+          durationJitter = lerp(1.02, 1.36, random())
+          pauseChance *= 1.55
+          holdChance *= 1.8
+        }
+        break
+      }
+      case 'swing': {
+        const swingLong = stepIndex % 2 === 0
+        strokesPerMinute = lerp(minSpm, maxSpm, swingLong ? lerp(0.36, 0.62, random()) : lerp(0.72, 0.98, random()))
+        span = lerp(profile.minSpan, profile.maxSpan, swingLong ? lerp(0.42, 0.78, random()) : lerp(0.66, 1, random()))
+        durationJitter = swingLong ? lerp(1.1, 1.34, random()) : lerp(0.72, 0.94, random())
+        pauseChance *= swingLong ? 0.95 : 0.28
+        holdChance *= swingLong ? 1.1 : 0.35
         break
       }
       case 'random':
@@ -747,6 +876,133 @@ function buildCustomNoScriptStrokeProfile(pattern: NoScriptStrokePattern): NoScr
         burstSpeedMultiplier: 1.48,
         burstSpanMultiplier: 1.22,
         teaseMidpointChance: 0.22,
+      }
+    case 'double':
+      return {
+        ...base,
+        speedBiasExponent: 0.9,
+        minSpan: 18,
+        maxSpan: 46,
+        jitterMin: 0.82,
+        jitterMax: 1.2,
+        pauseChance: 0.08,
+        holdChance: 0.06,
+        burstChance: 0.2,
+        burstSpeedMultiplier: 1.36,
+        burstSpanMultiplier: 1.15,
+      }
+    case 'triplet':
+      return {
+        ...base,
+        speedBiasExponent: 0.82,
+        minSpan: 18,
+        maxSpan: 48,
+        jitterMin: 0.78,
+        jitterMax: 1.24,
+        pauseChance: 0.1,
+        holdChance: 0.06,
+        burstChance: 0.22,
+        burstMinSteps: 3,
+        burstMaxSteps: 6,
+        burstSpeedMultiplier: 1.38,
+      }
+    case 'heartbeat':
+      return {
+        ...base,
+        speedBiasExponent: 1.15,
+        minSpan: 12,
+        maxSpan: 42,
+        jitterMin: 0.86,
+        jitterMax: 1.34,
+        pauseChance: 0.18,
+        pauseMinMs: 120,
+        pauseMaxMs: 420,
+        holdChance: 0.16,
+        holdMinMs: 160,
+        holdMaxMs: 460,
+        teaseMidpointChance: 0.2,
+      }
+    case 'breath':
+      return {
+        ...base,
+        speedBiasExponent: 1.35,
+        minSpan: 14,
+        maxSpan: 38,
+        jitterMin: 0.98,
+        jitterMax: 1.28,
+        pauseChance: 0.12,
+        pauseMinMs: 120,
+        pauseMaxMs: 360,
+        holdChance: 0.16,
+        holdMinMs: 180,
+        holdMaxMs: 520,
+        waveCycleMinSteps: 10,
+        waveCycleMaxSteps: 18,
+      }
+    case 'stair':
+      return {
+        ...base,
+        speedBiasExponent: 0.86,
+        minSpan: 16,
+        maxSpan: 48,
+        jitterMin: 0.88,
+        jitterMax: 1.1,
+        pauseChance: 0.08,
+        holdChance: 0.06,
+        waveCycleMinSteps: 8,
+        waveCycleMaxSteps: 15,
+        burstChance: 0.18,
+      }
+    case 'tremor':
+      return {
+        ...base,
+        speedBiasExponent: 0.4,
+        minSpan: 8,
+        maxSpan: 24,
+        jitterMin: 0.72,
+        jitterMax: 0.98,
+        pauseChance: 0.02,
+        holdChance: 0.02,
+        pauseMinMs: 20,
+        pauseMaxMs: 90,
+        burstChance: 0.32,
+        burstMinSteps: 4,
+        burstMaxSteps: 9,
+        burstSpeedMultiplier: 1.44,
+        burstSpanMultiplier: 1.12,
+      }
+    case 'edge':
+      return {
+        ...base,
+        speedBiasExponent: 1.65,
+        minSpan: 10,
+        maxSpan: 44,
+        jitterMin: 0.88,
+        jitterMax: 1.34,
+        pauseChance: 0.22,
+        pauseMinMs: 160,
+        pauseMaxMs: 560,
+        holdChance: 0.24,
+        holdMinMs: 240,
+        holdMaxMs: 760,
+        burstChance: 0.1,
+        burstSpeedMultiplier: 1.35,
+        burstSpanMultiplier: 1.14,
+        teaseMidpointChance: 0.32,
+      }
+    case 'swing':
+      return {
+        ...base,
+        speedBiasExponent: 0.95,
+        minSpan: 16,
+        maxSpan: 44,
+        jitterMin: 0.82,
+        jitterMax: 1.3,
+        pauseChance: 0.09,
+        holdChance: 0.09,
+        burstChance: 0.16,
+        burstSpeedMultiplier: 1.28,
+        burstSpanMultiplier: 1.1,
       }
     case 'random':
     default:

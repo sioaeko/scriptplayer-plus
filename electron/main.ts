@@ -54,7 +54,7 @@ const directoryEntryNameCache = new Map<string, Set<string>>()
 const SCRIPT_DECORATOR_SUFFIX_RE = /(?:[ _.-]+(?:ufotw|ufosa|cyclone|launch|ufo|handy))+$/i
 const SCRIPT_LABEL_SUFFIX_RE = /(?:[ _.-]+funscript(?:\([^)]*\))?)$/i
 const TRAILING_VARIANT_SUFFIX_RE = /(?:[ _.-]*げっぷ音緩和差分|[ _.-]*[（(][^()（）]*(?:差分|少なめ)[^()（）]*[)）])$/i
-const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|variant|edit|edited|fix|fixed|sync|offset))+$/i
+const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|variant|edit|edited|fix|fixed|sync|offset|generated|ai|motion|experimental))+$/i
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
 const osrSerialManager = new OsrSerialManager((state) => {
@@ -524,6 +524,46 @@ function createWindow() {
 
   osrSerialManager.setNotifier((state) => {
     mainWindow?.webContents.send('osrSerial:stateChanged', state)
+  })
+
+  configureBluetoothRemoteSupport(mainWindow)
+}
+
+function configureBluetoothRemoteSupport(window: BrowserWindow): void {
+  const ses = window.webContents.session
+  let bluetoothSelectCallback: ((deviceId: string) => void) | null = null
+  let bluetoothSelectTimer: NodeJS.Timeout | null = null
+
+  ses.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const permissionName = String(permission)
+    if (permissionName === 'bluetooth' || permissionName === 'bluetoothScanning') {
+      callback(true)
+      return
+    }
+    callback(false)
+  })
+
+  window.webContents.on('select-bluetooth-device', (event, deviceList, callback) => {
+    event.preventDefault()
+    bluetoothSelectCallback ??= callback
+    const remote = deviceList.find((device) => (device.deviceName || '').startsWith('SP+ Remote'))
+    if (remote) {
+      if (bluetoothSelectTimer) {
+        clearTimeout(bluetoothSelectTimer)
+        bluetoothSelectTimer = null
+      }
+      bluetoothSelectCallback?.(remote.deviceId)
+      bluetoothSelectCallback = null
+      return
+    }
+
+    if (!bluetoothSelectTimer) {
+      bluetoothSelectTimer = setTimeout(() => {
+        bluetoothSelectCallback?.('')
+        bluetoothSelectCallback = null
+        bluetoothSelectTimer = null
+      }, 8000)
+    }
   })
 }
 
@@ -1033,6 +1073,37 @@ ipcMain.handle('fs:saveFunscript', async (_event, videoPath: string, data: strin
     return true
   } catch {
     return false
+  }
+})
+
+ipcMain.handle('fs:saveGeneratedFunscript', async (_event, videoPath: string, data: string, label?: string) => {
+  try {
+    if (typeof videoPath !== 'string' || !MEDIA_EXTS.includes(path.extname(videoPath).toLowerCase())) {
+      return { ok: false, error: 'Invalid media path.' }
+    }
+    if (typeof data !== 'string' || data.trim().length === 0) {
+      return { ok: false, error: 'No funscript data to save.' }
+    }
+
+    const ext = path.extname(videoPath)
+    const dir = path.dirname(videoPath)
+    const baseName = path.basename(videoPath, ext)
+    const safeLabel = String(label || 'ai-motion')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      || 'ai-motion'
+    const scriptPath = path.join(dir, `${baseName}.${safeLabel}.funscript`)
+
+    fs.writeFileSync(scriptPath, data, 'utf-8')
+    invalidateFsCachesForRoot(dir)
+
+    return { ok: true, path: scriptPath }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
   }
 })
 

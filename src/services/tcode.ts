@@ -57,11 +57,17 @@ export function buildTCodeCommand(
     axisIds?: ScriptAxisId[]
     invertByAxis?: Partial<Record<ScriptAxisId, boolean>>
     axisOutputOptions?: Partial<Record<ScriptAxisId, TCodeAxisOutputOptions>>
+    commandJoiner?: string
+    intervalMs?: number
   }
 ): string | null {
   const axisIds = options?.axisIds ?? TCODE_AXIS_ORDER
   const invertByAxis = options?.invertByAxis ?? {}
   const axisOutputOptions = options?.axisOutputOptions ?? {}
+  const commandJoiner = options?.commandJoiner ?? ' '
+  const intervalSuffix = Number.isFinite(options?.intervalMs)
+    ? `I${Math.max(0, Math.round(options?.intervalMs ?? 0))}`
+    : ''
 
   if (axisIds.length === 0) return null
 
@@ -77,7 +83,7 @@ export function buildTCodeCommand(
     )
   ))
 
-  return segments.length > 0 ? segments.join(' ') : null
+  return segments.length > 0 ? `${segments.join(commandJoiner)}${intervalSuffix}` : null
 }
 
 export function buildDefaultTCodeCommand(
@@ -85,6 +91,8 @@ export function buildDefaultTCodeCommand(
   options?: {
     invertByAxis?: Partial<Record<ScriptAxisId, boolean>>
     axisOutputOptions?: Partial<Record<ScriptAxisId, TCodeAxisOutputOptions>>
+    commandJoiner?: string
+    intervalMs?: number
   }
 ): string | null {
   return buildTCodeCommand({}, 0, {

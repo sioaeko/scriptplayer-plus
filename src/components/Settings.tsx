@@ -5,6 +5,7 @@ import {
   Activity,
   Play,
   Wifi,
+  Gamepad2,
   Keyboard,
   Info,
   X,
@@ -46,6 +47,13 @@ import {
 } from '../services/shortcuts'
 import { useTranslation } from '../i18n'
 import type { UpdaterState } from '../types'
+import {
+  REMOTE_COMMAND_OPTIONS,
+  type RemoteButtonId,
+  type RemoteAccessoryState,
+  type RemoteCommandId,
+  type RemoteInputActionId,
+} from '../services/remoteAccessory'
 
 interface SettingsProps {
   open: boolean
@@ -57,10 +65,18 @@ interface SettingsProps {
   onResetIntifaceSettings: () => void | Promise<void>
   onResetAllSettings: () => void | Promise<void>
   onDeviceTestCommand?: (command: DeviceTestCommand) => void | Promise<void>
+  remoteAccessoryState?: RemoteAccessoryState
+  onRemoteAccessoryConnect?: () => void | Promise<void>
+  onRemoteAccessoryDisconnect?: () => void | Promise<void>
+  onRemoteAccessoryPair?: (code: string) => void | Promise<void>
+  onRemoteAccessoryForget?: () => void | Promise<void>
+  onRemoteAccessoryMappingChange?: (button: RemoteButtonId, action: RemoteInputActionId, command: RemoteCommandId) => void | Promise<void>
   initialSection?: SettingsSection
 }
 
 type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
+const REMOTE_BUTTONS: RemoteButtonId[] = ['A', 'B', 'C']
+const REMOTE_INPUT_ACTIONS: RemoteInputActionId[] = ['click', 'double', 'hold']
 
 export type SettingsSection =
   | 'general'
@@ -68,6 +84,7 @@ export type SettingsSection =
   | 'appearance'
   | 'timeline'
   | 'device'
+  | 'remote'
   | 'shortcuts'
   | 'recovery'
   | 'about'
@@ -1077,6 +1094,186 @@ function ShortcutsSection({
   )
 }
 
+function RemoteAccessorySection({
+  state,
+  onConnect,
+  onDisconnect,
+  onPair,
+  onForget,
+  onMappingChange,
+}: {
+  state?: RemoteAccessoryState
+  onConnect?: () => void | Promise<void>
+  onDisconnect?: () => void | Promise<void>
+  onPair?: (code: string) => void | Promise<void>
+  onForget?: () => void | Promise<void>
+  onMappingChange?: (button: RemoteButtonId, action: RemoteInputActionId, command: RemoteCommandId) => void | Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [pairingCode, setPairingCode] = useState('')
+  const [pendingAction, setPendingAction] = useState<'connect' | 'pair' | 'disconnect' | 'forget' | null>(null)
+
+  const run = useCallback(async (action: typeof pendingAction, callback?: () => void | Promise<void>) => {
+    if (!action || !callback) return
+    setPendingAction(action)
+    try {
+      await callback()
+    } finally {
+      setPendingAction(null)
+    }
+  }, [])
+
+  const keyMappings = state?.keyMappings ?? {
+    A: { click: 'play_pause', double: 'none', hold: 'none' },
+    B: { click: 'next_video', double: 'none', hold: 'none' },
+    C: { click: 'previous_video', double: 'none', hold: 'none' },
+  }
+  const batteryText = state?.batteryMv ? `${state.batteryMv} mV` : '-'
+  const pairDisabledReason = !state?.connected
+    ? t('settings.remotePairDisabledNoDevice')
+    : state?.paired
+      ? t('settings.remotePairDisabledPaired')
+      : pairingCode.length !== 6
+        ? t('settings.remotePairDisabledNoCode')
+        : ''
+  const remoteStatusText = !state?.supported
+    ? t('settings.remoteUnsupported')
+    : state?.connecting
+      ? t('settings.remoteConnecting')
+      : state?.connected
+        ? state?.paired
+          ? t('settings.remotePaired')
+          : t('settings.remotePairCodeEmpty')
+        : t('settings.remoteNoDevice')
+
+  return (
+    <div>
+      <SectionHeading>{t('settings.remoteAccessory')}</SectionHeading>
+
+      <div className="rounded-xl border border-surface-100/25 bg-surface-300/35 p-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-text-primary">
+              {state?.deviceName || t('settings.remoteNoDevice')}
+            </div>
+            <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
+              {remoteStatusText}
+            </div>
+            {state?.error && (
+              <div className="mt-1 text-[10px] leading-relaxed text-red-300">
+                {state.error}
+              </div>
+            )}
+          </div>
+          <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              disabled={!state?.supported || state?.connecting || pendingAction !== null}
+              onClick={() => void run('connect', onConnect)}
+              className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {state?.connecting || pendingAction === 'connect' ? t('settings.remoteConnecting') : t('settings.remoteConnect')}
+            </button>
+            <button
+              type="button"
+              disabled={!state?.connected || pendingAction !== null}
+              onClick={() => void run('disconnect', onDisconnect)}
+              className="inline-flex h-8 items-center rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('device.disconnect')}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-text-muted">
+          <div>{t('settings.remoteStatus')}: {state?.paired ? t('settings.remotePaired') : t('settings.remoteNotPaired')}</div>
+          <div>{t('settings.remoteFirmware')}: {state?.firmware || '-'}</div>
+          <div>{t('settings.remoteBattery')}: {batteryText}</div>
+          <div>{t('settings.remoteToken')}: {state?.pairingTokenSaved ? t('settings.remoteSaved') : '-'}</div>
+        </div>
+      </div>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.remotePairCode')}
+        description={state?.pairingCode ? t('settings.remotePairCodeDesc') : t('settings.remotePairCodeEmpty')}
+      >
+        <div className="space-y-2">
+          {pairDisabledReason && (
+            <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+              {pairDisabledReason}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              value={pairingCode}
+              maxLength={6}
+              inputMode="numeric"
+              onChange={(event) => setPairingCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="h-8 w-24 rounded border border-surface-100/30 bg-surface-300 px-2 text-xs text-text-primary outline-none focus:border-accent/50"
+              placeholder="6-digit"
+            />
+            <button
+              type="button"
+              disabled={!state?.connected || state?.paired || pairingCode.length !== 6 || pendingAction !== null}
+              onClick={() => void run('pair', () => onPair?.(pairingCode))}
+              className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {pendingAction === 'pair' ? t('settings.remotePairing') : t('settings.remotePair')}
+            </button>
+          </div>
+        </div>
+      </FieldRow>
+
+      <Divider />
+
+      <div className="space-y-3">
+        {REMOTE_BUTTONS.map((button) => (
+          <div key={button} className="rounded-lg border border-surface-100/25 bg-surface-300/30 p-3">
+            <div className="mb-2 text-xs font-medium text-text-primary">
+              {t('settings.remoteButton', { button })}
+            </div>
+            <div className="grid gap-2">
+              {REMOTE_INPUT_ACTIONS.map((action) => (
+                <div key={action} className="flex items-center justify-between gap-3">
+                  <div className="text-[10px] text-text-muted">
+                    {t(`settings.remoteAction.${action}`)}
+                  </div>
+                  <select
+                    value={keyMappings[button][action]}
+                    onChange={(event) => void onMappingChange?.(button, action, event.target.value as RemoteCommandId)}
+                    className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[190px] focus:border-accent/50"
+                  >
+                    {REMOTE_COMMAND_OPTIONS.map((command) => (
+                      <option key={command.id} value={command.id}>
+                        {command.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Divider />
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          disabled={pendingAction !== null}
+          onClick={() => void run('forget', onForget)}
+          className="inline-flex h-8 items-center rounded border border-red-400/30 bg-red-500/10 px-3 text-xs text-red-200 transition-colors hover:border-red-300/55 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {t('settings.remoteForget')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function AboutSection() {
   const { t } = useTranslation()
   const [updaterState, setUpdaterState] = useState<UpdaterState | null>(null)
@@ -1414,6 +1611,12 @@ export default function Settings({
   onResetIntifaceSettings,
   onResetAllSettings,
   onDeviceTestCommand,
+  remoteAccessoryState,
+  onRemoteAccessoryConnect,
+  onRemoteAccessoryDisconnect,
+  onRemoteAccessoryPair,
+  onRemoteAccessoryForget,
+  onRemoteAccessoryMappingChange,
   initialSection = 'general',
 }: SettingsProps) {
   const { t } = useTranslation()
@@ -1425,6 +1628,7 @@ export default function Settings({
     { id: 'appearance', label: t('settings.appearance'), icon: Monitor },
     { id: 'timeline', label: t('settings.timeline'), icon: Activity },
     { id: 'device', label: t('settings.device'), icon: Wifi },
+    { id: 'remote', label: t('settings.remoteAccessory'), icon: Gamepad2 },
     { id: 'shortcuts', label: t('settings.keyboardShortcuts'), icon: Keyboard },
     { id: 'recovery', label: t('settings.recovery'), icon: RotateCcw },
     { id: 'about', label: t('settings.about'), icon: Info },
@@ -1472,6 +1676,17 @@ export default function Settings({
         return <TimelineSection settings={settings} onChange={handleChange} />
       case 'device':
         return <DeviceSection settings={settings} onChange={handleChange} onDeviceTestCommand={onDeviceTestCommand} />
+      case 'remote':
+        return (
+          <RemoteAccessorySection
+            state={remoteAccessoryState}
+            onConnect={onRemoteAccessoryConnect}
+            onDisconnect={onRemoteAccessoryDisconnect}
+            onPair={onRemoteAccessoryPair}
+            onForget={onRemoteAccessoryForget}
+            onMappingChange={onRemoteAccessoryMappingChange}
+          />
+        )
       case 'shortcuts':
         return <ShortcutsSection settings={settings} onChange={handleChange} />
       case 'recovery':

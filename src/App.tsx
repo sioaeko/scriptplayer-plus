@@ -58,6 +58,11 @@ import {
   SCRIPT_AXIS_IDS,
 } from './services/multiaxis'
 import { AppSettings, createDefaultAppSettings, loadSettings, saveSettings } from './services/settings'
+import {
+  remoteAccessoryClient,
+  type RemoteAccessoryState,
+  type RemoteCommandId,
+} from './services/remoteAccessory'
 import { buildNoScriptRandomFunscript, fillNoScriptRandomFunscriptGaps } from './services/noScriptStroke'
 import {
   findMatchingShortcutAction,
@@ -110,6 +115,8 @@ const SCRIPT_OFFSET_MAX_MS = 5000
 const DEFAULT_BUTTPLUG_SERVER_URL = 'ws://127.0.0.1:12345'
 const DEFAULT_OSR_SERIAL_BAUD_RATE = 115200
 const DEFAULT_OSR_SERIAL_UPDATE_RATE = 50
+const CRAFTY_HANDY_SR6_UPDATE_RATE = 30
+const CRAFTY_HANDY_SR6_FIRST_COMMAND_GRACE_MS = 750
 const OSR_SERIAL_NEUTRAL_BURST_COUNT = 3
 const OSR_SERIAL_NEUTRAL_BURST_INTERVAL_MS = 35
 const OSR_SERIAL_IDLE_KEEPALIVE_INTERVAL_MS = 2000
@@ -926,6 +933,7 @@ export default function App() {
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
   const [pendingAutoPlayAfterHandyUpload, setPendingAutoPlayAfterHandyUpload] = useState(false)
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCheckResult | null>(null)
+  const [remoteAccessoryState, setRemoteAccessoryState] = useState<RemoteAccessoryState>(() => remoteAccessoryClient.getState())
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const currentFileRef = useRef<string | null>(null)
   const shufflePlaybackHistoryRef = useRef<string[]>([])
@@ -935,6 +943,7 @@ export default function App() {
   const scriptFolderRef = useRef<string>(settings.scriptFolder)
   const pendingAutoPlayAfterHandyUploadRef = useRef(false)
   const skipNextHandyPlaySyncRef = useRef(false)
+  const osrSerialFirstCommandReadyAtRef = useRef(0)
   const handyUploadRequestId = useRef(0)
   const handyAutoPlayRunId = useRef(0)
   const handyAutoPlaySyncInProgressRef = useRef(false)
@@ -948,6 +957,9 @@ export default function App() {
   const osrSerialIdleKeepAliveTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const appFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const osrSerialStreamRunId = useRef(0)
+
+  useEffect(() => remoteAccessoryClient.subscribe(setRemoteAccessoryState), [])
+
   const devicePauseSuppressUntilRef = useRef(0)
 
   const commitShufflePlaybackStacks = useCallback((history: string[], future: string[]) => {
@@ -1316,6 +1328,14 @@ export default function App() {
     () => getOsrSerialTCodeAxisOptions(osrSerialAxisConfigs),
     [osrSerialAxisConfigs]
   )
+  const osrSerialTCodeCommandOptions = useMemo(() => (
+    osrSerialProfile === 'craftyHandySr6'
+      ? {
+        commandJoiner: '',
+        intervalMs: Math.max(5, Math.round(1000 / CRAFTY_HANDY_SR6_UPDATE_RATE)),
+      }
+      : {}
+  ), [osrSerialProfile])
 
   useEffect(() => {
     currentFileRef.current = currentFile
@@ -1617,8 +1637,20 @@ export default function App() {
   }, [])
 
   const handleOsrSerialProfileChange = useCallback((profile: OsrSerialProfile) => {
-    setOsrSerialProfile(normalizeOsrSerialProfile(profile))
-  }, [])
+    const normalizedProfile = normalizeOsrSerialProfile(profile)
+    setOsrSerialProfile(normalizedProfile)
+    if (normalizedProfile === 'craftyHandySr6') {
+      setOsrSerialUpdateRate(CRAFTY_HANDY_SR6_UPDATE_RATE)
+    }
+  }, [setOsrSerialUpdateRate])
+
+  const waitForOsrSerialFirstCommandReady = useCallback(async () => {
+    if (osrSerialProfile !== 'craftyHandySr6') return
+    const delayMs = osrSerialFirstCommandReadyAtRef.current - Date.now()
+    if (delayMs > 0) {
+      await waitForDelay(delayMs)
+    }
+  }, [osrSerialProfile])
 
   const handleOsrSerialAxisConfigChange = useCallback((axisId: ScriptAxisId, patch: Partial<OsrSerialAxisConfig>) => {
     setOsrSerialAxisConfigs((current) => normalizeOsrSerialAxisConfigs({
@@ -1741,10 +1773,12 @@ export default function App() {
     const command = buildTCodeCommand(actionMap, 220, {
       axisIds: [axisId],
       axisOutputOptions: osrSerialAxisOutputOptions,
+      ...osrSerialTCodeCommandOptions,
     })
 
+    await waitForOsrSerialFirstCommandReady()
     return command ? osrSerialService.writeCommand(command) : false
-  }, [availableOsrSerialAxes, osrSerialAxisOutputOptions, osrSerialConnected])
+  }, [availableOsrSerialAxes, osrSerialAxisOutputOptions, osrSerialConnected, osrSerialTCodeCommandOptions, waitForOsrSerialFirstCommandReady])
 
   const startButtplugPlayback = useCallback(async () => {
     const media = mediaRef.current
@@ -1820,18 +1854,20 @@ export default function App() {
 
     const neutralCommand = buildDefaultTCodeCommand(availableOsrSerialAxes, {
       axisOutputOptions: osrSerialAxisOutputOptions,
+      ...osrSerialTCodeCommandOptions,
     })
     if (!neutralCommand) {
       return
     }
 
+    await waitForOsrSerialFirstCommandReady()
     for (let i = 0; i < OSR_SERIAL_NEUTRAL_BURST_COUNT; i += 1) {
       await osrSerialService.writeCommand(neutralCommand)
       if (i < OSR_SERIAL_NEUTRAL_BURST_COUNT - 1) {
         await waitForDelay(OSR_SERIAL_NEUTRAL_BURST_INTERVAL_MS)
       }
     }
-  }, [availableOsrSerialAxes, clearOsrSerialStreamTimer, osrSerialAxisOutputOptions, osrSerialConnected])
+  }, [availableOsrSerialAxes, clearOsrSerialStreamTimer, osrSerialAxisOutputOptions, osrSerialConnected, osrSerialTCodeCommandOptions, waitForOsrSerialFirstCommandReady])
 
   const startOsrSerialPlayback = useCallback(async () => {
     const media = mediaRef.current
@@ -1876,6 +1912,8 @@ export default function App() {
       const command = buildTCodeCommand(runtimeAxisActions, targetTimeMs, {
         axisIds: availableOsrSerialAxes,
         axisOutputOptions: osrSerialAxisOutputOptions,
+        ...osrSerialTCodeCommandOptions,
+        intervalMs: osrSerialProfile === 'craftyHandySr6' ? intervalMs : osrSerialTCodeCommandOptions.intervalMs,
       })
 
       if (command) {
@@ -1887,6 +1925,7 @@ export default function App() {
       scheduleNextTick()
     }
 
+    await waitForOsrSerialFirstCommandReady()
     tick()
   }, [
     availableOsrSerialAxes,
@@ -1894,11 +1933,14 @@ export default function App() {
     deviceProvider,
     osrSerialConnected,
     osrSerialAxisOutputOptions,
+    osrSerialProfile,
+    osrSerialTCodeCommandOptions,
     osrSerialUpdateRate,
     osrSerialScriptAxes.length,
     playbackRate,
     runtimeAxisActions,
     effectiveDeviceTimeOffset,
+    waitForOsrSerialFirstCommandReady,
   ])
 
   const loadSubtitleCues = useCallback(async (mediaPath: string, mediaType: MediaType) => {
@@ -1931,6 +1973,39 @@ export default function App() {
       setFunscriptBundle(parsedBundle)
     }
   }, [loadParsedScriptBundle])
+
+  const handleAiScriptGenerated = useCallback(async (script: unknown, modelLabel: string) => {
+    const mediaPath = currentFileRef.current
+    if (!mediaPath) {
+      return null
+    }
+
+    const result = await window.electronAPI.saveGeneratedFunscript(
+      mediaPath,
+      JSON.stringify(script, null, 2),
+      'ai-motion'
+    )
+    if (!result.ok || !result.path) {
+      throw new Error(result.error || 'Failed to save generated script.')
+    }
+
+    setManualScriptPaths((prev) => ({
+      ...prev,
+      [mediaPath]: result.path!,
+    }))
+
+    const parsedBundle = await loadParsedScriptBundle(mediaPath, result.path)
+    if (currentFileRef.current === mediaPath) {
+      setFunscriptBundle(parsedBundle)
+      const variants = await loadScriptVariants(mediaPath)
+      if (currentFileRef.current === mediaPath) {
+        setScriptVariants(variants)
+      }
+    }
+
+    console.info(`[AI Script] Generated with ${modelLabel}: ${result.path}`)
+    return result.path
+  }, [loadParsedScriptBundle, loadScriptVariants])
 
   const cancelPendingHandySync = useCallback(() => {
     handySyncRunId.current += 1
@@ -2572,6 +2647,172 @@ export default function App() {
     playbackMode,
   ])
 
+  useEffect(() => {
+    remoteAccessoryClient.setCommandHandler(async (command: RemoteCommandId) => {
+      const media = mediaRef.current
+      const seekBy = (deltaSeconds: number) => {
+        if (!media) return
+        const duration = Number.isFinite(media.duration) ? media.duration : Number.POSITIVE_INFINITY
+        media.currentTime = Math.max(0, Math.min(duration, media.currentTime + deltaSeconds))
+      }
+      const changeVolume = (delta: number) => {
+        if (!media) return
+        media.volume = Math.max(0, Math.min(1, media.volume + delta))
+      }
+      const changeScriptOffset = (deltaMs: number) => {
+        const mediaPath = currentFileRef.current
+        if (!mediaPath) return
+        setScriptOffsets((prev) => ({
+          ...prev,
+          [mediaPath]: Math.max(-5000, Math.min(5000, (prev[mediaPath] ?? 0) + deltaMs)),
+        }))
+      }
+
+      switch (command) {
+        case 'play_pause':
+          if (!media) return
+          if (media.paused) {
+            await media.play().catch(() => undefined)
+          } else {
+            media.pause()
+          }
+          break
+        case 'next_video':
+          await handleNextFile()
+          break
+        case 'previous_video':
+          await handlePreviousFile()
+          break
+        case 'seek_forward_5s':
+          seekBy(5)
+          break
+        case 'seek_backward_5s':
+          seekBy(-5)
+          break
+        case 'seek_forward_10s':
+          seekBy(10)
+          break
+        case 'seek_backward_10s':
+          seekBy(-10)
+          break
+        case 'volume_up':
+          changeVolume(0.08)
+          break
+        case 'volume_down':
+          changeVolume(-0.08)
+          break
+        case 'toggle_mute':
+          if (media) media.muted = !media.muted
+          break
+        case 'toggle_fullscreen':
+          if (document.fullscreenElement) {
+            await document.exitFullscreen().catch(() => undefined)
+          } else {
+            await document.documentElement.requestFullscreen().catch(() => undefined)
+          }
+          break
+        case 'toggle_fit_fill':
+          window.dispatchEvent(new CustomEvent('scriptplayer:remote-command', { detail: { command } }))
+          break
+        case 'script_offset_plus_50':
+          changeScriptOffset(50)
+          break
+        case 'script_offset_minus_50':
+          changeScriptOffset(-50)
+          break
+        case 'reset_script_offset': {
+          const mediaPath = currentFileRef.current
+          if (!mediaPath) return
+          setScriptOffsets((prev) => {
+            const next = { ...prev }
+            delete next[mediaPath]
+            return next
+          })
+          break
+        }
+        case 'toggle_loop':
+          setLoopCurrentMedia((prev) => !prev)
+          break
+        case 'toggle_shuffle':
+          setPlaybackMode((prev) => (prev === 'shuffle' ? 'none' : 'shuffle'))
+          break
+        case 'open_settings':
+          setSettingsSection('remote')
+          setSettingsOpen(true)
+          break
+        case 'device_stop':
+          media?.pause()
+          break
+      }
+    })
+
+    return () => {
+      remoteAccessoryClient.setCommandHandler(null)
+    }
+  }, [handleNextFile, handlePreviousFile])
+
+  useEffect(() => {
+    if (!remoteAccessoryState.connected || !remoteAccessoryState.paired) {
+      return
+    }
+
+    const tick = () => {
+      const media = mediaRef.current
+      void remoteAccessoryClient.sendPlaybackState({
+        playing: Boolean(media && !media.paused && !media.ended),
+        title: currentFile ? getFileName(currentFile) : 'ScriptPlayer+',
+        positionMs: media && Number.isFinite(media.currentTime) ? media.currentTime * 1000 : 0,
+        durationMs: Number.isFinite(mediaDurationSeconds) ? mediaDurationSeconds * 1000 : 0,
+      })
+    }
+
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [
+    currentFile,
+    mediaDurationSeconds,
+    remoteAccessoryState.connected,
+    remoteAccessoryState.paired,
+  ])
+
+  useEffect(() => {
+    if (!remoteAccessoryState.connected || !remoteAccessoryState.paired) {
+      return
+    }
+
+    const media = mediaRef.current
+    if (!currentFile || currentFileType !== 'video' || !videoUrl || !(media instanceof HTMLVideoElement)) {
+      void remoteAccessoryClient.clearThumbnail()
+      return
+    }
+
+    let cancelled = false
+    const thumbnailId = `${currentFile}:${mediaSessionKey}`
+
+    const sendThumbnail = async () => {
+      await waitForMediaReady(media, 4000).catch(() => false)
+      if (cancelled) return
+      await remoteAccessoryClient.sendVideoThumbnail(media, thumbnailId)
+    }
+
+    const timer = window.setTimeout(() => {
+      void sendThumbnail()
+    }, 350)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    currentFile,
+    currentFileType,
+    mediaSessionKey,
+    remoteAccessoryState.connected,
+    remoteAccessoryState.paired,
+    videoUrl,
+  ])
+
   const handleManualScriptSelect = useCallback(async (file: VideoFile) => {
     const scriptPath = await window.electronAPI.openScriptFile()
     if (!scriptPath) return
@@ -2702,7 +2943,10 @@ export default function App() {
       return
     }
 
-    await osrSerialService.connect(trimmedPath, DEFAULT_OSR_SERIAL_BAUD_RATE)
+    const connected = await osrSerialService.connect(trimmedPath, DEFAULT_OSR_SERIAL_BAUD_RATE)
+    if (connected && osrSerialProfile === 'craftyHandySr6') {
+      osrSerialFirstCommandReadyAtRef.current = Date.now() + CRAFTY_HANDY_SR6_FIRST_COMMAND_GRACE_MS
+    }
   }
 
   const handleOsrSerialDisconnect = async () => {
@@ -2964,11 +3208,16 @@ export default function App() {
       const command = buildTCodeCommand(runtimeAxisActions, currentTimeMs, {
         axisIds: availableOsrSerialAxes,
         axisOutputOptions: osrSerialAxisOutputOptions,
+        ...osrSerialTCodeCommandOptions,
       }) ?? buildDefaultTCodeCommand(availableOsrSerialAxes, {
         axisOutputOptions: osrSerialAxisOutputOptions,
+        ...osrSerialTCodeCommandOptions,
       })
       if (command) {
-        void osrSerialService.writeCommand(command)
+        void waitForOsrSerialFirstCommandReady().then(() => {
+          void osrSerialService.writeCommand(command)
+        })
+        return
       }
     }
 
@@ -2991,7 +3240,9 @@ export default function App() {
     effectiveDeviceTimeOffset,
     osrSerialAxisOutputOptions,
     osrSerialConnected,
+    osrSerialTCodeCommandOptions,
     runtimeAxisActions,
+    waitForOsrSerialFirstCommandReady,
   ])
 
   const handleTimeUpdate = useCallback((time: number) => {
@@ -4127,6 +4378,7 @@ export default function App() {
           rememberVideoFit={settings.rememberVideoFit}
           videoCompatibilityMode={settings.videoCompatibilityMode}
           onTryVideoCompatibilityMode={handleTryVideoCompatibilityMode}
+          onAiScriptGenerated={handleAiScriptGenerated}
           timelineHeight={settings.timelineHeight}
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}
@@ -4152,6 +4404,12 @@ export default function App() {
         onResetIntifaceSettings={handleResetIntifaceSettings}
         onResetAllSettings={handleResetAllSettings}
         onDeviceTestCommand={handleDeviceTestCommand}
+        remoteAccessoryState={remoteAccessoryState}
+        onRemoteAccessoryConnect={() => remoteAccessoryClient.connect()}
+        onRemoteAccessoryDisconnect={() => remoteAccessoryClient.disconnect()}
+        onRemoteAccessoryPair={(code) => remoteAccessoryClient.pair(code)}
+        onRemoteAccessoryForget={() => remoteAccessoryClient.forget()}
+        onRemoteAccessoryMappingChange={(button, action, command) => remoteAccessoryClient.updateMapping(button, action, command)}
         initialSection={settingsSection}
       />
     </div>

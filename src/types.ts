@@ -171,6 +171,11 @@ declare global {
       ) => Promise<ScriptMediaMatchCandidate[]>
       readFunscriptFile: (filePath: string) => Promise<Funscript | null>
       saveFunscript: (videoPath: string, data: string) => Promise<boolean>
+      saveGeneratedFunscript: (
+        videoPath: string,
+        data: string,
+        label?: string
+      ) => Promise<{ ok: boolean; path?: string; error?: string }>
       readSegmentRepeatStore: (scriptFolder: string) => Promise<{ ok: boolean; exists: boolean; path?: string; content?: string; error?: string }>
       writeSegmentRepeatStore: (scriptFolder: string, content: string) => Promise<{ ok: boolean; path?: string; error?: string }>
       getVideoUrl: (filePath: string) => Promise<string>

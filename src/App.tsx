@@ -1225,6 +1225,19 @@ export default function App() {
   )
   const runtimeAxisActions = useMemo(
     () => buildAxisActionMap(displayAxisActions, (_axisId, actions) => {
+      if (!settings.motionSpeedLimitEnabled) {
+        return actions
+      }
+
+      return limitFunscriptMotionSpeed(
+        actions,
+        strokesPerMinuteToUnitsPerSecond(settings.motionSpeedLimit)
+      )
+    }),
+    [displayAxisActions, settings.motionSpeedLimit, settings.motionSpeedLimitEnabled]
+  )
+  const handyAxisActions = useMemo(
+    () => buildAxisActionMap(displayAxisActions, (_axisId, actions) => {
       const scaledActions = transformFunscriptActions(actions, { timeScale: getPlaybackTimeScale(playbackRate) })
       if (!settings.motionSpeedLimitEnabled) {
         return scaledActions
@@ -1255,11 +1268,11 @@ export default function App() {
   )
   const effectiveDeviceTimeOffset = (settings.timeOffset || 0) + scriptOffset
   const handyActions = useMemo(() => {
-    if (runtimeAxisActions.L0 && runtimeAxisActions.L0.length > 0) {
-      return runtimeAxisActions.L0
+    if (handyAxisActions.L0 && handyAxisActions.L0.length > 0) {
+      return handyAxisActions.L0
     }
-    return primaryAxis ? runtimeAxisActions[primaryAxis] ?? [] : []
-  }, [primaryAxis, runtimeAxisActions])
+    return primaryAxis ? handyAxisActions[primaryAxis] ?? [] : []
+  }, [handyAxisActions, primaryAxis])
   const waitingForGeneratedHandyScript = useMemo(() => (
     settings.noScriptRandomStrokeEnabled
     && !funscriptBundle

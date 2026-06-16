@@ -184,7 +184,7 @@ declare global {
       readSegmentRepeatStore: (scriptFolder: string) => Promise<{ ok: boolean; exists: boolean; path?: string; content?: string; error?: string }>
       writeSegmentRepeatStore: (scriptFolder: string, content: string) => Promise<{ ok: boolean; path?: string; error?: string }>
       getVideoUrl: (filePath: string) => Promise<string>
-      findArtwork: (mediaPath: string, rootHint?: string) => Promise<string | null>
+      findArtwork: (mediaPath: string, rootHint?: string, options?: { fastOnly?: boolean }) => Promise<string | null>
       readSubtitles: (mediaPath: string) => Promise<SubtitleFile[]>
       readSubtitleFile: (filePath: string) => Promise<SubtitleFile | null>
 

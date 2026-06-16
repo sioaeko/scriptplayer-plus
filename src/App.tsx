@@ -131,7 +131,7 @@ const AUTO_SKIP_TARGET_EPSILON_MS = 250
 type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
 const AUTO_SKIP_END_LEAD_MS = 350
 const AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS = 1200
-const AUDIO_ARTWORK_LOOKUP_DELAY_MS = 8000
+const AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS = 2000
 const AUTO_SKIP_MIN_POSITION_DELTA = 2
 const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
 const RANDOM_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['L0', 'R0']
@@ -2568,26 +2568,31 @@ export default function App() {
       }, AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS)
 
       const rootHint = currentFolderPathRef.current || undefined
-      window.setTimeout(() => {
-        if (requestId !== openMediaRequestId.current) {
+      let artworkResolved = false
+      const lookupArtwork = (fastOnly = false) => {
+        if (artworkResolved || requestId !== openMediaRequestId.current) {
           return
         }
 
-        void window.electronAPI.findArtwork(filePath, rootHint)
+        void window.electronAPI.findArtwork(filePath, rootHint, { fastOnly })
           .then(async (artworkPath) => {
-            if (!artworkPath || requestId !== openMediaRequestId.current) {
+            if (!artworkPath || artworkResolved || requestId !== openMediaRequestId.current) {
               return
             }
             const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
-            if (requestId !== openMediaRequestId.current) {
+            if (artworkResolved || requestId !== openMediaRequestId.current) {
               return
             }
+            artworkResolved = true
             setArtworkUrl(nextArtworkUrl)
           })
           .catch(() => {
             // Artwork lookup is best-effort and must not block audio switching.
           })
-      }, AUDIO_ARTWORK_LOOKUP_DELAY_MS)
+      }
+
+      lookupArtwork(true)
+      window.setTimeout(() => lookupArtwork(false), AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS)
     }
   }, [
     cancelPendingHandySync,

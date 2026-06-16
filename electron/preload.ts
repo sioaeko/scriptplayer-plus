@@ -78,7 +78,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeSegmentRepeatStore: (scriptFolder: string, content: string) =>
     ipcRenderer.invoke('fs:writeSegmentRepeatStore', scriptFolder, content),
   getVideoUrl: (filePath: string) => ipcRenderer.invoke('fs:getVideoUrl', filePath),
-  findArtwork: (mediaPath: string, rootHint?: string) => ipcRenderer.invoke('fs:findArtwork', mediaPath, rootHint),
+  findArtwork: (mediaPath: string, rootHint?: string, options?: { fastOnly?: boolean }) =>
+    ipcRenderer.invoke('fs:findArtwork', mediaPath, rootHint, options),
   readSubtitles: (mediaPath: string) => ipcRenderer.invoke('fs:readSubtitles', mediaPath),
   readSubtitleFile: (filePath: string) => ipcRenderer.invoke('fs:readSubtitleFile', filePath),
 

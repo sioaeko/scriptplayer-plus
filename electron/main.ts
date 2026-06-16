@@ -62,6 +62,9 @@ const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
 const EMBEDDED_ARTWORK_CACHE_DIR = 'scriptplayer-plus-audio-artwork'
 const MAX_ARTWORK_TREE_SCAN_ENTRIES = 800
+const ARTWORK_LOOKUP_MISS_TTL_MS = 2 * 60 * 1000
+const ARTWORK_TREE_CACHE_TTL_MS = 5 * 60 * 1000
+const EMBEDDED_ARTWORK_CACHE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
@@ -1183,9 +1186,9 @@ ipcMain.handle('fs:getVideoUrl', async (_event, filePath: string) => {
   return pathToFileURL(filePath).toString()
 })
 
-ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string, rootHint?: string) => {
+ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string, rootHint?: string, options?: FindArtworkOptions) => {
   try {
-    return await findArtworkForMedia(mediaPath, rootHint)
+    return await findArtworkForMedia(mediaPath, rootHint, options)
   } catch {
     return null
   }
@@ -2346,31 +2349,62 @@ function isLoadableFunscriptJson(value: unknown): value is { actions: Array<{ at
   ))
 }
 
-async function findArtworkForMedia(mediaPath: string, rootHint?: string): Promise<string | null> {
-  const sidecarArtworkPath = findSidecarArtworkForMedia(mediaPath, rootHint)
+type FindArtworkOptions = {
+  fastOnly?: boolean
+}
+
+async function findArtworkForMedia(mediaPath: string, rootHint?: string, options: FindArtworkOptions = {}): Promise<string | null> {
+  const cacheKey = getArtworkLookupCacheKey(mediaPath, rootHint)
+  const cachedArtworkPath = artworkLookupCache.get(cacheKey)
+  if (cachedArtworkPath) {
+    return cachedArtworkPath
+  }
+  if (isFreshArtworkLookupMiss(cacheKey)) {
+    return null
+  }
+
+  const sidecarArtworkPath = findSidecarArtworkForMedia(mediaPath, rootHint, cacheKey)
   if (sidecarArtworkPath) {
     return sidecarArtworkPath
   }
 
+  const cachedEmbeddedArtworkPath = await findCachedEmbeddedArtworkForMedia(mediaPath)
+  if (cachedEmbeddedArtworkPath) {
+    cacheArtworkLookupHit(cacheKey, cachedEmbeddedArtworkPath)
+    return cachedEmbeddedArtworkPath
+  }
+
+  if (options.fastOnly) {
+    return null
+  }
+
   const embeddedArtworkPath = await extractEmbeddedArtworkForMedia(mediaPath)
   if (embeddedArtworkPath) {
+    cacheArtworkLookupHit(cacheKey, embeddedArtworkPath)
     return embeddedArtworkPath
   }
 
+  cacheArtworkLookupMiss(cacheKey)
   return null
 }
 
 async function extractEmbeddedArtworkForMedia(mediaPath: string): Promise<string | null> {
-  if (!AUDIO_EXTS.includes(path.extname(mediaPath).toLowerCase())) {
+  const cacheInfo = await getEmbeddedArtworkCacheInfo(mediaPath)
+  if (!cacheInfo) {
     return null
   }
+  const { cacheDir, cacheKey } = cacheInfo
 
-  let stats: fs.Stats
   try {
-    stats = await fs.promises.stat(mediaPath)
+    await fs.promises.mkdir(cacheDir, { recursive: true })
+    const cachedFilePath = await findExistingEmbeddedArtworkCacheFile(cacheDir, cacheKey)
+    if (cachedFilePath) {
+      return cachedFilePath
+    }
   } catch {
     return null
   }
+
   try {
     const metadata = await parseFile(mediaPath, {
       duration: false,
@@ -2383,30 +2417,63 @@ async function extractEmbeddedArtworkForMedia(mediaPath: string): Promise<string
     }
 
     const ext = getArtworkExtensionFromMime(picture.format)
-    const cacheDir = path.join(app.getPath('userData'), EMBEDDED_ARTWORK_CACHE_DIR)
-    await fs.promises.mkdir(cacheDir, { recursive: true })
-
-    const cacheKey = createHash('sha1')
-      .update(mediaPath)
-      .update('\0')
-      .update(String(stats.mtimeMs))
-      .update('\0')
-      .update(String(stats.size))
-      .digest('hex')
     const filePath = path.join(cacheDir, `${cacheKey}${ext}`)
-
-    try {
-      await fs.promises.access(filePath, fs.constants.R_OK)
-      return filePath
-    } catch {
-      // Cache miss, write below.
-    }
 
     await fs.promises.writeFile(filePath, Buffer.from(picture.data))
     return filePath
   } catch {
     return null
   }
+}
+
+async function findCachedEmbeddedArtworkForMedia(mediaPath: string): Promise<string | null> {
+  const cacheInfo = await getEmbeddedArtworkCacheInfo(mediaPath)
+  if (!cacheInfo) {
+    return null
+  }
+
+  try {
+    return await findExistingEmbeddedArtworkCacheFile(cacheInfo.cacheDir, cacheInfo.cacheKey)
+  } catch {
+    return null
+  }
+}
+
+async function getEmbeddedArtworkCacheInfo(mediaPath: string): Promise<{ cacheDir: string; cacheKey: string } | null> {
+  if (!AUDIO_EXTS.includes(path.extname(mediaPath).toLowerCase())) {
+    return null
+  }
+
+  let stats: fs.Stats
+  try {
+    stats = await fs.promises.stat(mediaPath)
+  } catch {
+    return null
+  }
+
+  return {
+    cacheDir: path.join(app.getPath('userData'), EMBEDDED_ARTWORK_CACHE_DIR),
+    cacheKey: createHash('sha1')
+      .update(mediaPath)
+      .update('\0')
+      .update(String(stats.mtimeMs))
+      .update('\0')
+      .update(String(stats.size))
+      .digest('hex'),
+  }
+}
+
+async function findExistingEmbeddedArtworkCacheFile(cacheDir: string, cacheKey: string): Promise<string | null> {
+  for (const ext of EMBEDDED_ARTWORK_CACHE_EXTS) {
+    const filePath = path.join(cacheDir, `${cacheKey}${ext}`)
+    try {
+      await fs.promises.access(filePath, fs.constants.R_OK)
+      return filePath
+    } catch {
+      // Try the next possible cached artwork extension.
+    }
+  }
+  return null
 }
 
 function pickEmbeddedArtwork(
@@ -2453,19 +2520,47 @@ const COVER_ARTWORK_TOKENS = [
 ]
 const PREFERRED_ARTWORK_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 const IGNORED_ARTWORK_TOKENS = ['삣삐', '띳띠', '뭐하고놀까요']
-const artworkLookupCache = new Map<string, string | null>()
+const artworkLookupCache = new Map<string, string>()
+const artworkLookupMissCache = new Map<string, number>()
+const artworkTreeCache = new Map<string, { path: string | null; at: number }>()
 
-function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string): string | null {
-  const cacheKey = `${normalizePathKey(mediaPath)}::${rootHint ? normalizePathKey(rootHint) : ''}`
-  if (artworkLookupCache.has(cacheKey)) {
-    return artworkLookupCache.get(cacheKey) ?? null
+function getArtworkLookupCacheKey(mediaPath: string, rootHint?: string): string {
+  return `${normalizePathKey(mediaPath)}::${rootHint ? normalizePathKey(rootHint) : ''}`
+}
+
+function cacheArtworkLookupHit(cacheKey: string, artworkPath: string): void {
+  artworkLookupCache.set(cacheKey, artworkPath)
+  artworkLookupMissCache.delete(cacheKey)
+}
+
+function cacheArtworkLookupMiss(cacheKey: string): void {
+  artworkLookupMissCache.set(cacheKey, Date.now())
+}
+
+function isFreshArtworkLookupMiss(cacheKey: string): boolean {
+  const missedAt = artworkLookupMissCache.get(cacheKey)
+  if (!missedAt) {
+    return false
   }
+  if (Date.now() - missedAt <= ARTWORK_LOOKUP_MISS_TTL_MS) {
+    return true
+  }
+  artworkLookupMissCache.delete(cacheKey)
+  return false
+}
+
+function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string, cacheKey = getArtworkLookupCacheKey(mediaPath, rootHint)): string | null {
+  const cachedArtworkPath = artworkLookupCache.get(cacheKey)
+  if (cachedArtworkPath) {
+    return cachedArtworkPath
+  }
+
   const searchDirs = getArtworkSearchDirectories(mediaPath, rootHint)
 
   for (const dir of searchDirs) {
     const artworkPath = findBestArtworkInDirectory(mediaPath, dir, false)
     if (artworkPath) {
-      artworkLookupCache.set(cacheKey, artworkPath)
+      cacheArtworkLookupHit(cacheKey, artworkPath)
       return artworkPath
     }
   }
@@ -2473,7 +2568,7 @@ function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string): strin
   for (const dir of searchDirs) {
     const artworkPath = findBestArtworkInDirectory(mediaPath, dir, true)
     if (artworkPath) {
-      artworkLookupCache.set(cacheKey, artworkPath)
+      cacheArtworkLookupHit(cacheKey, artworkPath)
       return artworkPath
     }
   }
@@ -2482,7 +2577,7 @@ function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string): strin
   if (workRoot) {
     const workRootArtworkPath = findBestArtworkInTree(workRoot)
     if (workRootArtworkPath) {
-      artworkLookupCache.set(cacheKey, workRootArtworkPath)
+      cacheArtworkLookupHit(cacheKey, workRootArtworkPath)
       return workRootArtworkPath
     }
   }
@@ -2575,8 +2670,19 @@ function isArtworkContainerDirectory(name: string): boolean {
 }
 
 function findBestArtworkInTree(rootDir: string): string | null {
+  const cacheKey = normalizePathKey(rootDir)
+  const cached = artworkTreeCache.get(cacheKey)
+  if (cached && Date.now() - cached.at <= ARTWORK_TREE_CACHE_TTL_MS) {
+    return cached.path
+  }
+  if (cached) {
+    artworkTreeCache.delete(cacheKey)
+  }
+
   const budget = { remainingEntries: MAX_ARTWORK_TREE_SCAN_ENTRIES }
-  return findBestArtworkCandidateInTree(rootDir, 0, budget)?.path ?? null
+  const artworkPath = findBestArtworkCandidateInTree(rootDir, 0, budget)?.path ?? null
+  artworkTreeCache.set(cacheKey, { path: artworkPath, at: Date.now() })
+  return artworkPath
 }
 
 function findBestArtworkCandidateInTree(

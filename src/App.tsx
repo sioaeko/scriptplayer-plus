@@ -4331,15 +4331,12 @@ export default function App() {
       const uploadState = handyAutoPlayStatusText
         ? { text: handyAutoPlayStatusText, tone: handyAutoPlayStatusTone ?? 'busy' as const }
         : getHandyOverlayStatus(handyUploadStatus, handyUploadError)
-      const fallbackStatus = handyConnected
-        ? (scriptUploadUrl ? 'Ready to play' : 'Connected; waiting for script upload')
-        : null
       return {
         connected: handyConnected,
         label: 'Handy',
         detail: handyConnected && handyService.ping !== null ? `${handyService.ping}ms` : null,
-        statusText: uploadState?.text ?? fallbackStatus,
-        statusTone: uploadState?.tone ?? (handyConnected && !scriptUploadUrl ? 'busy' as const : null),
+        statusText: uploadState?.text ?? null,
+        statusTone: uploadState?.tone ?? null,
       }
     }
 

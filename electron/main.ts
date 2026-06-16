@@ -1,10 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, session, shell, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, shell, clipboard } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import fs from 'fs'
 import http from 'http'
 import https from 'https'
 import { createHash } from 'crypto'
+import { spawn } from 'child_process'
 import { URL, pathToFileURL } from 'url'
 import { parseFile } from 'music-metadata'
 import { OsrSerialManager } from './osrSerial'
@@ -60,6 +61,8 @@ const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|varian
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
 const EMBEDDED_ARTWORK_CACHE_DIR = 'scriptplayer-plus-audio-artwork'
+const MAX_EMBEDDED_ARTWORK_SCAN_BYTES = 32 * 1024 * 1024
+const MAX_ARTWORK_TREE_SCAN_ENTRIES = 800
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
@@ -122,6 +125,7 @@ type BundledScriptLocationIndex = Map<string, Map<string, { path: string; topLev
 
 interface FunscriptFileEntry {
   dir: string
+  dirKey: string
   name: string
   path: string
   topLevelGroup: string
@@ -138,6 +142,21 @@ interface CachedBundledScriptIndex {
   scannedAt: number
 }
 
+interface CachedFunscriptFileEntries {
+  entries: FunscriptFileEntry[]
+  scannedAt: number
+}
+
+interface PendingFolderMediaFile {
+  name: string
+  path: string
+  type: 'video' | 'audio'
+  hasSubtitles: boolean
+  modifiedAt: number
+  relativePath: string
+  topLevelGroup: string
+}
+
 function createBundledScriptIndex(): BundledScriptIndex {
   return {
     locations: new Map(),
@@ -147,10 +166,16 @@ function createBundledScriptIndex(): BundledScriptIndex {
 }
 
 const scriptFolderIndexCache = new Map<string, CachedBundledScriptIndex>()
+const scriptFolderFunscriptEntriesCache = new Map<string, CachedFunscriptFileEntries>()
 const SCRIPT_FOLDER_INDEX_CACHE_TTL_MS = 60_000
+const NATIVE_FIND_SCAN_PLATFORMS = new Set(['darwin'])
 
 function normalizePathKey(targetPath: string): string {
   return process.platform === 'win32' ? targetPath.toLowerCase() : targetPath
+}
+
+function getDirectoryVisitKey(dirPath: string): string {
+  return normalizePathKey(path.resolve(dirPath))
 }
 
 function isLikelyNetworkPath(targetPath?: string | null): boolean {
@@ -191,6 +216,7 @@ async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string)
     }
 
     const useNetworkSafeSubtitleScan = isLikelyNetworkPath(filePath) || isLikelyNetworkPath(scriptFolder)
+    const mediaType = VIDEO_EXTS.includes(ext) ? 'video' : 'audio'
     const bundle = readFunscriptBundle(filePath, scriptFolder)
     const scriptAxes = SCRIPT_AXIS_DEFINITIONS
       .map((definition) => definition.id)
@@ -202,11 +228,13 @@ async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string)
     files.push({
       name: path.basename(filePath),
       path: filePath,
-      type: VIDEO_EXTS.includes(ext) ? 'video' : 'audio',
+      type: mediaType,
       hasScript: scriptAxes.length > 0,
       autoScriptPath: primaryScriptPath,
       scriptAxes,
-      hasSubtitles: useNetworkSafeSubtitleScan ? false : hasSubtitlesForMediaScan(filePath),
+      hasSubtitles: !useNetworkSafeSubtitleScan && mediaType === 'video'
+        ? hasSubtitlesForMediaScan(filePath)
+        : false,
       modifiedAt: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : 0,
       relativePath: filePath.replace(/\\/g, '/'),
     })
@@ -274,6 +302,12 @@ function invalidateFsCachesForRoot(rootPath: string) {
   for (const cacheKey of Array.from(scriptFolderIndexCache.keys())) {
     if (isSamePathOrChildPath(cacheKey, normalizedRoot) || isSamePathOrChildPath(normalizedRoot, cacheKey)) {
       scriptFolderIndexCache.delete(cacheKey)
+    }
+  }
+
+  for (const cacheKey of Array.from(scriptFolderFunscriptEntriesCache.keys())) {
+    if (isSamePathOrChildPath(cacheKey, normalizedRoot) || isSamePathOrChildPath(normalizedRoot, cacheKey)) {
+      scriptFolderFunscriptEntriesCache.delete(cacheKey)
     }
   }
 }
@@ -586,12 +620,6 @@ function configureBluetoothRemoteSupport(window: BrowserWindow): void {
 app.whenReady().then(() => {
   configureAutoUpdater()
 
-  // Register protocol for local video files
-  protocol.registerFileProtocol('local-video', (request, callback) => {
-    const filePath = decodeURIComponent(request.url.replace('local-video://', ''))
-    callback({ path: filePath })
-  })
-
   createWindow()
 
   if (updaterState.autoUpdateSupported) {
@@ -814,34 +842,164 @@ ipcMain.handle('dialog:savePlaylistFile', async (_event, defaultName: string, co
   }
 })
 
+async function scanFolderWithNativeFind(rootDir: string): Promise<VideoFile[] | null> {
+  if (!NATIVE_FIND_SCAN_PLATFORMS.has(process.platform)) {
+    return null
+  }
+
+  try {
+    const filePaths = await findFilesByExtensions(rootDir, [...MEDIA_EXTS, ...FUNSCRIPT_EXTS])
+    const mediaPaths: string[] = []
+    const scriptPaths: string[] = []
+    for (const filePath of filePaths) {
+      const ext = path.extname(filePath).toLowerCase()
+      if (MEDIA_EXTS.includes(ext)) {
+        mediaPaths.push(filePath)
+      } else if (FUNSCRIPT_EXTS.includes(ext)) {
+        scriptPaths.push(filePath)
+      }
+    }
+    return buildFolderFilesFromPaths(rootDir, mediaPaths, scriptPaths)
+  } catch {
+    return null
+  }
+}
+
+function findFilesByExtensions(rootDir: string, extensions: string[]): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      rootDir,
+      '-type',
+      'f',
+      '(',
+      ...extensions.flatMap((ext, index) => [
+        ...(index > 0 ? ['-o'] : []),
+        '-iname',
+        `*${ext}`,
+      ]),
+      ')',
+      '-print0',
+    ]
+    const child = spawn('/usr/bin/find', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const chunks: Buffer[] = []
+    const errorChunks: Buffer[] = []
+
+    child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
+    child.stderr.on('data', (chunk: Buffer) => errorChunks.push(chunk))
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(Buffer.concat(errorChunks).toString('utf8') || `find exited with ${code}`))
+        return
+      }
+
+      const output = Buffer.concat(chunks).toString('utf8')
+      resolve(output.split('\0').filter(Boolean))
+    })
+  })
+}
+
+function buildFolderFilesFromPaths(rootDir: string, mediaPaths: string[], scriptPaths: string[]): VideoFile[] {
+  const bundledScriptIndex = createBundledScriptIndex()
+
+  for (const scriptPath of scriptPaths) {
+    const normalizedPath = path.normalize(scriptPath)
+    const dir = path.dirname(normalizedPath)
+    const relativePath = path.relative(rootDir, normalizedPath).replace(/\\/g, '/')
+    indexBundledScriptFile(
+      bundledScriptIndex,
+      dir,
+      relativePath.split('/')[0] ?? '',
+      path.basename(normalizedPath),
+      normalizedPath
+    )
+  }
+
+  const pendingMediaFiles: PendingFolderMediaFile[] = []
+  const seenMediaPaths = new Set<string>()
+  for (const mediaPath of mediaPaths) {
+    const normalizedPath = path.normalize(mediaPath)
+    const pathKey = normalizePathKey(normalizedPath)
+    if (seenMediaPaths.has(pathKey)) {
+      continue
+    }
+    seenMediaPaths.add(pathKey)
+
+    const ext = path.extname(normalizedPath).toLowerCase()
+    if (!MEDIA_EXTS.includes(ext)) {
+      continue
+    }
+
+    const relativePath = path.relative(rootDir, normalizedPath).replace(/\\/g, '/')
+    pendingMediaFiles.push({
+      name: path.basename(normalizedPath),
+      path: normalizedPath,
+      type: VIDEO_EXTS.includes(ext) ? 'video' : 'audio',
+      hasSubtitles: false,
+      modifiedAt: 0,
+      relativePath,
+      topLevelGroup: relativePath.split('/')[0] ?? '',
+    })
+  }
+
+  return buildFolderFilesFromPendingMedia(pendingMediaFiles, bundledScriptIndex)
+}
+
+function buildFolderFilesFromPendingMedia(
+  pendingMediaFiles: PendingFolderMediaFile[],
+  bundledScriptIndex: BundledScriptIndex
+): VideoFile[] {
+  const hasRootLevelMedia = pendingMediaFiles.some((mediaFile) => !mediaFile.relativePath.includes('/'))
+  const distinctTopLevelMediaGroups = new Set(
+    pendingMediaFiles
+      .map((mediaFile) => mediaFile.topLevelGroup)
+      .filter(Boolean)
+  ).size
+  const restrictFallbackByTopLevelGroup = !hasRootLevelMedia && distinctTopLevelMediaGroups > 1
+
+  return pendingMediaFiles
+    .map((mediaFile) => {
+      const hasLocalBundle = hasBundledScriptCandidateInDirectory(mediaFile.path, bundledScriptIndex.locations)
+      const bundledFallbackScriptPath = hasLocalBundle
+        ? null
+        : findUniqueBundledScriptFallback(
+          mediaFile.path,
+          mediaFile.topLevelGroup,
+          restrictFallbackByTopLevelGroup,
+          bundledScriptIndex.locations,
+          bundledScriptIndex.aliasLocations
+        )
+      const fallbackScriptPath = bundledFallbackScriptPath
+      const scriptAxes = collectMediaScanScriptAxes(
+        mediaFile.path,
+        [path.dirname(mediaFile.path)],
+        [fallbackScriptPath],
+        [bundledScriptIndex.axes]
+      )
+
+      return {
+        ...mediaFile,
+        hasScript: hasLocalBundle || Boolean(bundledFallbackScriptPath),
+        autoScriptPath: fallbackScriptPath ?? undefined,
+        scriptAxes,
+      } satisfies VideoFile
+    })
+    .sort((a, b) => NATURAL_SORTER.compare(a.relativePath, b.relativePath))
+}
+
 // File system operations
 ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: string) => {
   try {
-    const useNetworkSafeScan = isLikelyNetworkPath(dirPath) || isLikelyNetworkPath(scriptFolder)
     invalidateFsCachesForRoot(dirPath)
+    const nativeScanResult = await scanFolderWithNativeFind(dirPath)
+    if (nativeScanResult) {
+      return nativeScanResult
+    }
 
-    const files: Array<{
-      name: string
-      path: string
-      type: 'video' | 'audio'
-      hasScript: boolean
-      autoScriptPath?: string
-      scriptAxes: ScriptAxisId[]
-      hasSubtitles: boolean
-      modifiedAt: number
-      relativePath: string
-    }> = []
-    const pendingMediaFiles: Array<{
-      name: string
-      path: string
-      type: 'video' | 'audio'
-      hasSubtitles: boolean
-      modifiedAt: number
-      relativePath: string
-      topLevelGroup: string
-    }> = []
+    const pendingMediaFiles: PendingFolderMediaFile[] = []
     const bundledScriptIndex = createBundledScriptIndex()
-    let scriptFolderIndex = createBundledScriptIndex()
     let scannedEntries = 0
     const visitedDirectories = new Set<string>()
 
@@ -853,7 +1011,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
     }
 
     const scanDir = async (dir: string, prefix: string): Promise<void> => {
-      const visitKey = await getDirectoryRealPathKey(dir)
+      const visitKey = getDirectoryVisitKey(dir)
       if (visitedDirectories.has(visitKey)) {
         return
       }
@@ -894,20 +1052,12 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
           }
 
           if (MEDIA_EXTS.includes(ext)) {
-            let modifiedAt = 0
-            try {
-              modifiedAt = (await fs.promises.stat(fullPath)).mtimeMs
-            } catch {
-              modifiedAt = 0
-            }
-
-            const hasSubtitles = useNetworkSafeScan ? false : hasSubtitlesForMediaScan(fullPath)
             pendingMediaFiles.push({
               name: entry.name,
               path: fullPath,
               type: VIDEO_EXTS.includes(ext) ? 'video' : 'audio',
-              hasSubtitles,
-              modifiedAt: Number.isFinite(modifiedAt) ? modifiedAt : 0,
+              hasSubtitles: false,
+              modifiedAt: 0,
               relativePath: prefix ? prefix + '/' + entry.name : entry.name,
               topLevelGroup: prefix.split('/')[0] ?? '',
             })
@@ -918,61 +1068,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
 
     await scanDir(dirPath, '')
 
-    if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(dirPath)) {
-      scriptFolderIndex = await getCachedScriptFolderIndex(scriptFolder, maybeYieldDuringScan)
-    }
-
-    const hasRootLevelMedia = pendingMediaFiles.some((mediaFile) => !mediaFile.relativePath.includes('/'))
-    const distinctTopLevelMediaGroups = new Set(
-      pendingMediaFiles
-        .map((mediaFile) => mediaFile.topLevelGroup)
-        .filter(Boolean)
-    ).size
-    const restrictFallbackByTopLevelGroup = !hasRootLevelMedia && distinctTopLevelMediaGroups > 1
-
-    for (const mediaFile of pendingMediaFiles) {
-      await maybeYieldDuringScan()
-
-      const hasLocalBundle = hasBundledScriptCandidateInDirectory(mediaFile.path, bundledScriptIndex.locations)
-      const bundledFallbackScriptPath = hasLocalBundle
-        ? null
-        : findUniqueBundledScriptFallback(
-          mediaFile.path,
-          mediaFile.topLevelGroup,
-          restrictFallbackByTopLevelGroup,
-          bundledScriptIndex.locations,
-          bundledScriptIndex.aliasLocations
-        )
-      const scriptFolderFallbackPath = hasLocalBundle || !scriptFolder || normalizePathKey(scriptFolder) === normalizePathKey(path.dirname(mediaFile.path))
-        ? null
-        : findUniqueBundledScriptFallback(
-          mediaFile.path,
-          '',
-          false,
-          scriptFolderIndex.locations,
-          scriptFolderIndex.aliasLocations
-        )
-      const fallbackScriptPath = bundledFallbackScriptPath ?? scriptFolderFallbackPath
-      const candidateDirs = [path.dirname(mediaFile.path)]
-      if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(path.dirname(mediaFile.path))) {
-        candidateDirs.push(scriptFolder)
-      }
-      const scriptAxes = collectMediaScanScriptAxes(
-        mediaFile.path,
-        candidateDirs,
-        [fallbackScriptPath],
-        [bundledScriptIndex.axes, scriptFolderIndex.axes]
-      )
-
-      files.push({
-        ...mediaFile,
-        hasScript: hasLocalBundle || Boolean(bundledFallbackScriptPath) || Boolean(scriptFolderFallbackPath),
-        autoScriptPath: fallbackScriptPath ?? undefined,
-        scriptAxes,
-      })
-    }
-
-    return files.sort((a, b) => NATURAL_SORTER.compare(a.relativePath, b.relativePath))
+    return buildFolderFilesFromPendingMedia(pendingMediaFiles, bundledScriptIndex)
   } catch {
     return []
   }
@@ -996,8 +1092,14 @@ ipcMain.handle('fs:readFunscript', async (_event, videoPath: string, scriptFolde
   return bundle.scripts[bundle.primaryAxis] ?? null
 })
 
-ipcMain.handle('fs:readFunscriptBundle', async (_event, videoPath: string, scriptFolder?: string, preferredScriptPath?: string) => {
-  return readFunscriptBundle(videoPath, scriptFolder, preferredScriptPath)
+ipcMain.handle('fs:readFunscriptBundle', async (
+  _event,
+  videoPath: string,
+  scriptFolder?: string,
+  preferredScriptPath?: string,
+  options?: { skipVariantFallback?: boolean }
+) => {
+  return readFunscriptBundle(videoPath, scriptFolder, preferredScriptPath, options)
 })
 
 ipcMain.handle('fs:listScriptVariants', async (_event, videoPath: string, scriptFolder?: string) => {
@@ -1077,7 +1179,8 @@ ipcMain.handle('fs:writeSegmentRepeatStore', async (_event, scriptFolder: string
 })
 
 ipcMain.handle('fs:getVideoUrl', async (_event, filePath: string) => {
-  // Encode reserved URL characters such as "#" in Windows file names.
+  // Let Chromium load media directly. The custom protocol is served by the main
+  // process, so a large script/artwork scan can otherwise stall audio startup.
   return pathToFileURL(filePath).toString()
 })
 
@@ -1091,7 +1194,7 @@ ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string, rootHint?: st
 
 ipcMain.handle('fs:readSubtitles', async (_event, mediaPath: string) => {
   try {
-    if (isLikelyNetworkPath(mediaPath)) {
+    if (AUDIO_EXTS.includes(path.extname(mediaPath).toLowerCase()) || isLikelyNetworkPath(mediaPath)) {
       return []
     }
 
@@ -1435,7 +1538,7 @@ function listFunscriptFileEntries(rootDir: string, recursive: boolean): Funscrip
       continue
     }
 
-    const visitKey = getDirectoryRealPathKeySync(current.dir)
+    const visitKey = getDirectoryVisitKey(current.dir)
     if (visitedDirectories.has(visitKey)) {
       continue
     }
@@ -1480,6 +1583,7 @@ function listFunscriptFileEntries(rootDir: string, recursive: boolean): Funscrip
 
       results.push({
         dir: current.dir,
+        dirKey: visitKey,
         name: entry.name,
         path: fullPath,
         topLevelGroup: current.prefix.split('/')[0] ?? '',
@@ -1488,6 +1592,23 @@ function listFunscriptFileEntries(rootDir: string, recursive: boolean): Funscrip
   }
 
   return results
+}
+
+function getCachedFunscriptFileEntries(rootDir: string, recursive: boolean): FunscriptFileEntry[] {
+  if (!recursive) {
+    return listFunscriptFileEntries(rootDir, false)
+  }
+
+  const cacheKey = normalizePathKey(path.resolve(rootDir))
+  const cached = scriptFolderFunscriptEntriesCache.get(cacheKey)
+  const now = Date.now()
+  if (cached && now - cached.scannedAt < SCRIPT_FOLDER_INDEX_CACHE_TTL_MS) {
+    return cached.entries
+  }
+
+  const entries = listFunscriptFileEntries(rootDir, true)
+  scriptFolderFunscriptEntriesCache.set(cacheKey, { entries, scannedAt: now })
+  return entries
 }
 
 async function getCachedScriptFolderIndex(
@@ -1666,7 +1787,7 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
   }>()
 
   for (const context of contexts) {
-    for (const entry of listFunscriptFileEntries(context.dir, context.recursive)) {
+    for (const entry of getCachedFunscriptFileEntries(context.dir, context.recursive)) {
       const ext = path.extname(entry.name).toLowerCase()
       const stem = path.basename(entry.name, ext)
       const directStemMatch = matchesScriptVariantMediaBaseName(stem, normalizedMediaBaseName)
@@ -1679,7 +1800,7 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
       const bundleStem = directoryBundleStem && !directStemMatch
         ? directoryBundleStem
         : (strippedBundleStem || directoryBundleStem || stem)
-      const dirKey = getDirectoryRealPathKeySync(entry.dir)
+      const dirKey = entry.dirKey
       const variantKey = `${dirKey}::${normalizePathKey(bundleStem)}`
       const axisId = inferAxisIdFromStem(stem) ?? 'L0'
       const filePath = entry.path
@@ -1748,7 +1869,8 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
 function readFunscriptBundle(
   mediaPath: string,
   scriptFolder?: string,
-  preferredScriptPath?: string
+  preferredScriptPath?: string,
+  options?: { skipVariantFallback?: boolean }
 ): { primaryAxis: ScriptAxisId | null; scripts: Partial<Record<ScriptAxisId, unknown>>; sources: Partial<Record<ScriptAxisId, string>> } | null {
   const bundle: {
     primaryAxis: ScriptAxisId | null
@@ -1786,7 +1908,7 @@ function readFunscriptBundle(
     }
   }
 
-  if (Object.keys(bundle.scripts).length === 0) {
+  if (!options?.skipVariantFallback && Object.keys(bundle.scripts).length === 0) {
     const firstVariant = listScriptVariants(mediaPath, scriptFolder)[0]
     if (firstVariant) {
       addScriptPathBundle(bundle, loadedPaths, firstVariant.path)
@@ -2250,6 +2372,9 @@ async function extractEmbeddedArtworkForMedia(mediaPath: string): Promise<string
   } catch {
     return null
   }
+  if (stats.size > MAX_EMBEDDED_ARTWORK_SCAN_BYTES) {
+    return null
+  }
 
   try {
     const metadata = await parseFile(mediaPath, {
@@ -2456,11 +2581,16 @@ function isArtworkContainerDirectory(name: string): boolean {
 }
 
 function findBestArtworkInTree(rootDir: string): string | null {
-  return findBestArtworkCandidateInTree(rootDir, 0)?.path ?? null
+  const budget = { remainingEntries: MAX_ARTWORK_TREE_SCAN_ENTRIES }
+  return findBestArtworkCandidateInTree(rootDir, 0, budget)?.path ?? null
 }
 
-function findBestArtworkCandidateInTree(dir: string, depth: number): ArtworkCandidate | null {
-  if (depth > 5) {
+function findBestArtworkCandidateInTree(
+  dir: string,
+  depth: number,
+  budget: { remainingEntries: number }
+): ArtworkCandidate | null {
+  if (depth > 5 || budget.remainingEntries <= 0) {
     return null
   }
 
@@ -2471,9 +2601,11 @@ function findBestArtworkCandidateInTree(dir: string, depth: number): ArtworkCand
   } catch {
     return null
   }
+  const entriesToScan = entries.slice(0, Math.max(0, budget.remainingEntries))
+  budget.remainingEntries -= entriesToScan.length
 
   let bestCover: ArtworkCandidate | null = null
-  for (const entry of entries) {
+  for (const entry of entriesToScan) {
     if (!entry.isFile()) {
       continue
     }
@@ -2489,14 +2621,17 @@ function findBestArtworkCandidateInTree(dir: string, depth: number): ArtworkCand
     })
   }
 
-  for (const entry of entries) {
+  for (const entry of entriesToScan) {
+    if (budget.remainingEntries <= 0) {
+      break
+    }
     if (!entry.isDirectory() || entry.name.startsWith('.')) {
       continue
     }
 
     bestCover = selectBetterArtworkCandidate(
       bestCover,
-      findBestArtworkCandidateInTree(path.join(dir, entry.name), depth + 1)
+      findBestArtworkCandidateInTree(path.join(dir, entry.name), depth + 1, budget)
     )
   }
 

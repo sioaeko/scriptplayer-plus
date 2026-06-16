@@ -5,6 +5,7 @@ const SCRIPT_UPLOAD_HOST = 'scripts01.handyfeeling.com'
 const SCRIPT_API = `https://${SCRIPT_UPLOAD_HOST}/api/script/v0`
 const HSSP_PLAY_MIN_LEAD_MS = 150
 const HSSP_PLAY_RETRY_DELAY_MS = 200
+const HSSP_STOP_TIMEOUT_MS = 1500
 
 const formatUploadError = (error: unknown): string => {
   const detail = error instanceof Error ? error.message : String(error)
@@ -360,20 +361,32 @@ export class HandyService {
     }
   }
 
-  async hsspStop(): Promise<boolean> {
+  async hsspStop(options?: { timeoutMs?: number }): Promise<boolean> {
     if (!this.connected) return false
     this.cancelPendingPlay()
+    const controller = new AbortController()
+    const timeoutMs = Number.isFinite(options?.timeoutMs)
+      ? Math.max(250, Math.round(options?.timeoutMs ?? HSSP_STOP_TIMEOUT_MS))
+      : HSSP_STOP_TIMEOUT_MS
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
     try {
       const response = await fetch(`${HANDY_API}/hssp/stop`, {
         method: 'PUT',
+        signal: controller.signal,
         headers: { 'X-Connection-Key': this.connectionKey },
       })
       const data = await this.readResponseData(response)
       console.log('[Handy] hsspStop response:', data, 'status:', response.status)
       return response.ok && this.isSuccessfulResult(data)
     } catch (e) {
+      if (this.isAbortError(e)) {
+        console.warn('[Handy] hsspStop timed out')
+        return false
+      }
       console.error('[Handy] hsspStop error:', e)
       return false
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 

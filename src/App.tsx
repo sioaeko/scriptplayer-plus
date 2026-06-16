@@ -12,6 +12,7 @@ import {
   OsrSerialConnectionState,
   OsrSerialPortInfo,
   PlaybackMode,
+  ReadFunscriptBundleOptions,
   ScriptAxisId,
   ScriptMediaMatchCandidate,
   ScriptVariantOption,
@@ -129,6 +130,8 @@ const AUTO_SKIP_COOLDOWN_MS = 1000
 const AUTO_SKIP_TARGET_EPSILON_MS = 250
 type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
 const AUTO_SKIP_END_LEAD_MS = 350
+const AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS = 1200
+const AUDIO_ARTWORK_LOOKUP_DELAY_MS = 8000
 const AUTO_SKIP_MIN_POSITION_DELTA = 2
 const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
 const RANDOM_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['L0', 'R0']
@@ -2020,18 +2023,35 @@ export default function App() {
       return parseSubtitleFile(manualSubtitle.content, manualSubtitle.path)
     }
 
+    if (mediaType === 'audio') {
+      return []
+    }
+
     const subtitleFiles = await window.electronAPI.readSubtitles(mediaPath)
     return selectSubtitleCues(mediaPath, mediaType, subtitleFiles)
   }, [manualSubtitleFiles])
 
-  const loadParsedScriptBundle = useCallback(async (mediaPath: string, preferredScriptPath?: string) => {
-    const rawBundle = await window.electronAPI.readFunscriptBundle(mediaPath, settings.scriptFolder, preferredScriptPath)
+  const loadParsedScriptBundle = useCallback(async (
+    mediaPath: string,
+    preferredScriptPath?: string,
+    options?: ReadFunscriptBundleOptions
+  ) => {
+    const rawBundle = await window.electronAPI.readFunscriptBundle(
+      mediaPath,
+      settings.scriptFolder,
+      preferredScriptPath,
+      options
+    )
     return parseFunscriptBundleData(rawBundle)
   }, [settings.scriptFolder])
 
-  const loadScriptBundle = useCallback(async (mediaPath: string, autoScriptPath?: string) => {
+  const loadScriptBundle = useCallback(async (
+    mediaPath: string,
+    autoScriptPath?: string,
+    options?: ReadFunscriptBundleOptions
+  ) => {
     const preferredScriptPath = manualScriptPaths[mediaPath] ?? autoScriptPath
-    return loadParsedScriptBundle(mediaPath, preferredScriptPath)
+    return loadParsedScriptBundle(mediaPath, preferredScriptPath, options)
   }, [loadParsedScriptBundle, manualScriptPaths])
 
   const loadScriptVariants = useCallback(async (mediaPath: string) => {
@@ -2418,15 +2438,15 @@ export default function App() {
     if (handyService.isConnected) {
       cancelPendingHandySync()
       handyService.cancelPendingRequests()
-      await handyService.hsspStop()
+      void handyService.hsspStop()
     }
 
     if (buttplugService.isConnected) {
-      await stopButtplugPlayback({ stopDevice: true })
+      void stopButtplugPlayback({ stopDevice: true })
     }
 
     if (osrSerialConnected) {
-      await stopOsrSerialPlayback({ homeDevice: true })
+      void stopOsrSerialPlayback({ homeDevice: true })
     }
 
     const currentMedia = mediaRef.current
@@ -2447,11 +2467,32 @@ export default function App() {
     setScriptVariants([])
     setArtworkUrl(null)
 
-    const [url, nextSubtitleCues, initialParsedBundle, nextScriptVariants] = await Promise.all([
-      window.electronAPI.getVideoUrl(filePath),
+    const url = await window.electronAPI.getVideoUrl(filePath)
+    if (requestId !== openMediaRequestId.current) {
+      return
+    }
+
+    setMediaSessionKey((prev) => prev + 1)
+    setVideoUrl(url)
+
+    const handyAutoplayRequiresUpload = shouldAutoplay
+      && deviceProvider === 'handy'
+      && handyConnected
+      && settings.handyAutoPlayAfterSync
+
+    if (shouldAutoplay && !handyAutoplayRequiresUpload) {
+      setAutoPlayRequestId((prev) => prev + 1)
+    }
+
+    const deferScriptVariantScan = resolvedType === 'audio'
+    const [nextSubtitleCues, initialParsedBundle, nextScriptVariants] = await Promise.all([
       loadSubtitleCues(filePath, resolvedType),
-      loadScriptBundle(filePath, options?.preferredScriptPath),
-      loadScriptVariants(filePath).catch(() => []),
+      loadScriptBundle(filePath, options?.preferredScriptPath, {
+        skipVariantFallback: deferScriptVariantScan,
+      }),
+      deferScriptVariantScan
+        ? Promise.resolve<ScriptVariantOption[]>([])
+        : loadScriptVariants(filePath).catch(() => []),
     ])
 
     let parsedBundle = initialParsedBundle
@@ -2462,7 +2503,9 @@ export default function App() {
     ) {
       const fallbackVariant = nextScriptVariants.find((variant) => variant.isDefault) ?? nextScriptVariants[0]
       if (fallbackVariant?.path) {
-        const fallbackBundle = await loadParsedScriptBundle(filePath, fallbackVariant.path)
+        const fallbackBundle = await loadParsedScriptBundle(filePath, fallbackVariant.path, {
+          skipVariantFallback: true,
+        })
         if (hasBundleScripts(fallbackBundle)) {
           parsedBundle = fallbackBundle
         }
@@ -2473,45 +2516,78 @@ export default function App() {
       return
     }
 
-    if (currentFileRef.current === filePath) {
-      setMediaSessionKey((prev) => prev + 1)
-    }
-    setVideoUrl(url)
     setSubtitleCues(nextSubtitleCues)
     setFunscriptBundle(parsedBundle)
     setScriptVariants(nextScriptVariants)
-    if (shouldAutoplay) {
-      const handyAutoplayRequiresUpload = deviceProvider === 'handy'
-        && handyConnected
-        && settings.handyAutoPlayAfterSync
-
-      if (handyAutoplayRequiresUpload) {
-        if (!hasBundleScripts(parsedBundle) && !settings.noScriptRandomStrokeEnabled) {
-          setHandyAutoPlayStatusText('Waiting for script...')
-          setHandyAutoPlayStatusTone('busy')
-        }
-        setPendingAutoPlayAfterHandyUpload(true)
-      } else {
-        setAutoPlayRequestId((prev) => prev + 1)
+    if (shouldAutoplay && handyAutoplayRequiresUpload) {
+      if (!hasBundleScripts(parsedBundle) && !settings.noScriptRandomStrokeEnabled) {
+        setHandyAutoPlayStatusText('Waiting for script...')
+        setHandyAutoPlayStatusTone('busy')
       }
+      setPendingAutoPlayAfterHandyUpload(true)
     }
 
     if (resolvedType === 'audio') {
+      window.setTimeout(() => {
+        if (requestId !== openMediaRequestId.current) {
+          return
+        }
+
+        void loadScriptVariants(filePath)
+          .then(async (deferredScriptVariants) => {
+            if (requestId !== openMediaRequestId.current) {
+              return
+            }
+
+            setScriptVariants(deferredScriptVariants)
+
+            if (
+              hasBundleScripts(parsedBundle)
+              || manualScriptPathsRef.current[filePath]
+              || deferredScriptVariants.length === 0
+            ) {
+              return
+            }
+
+            const fallbackVariant = deferredScriptVariants.find((variant) => variant.isDefault)
+              ?? deferredScriptVariants[0]
+            if (!fallbackVariant?.path) {
+              return
+            }
+
+            const fallbackBundle = await loadParsedScriptBundle(filePath, fallbackVariant.path, {
+              skipVariantFallback: true,
+            })
+            if (requestId !== openMediaRequestId.current || !hasBundleScripts(fallbackBundle)) {
+              return
+            }
+
+            setFunscriptBundle(fallbackBundle)
+          })
+          .catch(() => {})
+      }, AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS)
+
       const rootHint = currentFolderPathRef.current || undefined
-      void window.electronAPI.findArtwork(filePath, rootHint)
-        .then(async (artworkPath) => {
-          if (!artworkPath || requestId !== openMediaRequestId.current) {
-            return
-          }
-          const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
-          if (requestId !== openMediaRequestId.current) {
-            return
-          }
-          setArtworkUrl(nextArtworkUrl)
-        })
-        .catch(() => {
-          // Artwork lookup is best-effort and must not block audio switching.
-        })
+      window.setTimeout(() => {
+        if (requestId !== openMediaRequestId.current) {
+          return
+        }
+
+        void window.electronAPI.findArtwork(filePath, rootHint)
+          .then(async (artworkPath) => {
+            if (!artworkPath || requestId !== openMediaRequestId.current) {
+              return
+            }
+            const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
+            if (requestId !== openMediaRequestId.current) {
+              return
+            }
+            setArtworkUrl(nextArtworkUrl)
+          })
+          .catch(() => {
+            // Artwork lookup is best-effort and must not block audio switching.
+          })
+      }, AUDIO_ARTWORK_LOOKUP_DELAY_MS)
     }
   }, [
     cancelPendingHandySync,

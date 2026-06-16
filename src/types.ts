@@ -45,6 +45,10 @@ export interface FunscriptBundle {
   sources: Partial<Record<ScriptAxisId, string>>
 }
 
+export interface ReadFunscriptBundleOptions {
+  skipVariantFallback?: boolean
+}
+
 export type MediaType = 'video' | 'audio'
 export type PlaybackMode = 'none' | 'sequential' | 'shuffle'
 export type VideoCompatibilityMode = 'auto' | 'disable-gpu-video-decode' | 'disable-hardware-acceleration' | 'software-renderer'
@@ -158,7 +162,12 @@ declare global {
       readDir: (path: string, scriptFolder?: string) => Promise<VideoFile[]>
       inspectMediaFiles: (paths: string[], scriptFolder?: string) => Promise<VideoFile[]>
       readFunscript: (videoPath: string, scriptFolder?: string) => Promise<Funscript | null>
-      readFunscriptBundle: (videoPath: string, scriptFolder?: string, preferredScriptPath?: string) => Promise<FunscriptBundle | null>
+      readFunscriptBundle: (
+        videoPath: string,
+        scriptFolder?: string,
+        preferredScriptPath?: string,
+        options?: ReadFunscriptBundleOptions
+      ) => Promise<FunscriptBundle | null>
       listScriptVariants: (videoPath: string, scriptFolder?: string) => Promise<ScriptVariantOption[]>
       findMediaForScript: (
         scriptPath: string,

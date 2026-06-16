@@ -60,8 +60,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   inspectMediaFiles: (paths: string[], scriptFolder?: string) =>
     ipcRenderer.invoke('fs:inspectMediaFiles', paths, scriptFolder),
   readFunscript: (videoPath: string, scriptFolder?: string) => ipcRenderer.invoke('fs:readFunscript', videoPath, scriptFolder),
-  readFunscriptBundle: (videoPath: string, scriptFolder?: string, preferredScriptPath?: string) =>
-    ipcRenderer.invoke('fs:readFunscriptBundle', videoPath, scriptFolder, preferredScriptPath),
+  readFunscriptBundle: (
+    videoPath: string,
+    scriptFolder?: string,
+    preferredScriptPath?: string,
+    options?: { skipVariantFallback?: boolean }
+  ) => ipcRenderer.invoke('fs:readFunscriptBundle', videoPath, scriptFolder, preferredScriptPath, options),
   listScriptVariants: (videoPath: string, scriptFolder?: string) =>
     ipcRenderer.invoke('fs:listScriptVariants', videoPath, scriptFolder),
   findMediaForScript: (scriptPath: string, candidateMediaPaths?: string[], preferredMediaPath?: string) =>

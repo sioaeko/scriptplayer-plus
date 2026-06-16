@@ -41,6 +41,7 @@ export default function ScriptTimeline({
   const WINDOW_SECONDS = windowSize
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 0 })
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -49,11 +50,21 @@ export default function ScriptTimeline({
 
     const rect = container.getBoundingClientRect()
     const dpr = window.devicePixelRatio || 1
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
+    const backingWidth = Math.max(1, Math.round(rect.width * dpr))
+    const backingHeight = Math.max(1, Math.round(rect.height * dpr))
+    const currentSize = canvasSizeRef.current
+    if (
+      currentSize.width !== backingWidth
+      || currentSize.height !== backingHeight
+      || currentSize.dpr !== dpr
+    ) {
+      canvas.width = backingWidth
+      canvas.height = backingHeight
+      canvasSizeRef.current = { width: backingWidth, height: backingHeight, dpr }
+    }
 
     const ctx = canvas.getContext('2d')!
-    ctx.scale(dpr, dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     const w = rect.width
     const h = rect.height

@@ -2053,7 +2053,7 @@ export default function VideoPlayer({
                 key={mediaStateKey}
                 ref={(node) => { mediaRef.current = node }}
                 src={videoUrl}
-                preload="auto"
+                preload="none"
                 className="hidden"
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={syncDurationFromMedia}

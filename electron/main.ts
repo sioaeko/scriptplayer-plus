@@ -62,11 +62,13 @@ const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|varian
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
 const EMBEDDED_ARTWORK_CACHE_DIR = 'scriptplayer-plus-audio-artwork'
-const MAX_DARWIN_EMBEDDED_ARTWORK_AUTO_PARSE_BYTES = 32 * 1024 * 1024
+const LARGE_EMBEDDED_ARTWORK_PARSE_BYTES = 32 * 1024 * 1024
+const EMBEDDED_ARTWORK_CHILD_TIMEOUT_MS = 15000
 const MAX_ARTWORK_TREE_SCAN_ENTRIES = 800
 const ARTWORK_LOOKUP_MISS_TTL_MS = 2 * 60 * 1000
 const ARTWORK_TREE_CACHE_TTL_MS = 5 * 60 * 1000
 const EMBEDDED_ARTWORK_CACHE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']
+const embeddedArtworkExtractionJobs = new Map<string, Promise<string | null>>()
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
@@ -2412,8 +2414,18 @@ async function extractEmbeddedArtworkForMedia(mediaPath: string): Promise<string
     return null
   }
 
-  if (process.platform === 'darwin' && cacheInfo.size > MAX_DARWIN_EMBEDDED_ARTWORK_AUTO_PARSE_BYTES) {
-    return null
+  if (cacheInfo.size > LARGE_EMBEDDED_ARTWORK_PARSE_BYTES) {
+    const existingJob = embeddedArtworkExtractionJobs.get(cacheKey)
+    if (existingJob) {
+      return existingJob
+    }
+
+    const job = extractEmbeddedArtworkInChildProcess(mediaPath, cacheDir, cacheKey)
+      .finally(() => {
+        embeddedArtworkExtractionJobs.delete(cacheKey)
+      })
+    embeddedArtworkExtractionJobs.set(cacheKey, job)
+    return job
   }
 
   try {
@@ -2486,6 +2498,104 @@ async function findExistingEmbeddedArtworkCacheFile(cacheDir: string, cacheKey: 
     }
   }
   return null
+}
+
+const EMBEDDED_ARTWORK_CHILD_SCRIPT = String.raw`
+const fs = require('fs/promises')
+const path = require('path')
+
+function pickEmbeddedArtwork(pictures) {
+  if (!pictures || pictures.length === 0) return null
+  return pictures.find((picture) => /front|cover/i.test(picture.type || ''))
+    || pictures.find((picture) => /^image\//i.test(picture.format || ''))
+    || pictures[0]
+    || null
+}
+
+function getArtworkExtensionFromMime(mime) {
+  const normalized = String(mime || '').toLowerCase()
+  if (normalized.includes('png')) return '.png'
+  if (normalized.includes('webp')) return '.webp'
+  if (normalized.includes('gif')) return '.gif'
+  if (normalized.includes('bmp')) return '.bmp'
+  return '.jpg'
+}
+
+let input = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => { input += chunk })
+process.stdin.on('end', async () => {
+  try {
+    const { parseFile } = require('music-metadata')
+    const request = JSON.parse(input)
+    const metadata = await parseFile(request.mediaPath, {
+      duration: false,
+      skipCovers: false,
+      skipPostHeaders: true,
+    })
+    const picture = pickEmbeddedArtwork(metadata && metadata.common && metadata.common.picture)
+    if (!picture || !picture.data || !picture.data.length) {
+      process.stdout.write(JSON.stringify({ filePath: null }))
+      return
+    }
+    await fs.mkdir(request.cacheDir, { recursive: true })
+    const filePath = path.join(request.cacheDir, request.cacheKey + getArtworkExtensionFromMime(picture.format))
+    await fs.writeFile(filePath, Buffer.from(picture.data))
+    process.stdout.write(JSON.stringify({ filePath }))
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ filePath: null, error: error && error.message ? error.message : String(error) }))
+  }
+})
+`
+
+function extractEmbeddedArtworkInChildProcess(mediaPath: string, cacheDir: string, cacheKey: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const nodePathEntries = [
+      path.join(app.getAppPath(), 'node_modules'),
+      path.join(process.cwd(), 'node_modules'),
+      process.env.NODE_PATH || '',
+    ].filter(Boolean)
+
+    const child = spawn(process.execPath, ['-e', EMBEDDED_ARTWORK_CHILD_SCRIPT], {
+      cwd: app.isPackaged ? path.dirname(app.getAppPath()) : app.getAppPath(),
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        NODE_PATH: nodePathEntries.join(path.delimiter),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+
+    let stdout = ''
+    let settled = false
+    const finish = (filePath: string | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      resolve(filePath)
+    }
+    const timeout = setTimeout(() => {
+      child.kill()
+      finish(null)
+    }, EMBEDDED_ARTWORK_CHILD_TIMEOUT_MS)
+
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.on('error', () => finish(null))
+    child.on('close', () => {
+      try {
+        const parsed = JSON.parse(stdout.trim() || '{}') as { filePath?: string | null }
+        finish(typeof parsed.filePath === 'string' ? parsed.filePath : null)
+      } catch {
+        finish(null)
+      }
+    })
+
+    child.stdin.end(JSON.stringify({ mediaPath, cacheDir, cacheKey }))
+  })
 }
 
 function pickEmbeddedArtwork(

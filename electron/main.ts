@@ -1105,13 +1105,13 @@ ipcMain.handle('fs:readFunscriptBundle', async (
   videoPath: string,
   scriptFolder?: string,
   preferredScriptPath?: string,
-  options?: { skipVariantFallback?: boolean }
+  options?: { skipVariantFallback?: boolean; localOnly?: boolean }
 ) => {
   return readFunscriptBundle(videoPath, scriptFolder, preferredScriptPath, options)
 })
 
-ipcMain.handle('fs:listScriptVariants', async (_event, videoPath: string, scriptFolder?: string) => {
-  return listScriptVariants(videoPath, scriptFolder)
+ipcMain.handle('fs:listScriptVariants', async (_event, videoPath: string, scriptFolder?: string, options?: { localOnly?: boolean }) => {
+  return listScriptVariants(videoPath, scriptFolder, options)
 })
 
 ipcMain.handle(
@@ -1202,7 +1202,8 @@ ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string, rootHint?: st
 
 ipcMain.handle('fs:readSubtitles', async (_event, mediaPath: string) => {
   try {
-    if (!MEDIA_EXTS.includes(path.extname(mediaPath).toLowerCase())) {
+    const ext = path.extname(mediaPath).toLowerCase()
+    if (!MEDIA_EXTS.includes(ext) || AUDIO_EXTS.includes(ext)) {
       return []
     }
 
@@ -1772,7 +1773,7 @@ function getScriptVariantDirectoryBundleStem(
   return null
 }
 
-function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVariantOption[] {
+function listScriptVariants(mediaPath: string, scriptFolder?: string, options?: { localOnly?: boolean }): ScriptVariantOption[] {
   const mediaBaseName = path.basename(mediaPath, path.extname(mediaPath))
   const normalizedMediaBaseName = normalizeBundledScriptBaseName(mediaBaseName)
   if (!normalizedMediaBaseName) {
@@ -1784,7 +1785,7 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
     { dir: mediaDir, source: 'local', recursive: false },
   ]
 
-  if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(mediaDir)) {
+  if (!options?.localOnly && scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(mediaDir)) {
     contexts.push({ dir: scriptFolder, source: 'scriptFolder', recursive: true })
   }
 
@@ -1878,7 +1879,7 @@ function readFunscriptBundle(
   mediaPath: string,
   scriptFolder?: string,
   preferredScriptPath?: string,
-  options?: { skipVariantFallback?: boolean }
+  options?: { skipVariantFallback?: boolean; localOnly?: boolean }
 ): { primaryAxis: ScriptAxisId | null; scripts: Partial<Record<ScriptAxisId, unknown>>; sources: Partial<Record<ScriptAxisId, string>> } | null {
   const bundle: {
     primaryAxis: ScriptAxisId | null
@@ -1906,7 +1907,7 @@ function readFunscriptBundle(
     { dir: path.dirname(mediaPath), baseNames: [mediaBaseName] },
   ]
 
-  if (scriptFolder) {
+  if (scriptFolder && !options?.localOnly) {
     contexts.push({ dir: scriptFolder, baseNames: [mediaBaseName] })
   }
 

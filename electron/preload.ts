@@ -64,10 +64,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     videoPath: string,
     scriptFolder?: string,
     preferredScriptPath?: string,
-    options?: { skipVariantFallback?: boolean }
+    options?: { skipVariantFallback?: boolean; localOnly?: boolean }
   ) => ipcRenderer.invoke('fs:readFunscriptBundle', videoPath, scriptFolder, preferredScriptPath, options),
-  listScriptVariants: (videoPath: string, scriptFolder?: string) =>
-    ipcRenderer.invoke('fs:listScriptVariants', videoPath, scriptFolder),
+  listScriptVariants: (videoPath: string, scriptFolder?: string, options?: { localOnly?: boolean }) =>
+    ipcRenderer.invoke('fs:listScriptVariants', videoPath, scriptFolder, options),
   findMediaForScript: (scriptPath: string, candidateMediaPaths?: string[], preferredMediaPath?: string) =>
     ipcRenderer.invoke('fs:findMediaForScript', scriptPath, candidateMediaPaths, preferredMediaPath),
   listMediaMatchesForScript: (scriptPath: string, candidateMediaPaths?: string[], preferredMediaPath?: string) =>

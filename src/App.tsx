@@ -12,6 +12,7 @@ import {
   OsrSerialConnectionState,
   OsrSerialPortInfo,
   PlaybackMode,
+  ListScriptVariantsOptions,
   ReadFunscriptBundleOptions,
   ScriptAxisId,
   ScriptMediaMatchCandidate,
@@ -130,8 +131,9 @@ const AUTO_SKIP_COOLDOWN_MS = 1000
 const AUTO_SKIP_TARGET_EPSILON_MS = 250
 type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
 const AUTO_SKIP_END_LEAD_MS = 350
-const AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS = 1200
-const AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS = 8000
+const AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS = 4000
+const AUDIO_ARTWORK_FAST_LOOKUP_DELAY_MS = 5000
+const AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS = 12000
 const AUTO_SKIP_MIN_POSITION_DELTA = 2
 const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
 const RANDOM_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['L0', 'R0']
@@ -2023,6 +2025,10 @@ export default function App() {
       return parseSubtitleFile(manualSubtitle.content, manualSubtitle.path)
     }
 
+    if (mediaType === 'audio') {
+      return []
+    }
+
     const subtitleFiles = await window.electronAPI.readSubtitles(mediaPath)
     return selectSubtitleCues(mediaPath, mediaType, subtitleFiles)
   }, [manualSubtitleFiles])
@@ -2050,8 +2056,8 @@ export default function App() {
     return loadParsedScriptBundle(mediaPath, preferredScriptPath, options)
   }, [loadParsedScriptBundle, manualScriptPaths])
 
-  const loadScriptVariants = useCallback(async (mediaPath: string) => {
-    return window.electronAPI.listScriptVariants(mediaPath, settings.scriptFolder)
+  const loadScriptVariants = useCallback(async (mediaPath: string, options?: ListScriptVariantsOptions) => {
+    return window.electronAPI.listScriptVariants(mediaPath, settings.scriptFolder, options)
   }, [settings.scriptFolder])
 
   const refreshCurrentScriptBundle = useCallback(async (mediaPath: string, preferredScriptPath?: string) => {
@@ -2481,11 +2487,15 @@ export default function App() {
     }
 
     const deferScriptVariantScan = resolvedType === 'audio'
+    const deferInitialScriptBundle = resolvedType === 'audio' && !options?.preferredScriptPath
     const [nextSubtitleCues, initialParsedBundle, nextScriptVariants] = await Promise.all([
       loadSubtitleCues(filePath, resolvedType),
-      loadScriptBundle(filePath, options?.preferredScriptPath, {
-        skipVariantFallback: deferScriptVariantScan,
-      }),
+      deferInitialScriptBundle
+        ? Promise.resolve<FunscriptBundle | null>(null)
+        : loadScriptBundle(filePath, options?.preferredScriptPath, {
+          skipVariantFallback: deferScriptVariantScan,
+          localOnly: deferScriptVariantScan,
+        }),
       deferScriptVariantScan
         ? Promise.resolve<ScriptVariantOption[]>([])
         : loadScriptVariants(filePath).catch(() => []),
@@ -2529,16 +2539,26 @@ export default function App() {
           return
         }
 
-        void loadScriptVariants(filePath)
-          .then(async (deferredScriptVariants) => {
+        void Promise.all([
+          loadScriptBundle(filePath, options?.preferredScriptPath, {
+            skipVariantFallback: true,
+            localOnly: true,
+          }),
+          loadScriptVariants(filePath, { localOnly: true }).catch(() => []),
+        ])
+          .then(async ([deferredParsedBundle, deferredScriptVariants]) => {
             if (requestId !== openMediaRequestId.current) {
               return
             }
 
+            if (hasBundleScripts(deferredParsedBundle)) {
+              setFunscriptBundle(deferredParsedBundle)
+            }
             setScriptVariants(deferredScriptVariants)
 
             if (
               hasBundleScripts(parsedBundle)
+              || hasBundleScripts(deferredParsedBundle)
               || manualScriptPathsRef.current[filePath]
               || deferredScriptVariants.length === 0
             ) {
@@ -2587,7 +2607,7 @@ export default function App() {
           })
       }
 
-      lookupArtwork(true)
+      window.setTimeout(() => lookupArtwork(true), AUDIO_ARTWORK_FAST_LOOKUP_DELAY_MS)
       window.setTimeout(() => lookupArtwork(false), AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS)
     }
   }, [

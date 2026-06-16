@@ -1951,6 +1951,7 @@ export default function VideoPlayer({
     let frame: number | null = null
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     let retryIntervalId: ReturnType<typeof setInterval> | null = null
+    let playAttemptInFlight = false
 
     const cleanup = () => {
       cancelled = true
@@ -1983,6 +1984,9 @@ export default function VideoPlayer({
         cleanup()
         return
       }
+      if (playAttemptInFlight) {
+        return
+      }
 
       media.autoplay = true
       if (media.readyState === 0) {
@@ -1997,12 +2001,16 @@ export default function VideoPlayer({
         return
       }
 
+      playAttemptInFlight = true
       void playPromise
         .then(() => {
           cleanup()
         })
         .catch((error) => {
           console.warn('[VideoPlayer] autoplay play() failed', error)
+        })
+        .finally(() => {
+          playAttemptInFlight = false
         })
     }
 
@@ -2070,7 +2078,7 @@ export default function VideoPlayer({
                 key={mediaStateKey}
                 ref={(node) => { mediaRef.current = node }}
                 src={videoUrl}
-                preload="metadata"
+                preload="none"
                 className="hidden"
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={syncDurationFromMedia}

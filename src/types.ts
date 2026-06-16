@@ -47,6 +47,11 @@ export interface FunscriptBundle {
 
 export interface ReadFunscriptBundleOptions {
   skipVariantFallback?: boolean
+  localOnly?: boolean
+}
+
+export interface ListScriptVariantsOptions {
+  localOnly?: boolean
 }
 
 export type MediaType = 'video' | 'audio'
@@ -168,7 +173,11 @@ declare global {
         preferredScriptPath?: string,
         options?: ReadFunscriptBundleOptions
       ) => Promise<FunscriptBundle | null>
-      listScriptVariants: (videoPath: string, scriptFolder?: string) => Promise<ScriptVariantOption[]>
+      listScriptVariants: (
+        videoPath: string,
+        scriptFolder?: string,
+        options?: ListScriptVariantsOptions
+      ) => Promise<ScriptVariantOption[]>
       findMediaForScript: (
         scriptPath: string,
         candidateMediaPaths?: string[],

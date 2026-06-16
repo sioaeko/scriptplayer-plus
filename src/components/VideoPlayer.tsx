@@ -1709,6 +1709,12 @@ export default function VideoPlayer({
   }, [mediaRef, mediaStateKey, playbackRate, videoUrl])
 
   useEffect(() => {
+    const media = mediaRef.current
+    if (!media || !videoUrl || mediaType !== 'audio') return
+    media.load()
+  }, [mediaRef, mediaStateKey, mediaType, videoUrl])
+
+  useEffect(() => {
     const cancelFrame = () => {
       if (playbackFrameRef.current !== null) {
         cancelAnimationFrame(playbackFrameRef.current)
@@ -2053,7 +2059,7 @@ export default function VideoPlayer({
                 key={mediaStateKey}
                 ref={(node) => { mediaRef.current = node }}
                 src={videoUrl}
-                preload="none"
+                preload="metadata"
                 className="hidden"
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={syncDurationFromMedia}

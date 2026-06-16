@@ -982,10 +982,14 @@ function buildFolderFilesFromPendingMedia(
         [fallbackScriptPath],
         [bundledScriptIndex.axes]
       )
+      const hasSubtitles = mediaFile.hasSubtitles || (
+        !isLikelyNetworkPath(mediaFile.path) && hasSubtitlesForMediaScan(mediaFile.path)
+      )
 
       return {
         ...mediaFile,
         hasScript: hasLocalBundle || Boolean(bundledFallbackScriptPath),
+        hasSubtitles,
         autoScriptPath: fallbackScriptPath ?? undefined,
         scriptAxes,
       } satisfies VideoFile

@@ -1,6 +1,6 @@
 import { PlaybackMode, VideoFile } from '../types'
 
-export type VideoSortField = 'path' | 'name' | 'modified'
+export type VideoSortField = 'path' | 'name' | 'modified' | 'rating'
 export type VideoSortDirection = 'asc' | 'desc'
 
 export interface VideoSortState {
@@ -50,6 +50,12 @@ function compareModifiedDates(a: VideoFile, b: VideoFile): number {
   return compareRelativePaths(a, b)
 }
 
+function compareRatings(a: VideoFile, b: VideoFile): number {
+  const byRating = (a.rating || 0) - (b.rating || 0)
+  if (byRating !== 0) return byRating
+  return compareRelativePaths(a, b)
+}
+
 function applyDirection(value: number, direction: VideoSortDirection): number {
   return direction === 'desc' ? -value : value
 }
@@ -57,6 +63,8 @@ function applyDirection(value: number, direction: VideoSortDirection): number {
 function compareFiles(a: VideoFile, b: VideoFile, sort: VideoSortState): number {
   const primaryComparison = sort.field === 'modified'
     ? compareModifiedDates(a, b)
+    : sort.field === 'rating'
+      ? compareRatings(a, b)
     : sort.field === 'name'
       ? compareNames(a, b)
       : compareRelativePaths(a, b)

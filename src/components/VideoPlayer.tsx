@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useState, type CSSProperties } from 'react'
 import {
   Play,
   Pause,
@@ -24,8 +24,9 @@ import {
   FolderOpen,
   Trash2,
 } from 'lucide-react'
-import { Funscript, FunscriptAction, MediaType, PlaybackMode, ScriptVariantOption, SubtitleCue, VideoFile } from '../types'
+import { FunscriptAction, MediaType, PlaybackMode, ScriptVariantOption, SubtitleCue, VideoFile } from '../types'
 import { useTranslation } from '../i18n'
+import type { AudioArtworkSize } from '../services/settings'
 import { getActiveSubtitleText } from '../services/subtitles'
 import {
   findMatchingShortcutAction,
@@ -35,11 +36,6 @@ import {
 } from '../services/shortcuts'
 import ScriptTimeline from './ScriptTimeline'
 import ScriptHeatmap from './ScriptHeatmap'
-import {
-  buildVideoMotionFunscript,
-  VIDEO_MOTION_SCRIPT_MODELS,
-  type VideoMotionScriptModelId,
-} from '../services/videoMotionScript'
 
 interface DeviceOverlayInfo {
   connected: boolean
@@ -91,6 +87,7 @@ interface VideoPlayerProps {
   mediaType: MediaType | null
   currentFileName: string | null
   artworkUrl: string | null
+  audioArtworkSize?: AudioArtworkSize
   actions: FunscriptAction[]
   scriptSource?: string | null
   scriptDebugInfo?: ScriptDebugInfo | null
@@ -139,7 +136,6 @@ interface VideoPlayerProps {
   rememberVideoFit?: boolean
   videoCompatibilityMode?: string
   onTryVideoCompatibilityMode?: () => void | Promise<void>
-  onAiScriptGenerated?: (script: Funscript, modelLabel: string) => Promise<string | null>
   timelineHeight?: number
   timelineWindow?: number
   speedColors?: boolean
@@ -505,6 +501,7 @@ export default function VideoPlayer({
   mediaType,
   currentFileName,
   artworkUrl,
+  audioArtworkSize = 'medium',
   actions,
   scriptSource = null,
   scriptDebugInfo = null,
@@ -553,7 +550,6 @@ export default function VideoPlayer({
   rememberVideoFit = false,
   videoCompatibilityMode = 'auto',
   onTryVideoCompatibilityMode,
-  onAiScriptGenerated,
   timelineHeight = 64,
   timelineWindow = 10,
   speedColors = true,
@@ -567,20 +563,6 @@ export default function VideoPlayer({
   const [showScriptOffsetControls, setShowScriptOffsetControls] = useState(false)
   const [showPlaybackRatePopover, setShowPlaybackRatePopover] = useState(false)
   const [showSegmentRepeatControls, setShowSegmentRepeatControls] = useState(false)
-  const [showAiScriptDialog, setShowAiScriptDialog] = useState(false)
-  const [selectedAiScriptModelId, setSelectedAiScriptModelId] = useState<VideoMotionScriptModelId>('local-motion-accurate')
-  const [aiScriptGeneration, setAiScriptGeneration] = useState<{
-    running: boolean
-    progress: number
-    error: string | null
-    savedPath: string | null
-  }>({
-    running: false,
-    progress: 0,
-    error: null,
-    savedPath: null,
-  })
-  const [aiScriptDiagnosticsSuppressedMediaKey, setAiScriptDiagnosticsSuppressedMediaKey] = useState<string | null>(null)
   const [showHeatmap, setShowHeatmap] = useState(defaultShowHeatmap)
   const [showTimeline, setShowTimeline] = useState(defaultShowTimeline)
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -589,70 +571,6 @@ export default function VideoPlayer({
   const playbackRateControlsRef = useRef<HTMLDivElement>(null)
   const scriptOffsetControlsRef = useRef<HTMLDivElement>(null)
   const segmentRepeatControlsRef = useRef<HTMLDivElement>(null)
-  const selectedAiScriptModel = VIDEO_MOTION_SCRIPT_MODELS.find((model) => model.id === selectedAiScriptModelId)
-    ?? VIDEO_MOTION_SCRIPT_MODELS[0]
-  const canGenerateAiScript = Boolean(mediaType === 'video' && videoUrl && onAiScriptGenerated)
-  const videoDiagnosticsMediaKey = `${videoUrl ?? ''}:${currentFileName ?? ''}`
-  const handleGenerateAiScript = useCallback(async () => {
-    const video = mediaRef.current
-    if (!(video instanceof HTMLVideoElement) || !onAiScriptGenerated || aiScriptGeneration.running) {
-      return
-    }
-
-    setAiScriptDiagnosticsSuppressedMediaKey(videoDiagnosticsMediaKey)
-    setAiScriptGeneration({
-      running: true,
-      progress: 0,
-      error: null,
-      savedPath: null,
-    })
-
-    try {
-      const script = await buildVideoMotionFunscript(video, currentFileName || 'Current media', {
-        model: selectedAiScriptModel,
-        sensitivity: 55,
-        onProgress: (progress) => {
-          setAiScriptGeneration((state) => ({
-            ...state,
-            progress,
-          }))
-        },
-      })
-
-      if (!script) {
-        setAiScriptGeneration({
-          running: false,
-          progress: 0,
-          error: t('player.aiScriptFailed'),
-          savedPath: null,
-        })
-        return
-      }
-
-      const savedPath = await onAiScriptGenerated(script, selectedAiScriptModel.label)
-      setAiScriptGeneration({
-        running: false,
-        progress: 1,
-        error: null,
-        savedPath,
-      })
-    } catch {
-      setAiScriptGeneration({
-        running: false,
-        progress: 0,
-        error: t('player.aiScriptFailed'),
-        savedPath: null,
-      })
-    }
-  }, [
-    aiScriptGeneration.running,
-    currentFileName,
-    mediaRef,
-    onAiScriptGenerated,
-    selectedAiScriptModel,
-    t,
-    videoDiagnosticsMediaKey,
-  ])
   const strokeCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initializedMediaStateKey = useRef<string | null>(null)
   const fullscreenFileDrawerRef = useRef<HTMLDivElement>(null)
@@ -735,7 +653,7 @@ export default function VideoPlayer({
   })
   const controlsContainerClass = isFullscreen
     ? 'absolute inset-x-0 bottom-0 z-10 px-4 pb-3 pt-4'
-    : 'relative flex-shrink-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-4 pb-3 pt-8'
+    : 'relative z-10 flex-shrink-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent px-4 pb-3 pt-8'
   const controlsPanelClass = isFullscreen
     ? 'rounded-2xl border border-white/14 bg-black px-3 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.6)]'
     : ''
@@ -2103,13 +2021,11 @@ export default function VideoPlayer({
   const videoDiagnosticsIssueKey = getVideoDiagnosticsIssueKey(diagnosticsSnapshot) ?? (
     forceVideoDiagnosticsPrompt ? 'player.videoIssueBlackFrame' : null
   )
-  const suppressVideoDiagnosticsPrompt = aiScriptGeneration.running || aiScriptDiagnosticsSuppressedMediaKey === videoDiagnosticsMediaKey
   const showVideoDiagnosticsPrompt = Boolean(
     videoUrl &&
     mediaType === 'video' &&
     diagnosticsSnapshot &&
-    videoDiagnosticsIssueKey &&
-    !suppressVideoDiagnosticsPrompt
+    videoDiagnosticsIssueKey
   )
 
   return (
@@ -2119,8 +2035,17 @@ export default function VideoPlayer({
       onMouseMove={handleContainerMouseMove}
       onMouseLeave={handleContainerMouseLeave}
     >
+      {mediaType === 'audio' && artworkUrl && (
+        <>
+          <div
+            className="pointer-events-none absolute inset-[-10%] z-0 scale-110 bg-cover bg-center opacity-35 blur-3xl"
+            style={{ backgroundImage: `url(${JSON.stringify(artworkUrl)})` }}
+          />
+          <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-black/10 via-black/42 to-black/68" />
+        </>
+      )}
       {/* Media */}
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden" onClick={togglePlay}>
+      <div className="relative z-10 flex-1 flex items-center justify-center overflow-hidden" onClick={togglePlay}>
         {videoUrl ? (
           mediaType === 'audio' ? (
             <>
@@ -2142,9 +2067,12 @@ export default function VideoPlayer({
                   void onEnded()
                 }}
               />
-              <div className="flex flex-col items-center justify-center gap-4 text-center px-6">
+              <div className="relative z-10 flex flex-col items-center justify-center gap-4 text-center px-6">
                 {artworkUrl ? (
-                  <div className="w-56 h-56 rounded-2xl overflow-hidden border border-surface-100/30 shadow-[0_20px_60px_rgba(0,0,0,0.45)] bg-surface-200/40">
+                  <div
+                    className="rounded-2xl overflow-hidden border border-surface-100/30 shadow-[0_20px_60px_rgba(0,0,0,0.45)] bg-surface-200/40"
+                    style={getAudioArtworkSizeStyle(audioArtworkSize)}
+                  >
                     <img
                       src={artworkUrl}
                       alt={currentFileName || 'Artwork'}
@@ -2221,118 +2149,6 @@ export default function VideoPlayer({
                 >
                   {currentSubtitleText || ' '}
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {canGenerateAiScript && (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              setShowAiScriptDialog(true)
-            }}
-            className="absolute right-3 top-3 z-20 rounded-lg border border-accent/35 bg-black/70 px-3 py-1.5 text-[10px] font-medium text-accent shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-sm transition-colors hover:border-accent/60 hover:bg-accent/10"
-          >
-            {t('player.aiScriptGenerate')}
-          </button>
-        )}
-
-        {showAiScriptDialog && (
-          <div
-            className="absolute inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
-            onClick={() => {
-              if (!aiScriptGeneration.running) setShowAiScriptDialog(false)
-            }}
-          >
-            <div
-              className="w-full max-w-md rounded-2xl border border-white/10 bg-surface-200 p-4 shadow-2xl"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="mb-3">
-                <div className="text-sm font-semibold text-text-primary">
-                  {t('player.aiScriptTitle')}
-                </div>
-                <div className="mt-1 text-[11px] leading-relaxed text-text-muted">
-                  {t('player.aiScriptDesc')}
-                </div>
-              </div>
-
-              <label className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-                {t('player.aiScriptModel')}
-              </label>
-              <select
-                value={selectedAiScriptModelId}
-                disabled={aiScriptGeneration.running}
-                onChange={(event) => {
-                  setSelectedAiScriptModelId(event.target.value as VideoMotionScriptModelId)
-                  setAiScriptGeneration({
-                    running: false,
-                    progress: 0,
-                    error: null,
-                    savedPath: null,
-                  })
-                }}
-                className="mb-2 w-full rounded-lg border border-surface-100/30 bg-surface-300 px-3 py-2 text-xs text-text-primary outline-none transition-colors focus:border-accent/50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {VIDEO_MOTION_SCRIPT_MODELS.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {t(`player.aiScriptModelLabel.${model.id}`)}
-                  </option>
-                ))}
-              </select>
-              <div className="mb-4 text-[10px] leading-relaxed text-text-muted">
-                {t(`player.aiScriptModelDesc.${selectedAiScriptModel.id}`)}
-              </div>
-
-              {aiScriptGeneration.running && (
-                <div className="mb-4">
-                  <div className="mb-1 flex justify-between text-[10px] text-text-muted">
-                    <span>{t('player.aiScriptGenerating')}</span>
-                    <span>{Math.round(aiScriptGeneration.progress * 100)}%</span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-surface-100/40">
-                    <div
-                      className="h-full rounded-full bg-accent transition-[width] duration-200"
-                      style={{ width: `${Math.round(aiScriptGeneration.progress * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {aiScriptGeneration.error && (
-                <div className="mb-4 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2 text-[11px] text-red-100">
-                  {aiScriptGeneration.error}
-                </div>
-              )}
-
-              {aiScriptGeneration.savedPath && (
-                <div className="mb-4 rounded-lg border border-green-400/25 bg-green-500/10 px-3 py-2 text-[11px] text-green-100">
-                  <div>{t('player.aiScriptSaved')}</div>
-                  <div className="mt-1 break-all font-mono text-[10px] text-green-100/75">
-                    {aiScriptGeneration.savedPath}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  disabled={aiScriptGeneration.running}
-                  onClick={() => setShowAiScriptDialog(false)}
-                  className="rounded-lg border border-surface-100/30 bg-surface-300 px-3 py-2 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {t('settings.close')}
-                </button>
-                <button
-                  type="button"
-                  disabled={aiScriptGeneration.running}
-                  onClick={() => void handleGenerateAiScript()}
-                  className="rounded-lg border border-accent/35 bg-accent/10 px-3 py-2 text-xs font-medium text-accent transition-colors hover:border-accent/60 hover:bg-accent/15 disabled:cursor-wait disabled:opacity-60"
-                >
-                  {aiScriptGeneration.running ? t('player.aiScriptGenerating') : t('player.aiScriptStart')}
-                </button>
               </div>
             </div>
           </div>
@@ -2940,7 +2756,7 @@ export default function VideoPlayer({
 
       {/* Script timeline / heatmap */}
       {!isFullscreen && actions.length > 0 && (showHeatmap || showTimeline) && (
-        <div className="flex-shrink-0 border-t border-surface-100/20">
+        <div className="relative z-10 flex-shrink-0 border-t border-surface-100/20">
           {showHeatmap && (
             <div className="h-8">
               <ScriptHeatmap
@@ -3729,6 +3545,29 @@ function getVideoClassName({
   return 'block h-full w-full object-contain'
 }
 
+function getAudioArtworkSizeStyle(size: AudioArtworkSize): CSSProperties {
+  const pixels = getAudioArtworkSizePixels(size)
+  const cssSize = `min(${pixels}px, 72vw, 52vh)`
+  return {
+    width: cssSize,
+    height: cssSize,
+  }
+}
+
+function getAudioArtworkSizePixels(size: AudioArtworkSize): number {
+  switch (size) {
+    case 'small':
+      return 192
+    case 'large':
+      return 320
+    case 'xlarge':
+      return 420
+    case 'medium':
+    default:
+      return 224
+  }
+}
+
 function shouldAutoFitVideoByAspect(video: HTMLVideoElement): boolean {
   const videoWidth = video.videoWidth
   const videoHeight = video.videoHeight
@@ -4120,26 +3959,10 @@ function getVideoDiagnosticsIssueKey(snapshot: PlaybackDiagnosticsSnapshot | nul
     return 'player.videoIssueBlackFrame'
   }
 
-  const droppedFrames = snapshot.quality.droppedVideoFrames ?? 0
-  const totalFrames = snapshot.quality.totalVideoFrames ?? 0
-  const droppedFrameRatio = totalFrames > 0 ? droppedFrames / totalFrames : 0
-  const maxGap = snapshot.frames.maxWallDeltaMs ?? 0
-  const shouldEvaluateFrameDrops =
-    !snapshot.paused &&
-    snapshot.currentTime >= 5 &&
-    snapshot.frames.samples >= 120 &&
-    maxGap < 5000
-
-  if (
-    shouldEvaluateFrameDrops &&
-    (
-      snapshot.frames.largeGaps >= 18 ||
-      (droppedFrames >= 30 && droppedFrameRatio >= 0.04 && maxGap >= 250)
-    )
-  ) {
-    return 'player.videoIssueFrameDrops'
-  }
-
+  // Frame drops and wall-clock gaps are useful in copied diagnostics, but they
+  // are too noisy for an in-player warning because normal app work such as
+  // seeking, switching scripts, changing generated patterns, focus changes, or
+  // GPU state changes can briefly spike those counters.
   return null
 }
 

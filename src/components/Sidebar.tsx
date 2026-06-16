@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions, Copy, ListPlus, Save, Upload, Trash2 } from 'lucide-react'
+import { FolderOpen, Film, FileCheck, Search, RefreshCw, Wifi, WifiOff, Folder, ChevronDown, ChevronRight, Clock, X, Zap, Music4, Captions, Copy, ListPlus, Save, Upload, Trash2, Star } from 'lucide-react'
 import { OsrSerialPortInfo, ScriptAxisId, ScriptVariantOption, VideoFile } from '../types'
 import { ButtplugDevice, ButtplugFeature } from '../services/buttplug'
 import { isButtplugFeatureAxisCompatible } from '../services/buttplugDeviceControl'
@@ -292,6 +292,7 @@ interface SidebarProps {
   scriptFolderRescanning?: boolean
   videoSort: VideoSortState
   onVideoSortChange: (sort: VideoSortState) => void
+  onFileRatingChange: (file: VideoFile, rating: number) => void
 }
 
 interface FileContextMenuState {
@@ -410,11 +411,13 @@ export default function Sidebar({
   scriptFolderRescanning = false,
   videoSort,
   onVideoSortChange,
+  onFileRatingChange,
 }: SidebarProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<'files' | 'search' | 'device'>('files')
   const [filter, setFilter] = useState('')
   const [multiAxisOnly, setMultiAxisOnly] = useState(false)
+  const [ratedOnly, setRatedOnly] = useState(false)
   const [handyKey, setHandyKey] = useState(loadInitialHandyKey)
   const [connecting, setConnecting] = useState(false)
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(loadCollapsedFolders)
@@ -434,7 +437,8 @@ export default function Sidebar({
   const filteredFiles = files.filter((file) => {
     const matchesText = (file.relativePath || file.name).toLowerCase().includes(filter.toLowerCase())
     const matchesAxes = !multiAxisOnly || file.scriptAxes.length > 1
-    return matchesText && matchesAxes
+    const matchesRating = !ratedOnly || (file.rating || 0) > 0
+    return matchesText && matchesAxes && matchesRating
   })
 
   const folderGroups = useMemo(() => groupVideoFiles(filteredFiles, videoSort), [filteredFiles, videoSort])
@@ -537,7 +541,11 @@ export default function Sidebar({
 
   const handleSortFieldChange = (field: VideoSortState['field']) => {
     if (field === videoSort.field) return
-    onVideoSortChange({ ...videoSort, field })
+    onVideoSortChange({
+      ...videoSort,
+      field,
+      direction: field === 'rating' ? 'desc' : videoSort.direction,
+    })
   }
 
   const handleSortDirectionToggle = () => {
@@ -560,14 +568,25 @@ export default function Sidebar({
   }, [])
 
   const copyScriptMatchReport = useCallback(async () => {
+    const currentListEntry = currentFile
+      ? files.find((file) => file.path === currentFile) ?? null
+      : null
     const lines = [
       'ScriptPlayer+ script match report',
       `Captured: ${new Date().toISOString()}`,
       `Current media: ${currentFile ? `${getFileName(currentFile)} (path redacted)` : 'none'}`,
+      `Current list entry: ${currentListEntry ? 'found' : 'not found'}`,
+      `List script icon: ${currentListEntry?.hasScript ? 'yes' : 'no'}`,
+      `List auto script path: ${currentListEntry?.autoScriptPath ? 'yes (path redacted)' : 'no'}`,
+      `List script axes: ${currentListEntry?.scriptAxes.join(', ') || 'none'}`,
       `Mode: ${scriptMatchModeLabel}`,
       `Active script: ${currentScriptPath ? `${getFileName(currentScriptPath)} (path redacted)` : 'none'}`,
       `Manual override: ${scriptVariantOverrideActive ? 'yes' : 'no'}`,
       `Script folder: ${scriptFolder ? 'configured (path redacted)' : 'none'}`,
+      `Visible files: ${orderedVisibleFiles.length} / ${files.length}`,
+      `Text filter: ${filter ? 'active' : 'empty'}`,
+      `Multi-axis filter: ${multiAxisOnly ? 'on' : 'off'}`,
+      `Rated-only filter: ${ratedOnly ? 'on' : 'off'}`,
       `Variants: ${scriptVariants.length}`,
       ...(
         scriptVariants.length > 0
@@ -592,7 +611,7 @@ export default function Sidebar({
       copiedScriptMatchReportTimer.current = null
       setScriptMatchReportCopied(false)
     }, 1400)
-  }, [currentFile, currentScriptPath, currentScriptSource, scriptFolder, scriptMatchModeLabel, scriptVariantOverrideActive, scriptVariants])
+  }, [currentFile, currentScriptPath, currentScriptSource, files, filter, multiAxisOnly, orderedVisibleFiles.length, ratedOnly, scriptFolder, scriptMatchModeLabel, scriptVariantOverrideActive, scriptVariants])
 
   const openScriptFolder = useCallback(async (scriptPath: string) => {
     await window.electronAPI.showItemInFolder(scriptPath)
@@ -781,6 +800,28 @@ export default function Sidebar({
         )}
       </span>
       <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+        {(file.rating || 0) > 0 && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onFileRatingChange(file, (file.rating || 0) >= 5 ? 0 : (file.rating || 0) + 1)
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              event.stopPropagation()
+              onFileRatingChange(file, (file.rating || 0) >= 5 ? 0 : (file.rating || 0) + 1)
+            }}
+            className="inline-flex cursor-pointer items-center gap-0.5 rounded border border-amber-300/25 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200 transition-colors hover:border-amber-300/45 hover:bg-amber-400/15"
+            title={t('sidebar.fileRating', { rating: String(file.rating || 0) })}
+          >
+            <Star size={11} className="fill-amber-300 text-amber-300" />
+            {file.rating}
+          </span>
+        )}
         {file.hasSubtitles && <Captions size={14} className="text-sky-400" />}
         {file.hasScript && <FileCheck size={14} className="text-green-400" />}
       </div>
@@ -909,6 +950,19 @@ export default function Sidebar({
                 {t('sidebar.multiAxisOnly')}
               </button>
             </div>
+            <div className="px-2 pb-2">
+              <button
+                onClick={() => setRatedOnly((value) => !value)}
+                className={`w-full rounded border px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] transition-colors ${
+                  ratedOnly
+                    ? 'border-amber-300/45 bg-amber-400/10 text-amber-200'
+                    : 'border-surface-100/30 bg-surface-300 text-text-secondary hover:text-text-primary'
+                }`}
+                type="button"
+              >
+                {t('sidebar.ratedOnly')}
+              </button>
+            </div>
             <div className="px-2 pb-2 flex gap-2">
               <InlineOptionMenu
                 value={videoSort.field}
@@ -919,6 +973,7 @@ export default function Sidebar({
                   { value: 'path', label: t('sidebar.sortByPath') },
                   { value: 'name', label: t('sidebar.sortByName') },
                   { value: 'modified', label: t('sidebar.sortByModified') },
+                  { value: 'rating', label: t('sidebar.sortByRating') },
                 ]}
               />
               <button
@@ -1024,8 +1079,13 @@ export default function Sidebar({
                   </div>
                   <div className="space-y-1.5">
                     {scriptVariants.length === 0 ? (
-                      <div className="rounded border border-surface-100/20 bg-surface-200/30 px-2.5 py-2 text-[10px] text-text-muted">
-                        {t('sidebar.scriptMatchNoVariants')}
+                      <div className="rounded border border-amber-300/20 bg-amber-400/10 px-2.5 py-2 text-[10px] text-amber-100/80">
+                        <div className="font-medium text-amber-100">
+                          {t('sidebar.scriptMatchNoVariants')}
+                        </div>
+                        <div className="mt-1 leading-relaxed text-amber-100/62">
+                          {t('sidebar.scriptMatchNoVariantsHint')}
+                        </div>
                       </div>
                     ) : scriptVariants.map((variant) => {
                       const active = currentScriptSource === variant.path
@@ -1717,9 +1777,50 @@ export default function Sidebar({
           className="fixed z-50 min-w-48 overflow-hidden rounded-lg border border-surface-100/40 bg-surface-200 shadow-2xl"
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 220),
-            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 280)),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 360)),
           }}
         >
+          <div className="border-b border-surface-100/30 px-3 py-2">
+            <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-text-muted">
+              {t('sidebar.setRating')}
+            </div>
+            <div className="flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map((rating) => {
+                const active = (contextMenu.file.rating || 0) >= rating
+                return (
+                  <button
+                    key={rating}
+                    type="button"
+                    onClick={() => {
+                      const currentRating = contextMenu.file.rating || 0
+                      onFileRatingChange(contextMenu.file, currentRating === rating ? 0 : rating)
+                      setContextMenu(null)
+                    }}
+                    className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
+                      active
+                        ? 'text-amber-300 hover:bg-amber-400/10'
+                        : 'text-text-muted hover:bg-surface-100/30 hover:text-amber-200'
+                    }`}
+                    title={t('sidebar.fileRating', { rating: String(rating) })}
+                  >
+                    <Star size={14} className={active ? 'fill-amber-300' : ''} />
+                  </button>
+                )
+              })}
+              {(contextMenu.file.rating || 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFileRatingChange(contextMenu.file, 0)
+                    setContextMenu(null)
+                  }}
+                  className="ml-1 rounded px-1.5 py-1 text-[10px] text-text-muted transition-colors hover:bg-surface-100/30 hover:text-text-primary"
+                >
+                  {t('sidebar.clearRating')}
+                </button>
+              )}
+            </div>
+          </div>
           <button
             onClick={() => {
               setContextMenu(null)

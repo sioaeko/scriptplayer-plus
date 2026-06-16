@@ -11,6 +11,7 @@ import {
 } from './noScriptStroke'
 
 export const UI_SCALE_OPTIONS = [100, 115, 125, 140, 150] as const
+export const AUDIO_ARTWORK_SIZE_OPTIONS = ['small', 'medium', 'large', 'xlarge'] as const
 export const MOTION_SPEED_LIMIT_MIN = 60
 export const MOTION_SPEED_LIMIT_MAX = 360
 export const MOTION_SPEED_LIMIT_STEP = 10
@@ -31,6 +32,7 @@ export const VIDEO_COMPATIBILITY_MODES: VideoCompatibilityMode[] = [
 ]
 
 export type UiScaleValue = typeof UI_SCALE_OPTIONS[number]
+export type AudioArtworkSize = typeof AUDIO_ARTWORK_SIZE_OPTIONS[number]
 export type MotionSpeedLimitPreset = typeof MOTION_SPEED_LIMIT_PRESETS[number]
 
 export interface AppSettings {
@@ -44,6 +46,7 @@ export interface AppSettings {
   alwaysOnTop: boolean
   uiScale: UiScaleValue // percent
   subtitleFontSize: number // px, 14-32
+  audioArtworkSize: AudioArtworkSize
   autoFitVideoByAspect: boolean
   rememberVideoFit: boolean
   videoCompatibilityMode: VideoCompatibilityMode
@@ -97,6 +100,7 @@ function createDefaultSettings(): AppSettings {
     alwaysOnTop: false,
     uiScale: 100,
     subtitleFontSize: 20,
+    audioArtworkSize: 'medium',
     autoFitVideoByAspect: false,
     rememberVideoFit: false,
     videoCompatibilityMode: 'auto',
@@ -202,6 +206,12 @@ function normalizeVideoCompatibilityMode(value: unknown): VideoCompatibilityMode
     : createDefaultSettings().videoCompatibilityMode
 }
 
+function normalizeAudioArtworkSize(value: unknown): AudioArtworkSize {
+  return AUDIO_ARTWORK_SIZE_OPTIONS.includes(value as AudioArtworkSize)
+    ? value as AudioArtworkSize
+    : createDefaultSettings().audioArtworkSize
+}
+
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -246,6 +256,7 @@ export function loadSettings(): AppSettings {
       rememberVideoFit: typeof (parsed as { rememberVideoFit?: unknown })?.rememberVideoFit === 'boolean'
         ? (parsed as { rememberVideoFit: boolean }).rememberVideoFit
         : defaults.rememberVideoFit,
+      audioArtworkSize: normalizeAudioArtworkSize((parsed as { audioArtworkSize?: unknown })?.audioArtworkSize),
       videoCompatibilityMode: normalizeVideoCompatibilityMode((parsed as { videoCompatibilityMode?: unknown })?.videoCompatibilityMode),
       noScriptRandomFillGapMinDuration,
       keyboardShortcuts: normalizeShortcutBindings((parsed as { keyboardShortcuts?: unknown })?.keyboardShortcuts),

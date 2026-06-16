@@ -104,6 +104,7 @@ const OSR_SERIAL_PROFILE_STORAGE_KEY = 'scriptplayer-osr-serial-profile'
 const OSR_SERIAL_AXIS_CONFIGS_STORAGE_KEY = 'scriptplayer-osr-serial-axis-configs-v1'
 const VIDEO_SORT_FIELD_STORAGE_KEY = 'scriptplayer-video-sort-field'
 const VIDEO_SORT_DIRECTION_STORAGE_KEY = 'scriptplayer-video-sort-direction'
+const MEDIA_RATINGS_STORAGE_KEY = 'scriptplayer-media-ratings-v1'
 const SCRIPT_OFFSET_STORAGE_KEY = 'scriptplayer-script-offsets-v1'
 const CURRENT_PLAYLIST_STORAGE_KEY = 'scriptplayer-current-playlist-v1'
 const VOLUME_STORAGE_KEY = 'volume'
@@ -150,6 +151,7 @@ const APP_RESET_STORAGE_KEYS = [
   OSR_SERIAL_AXIS_CONFIGS_STORAGE_KEY,
   VIDEO_SORT_FIELD_STORAGE_KEY,
   VIDEO_SORT_DIRECTION_STORAGE_KEY,
+  MEDIA_RATINGS_STORAGE_KEY,
   SCRIPT_OFFSET_STORAGE_KEY,
   CURRENT_PLAYLIST_STORAGE_KEY,
   VOLUME_STORAGE_KEY,
@@ -414,11 +416,45 @@ function loadVideoSort(): VideoSortState {
     const storedDirection = localStorage.getItem(VIDEO_SORT_DIRECTION_STORAGE_KEY)
 
     return {
-      field: storedField === 'name' || storedField === 'modified' ? storedField : DEFAULT_VIDEO_SORT.field,
+      field: storedField === 'name' || storedField === 'modified' || storedField === 'rating' ? storedField : DEFAULT_VIDEO_SORT.field,
       direction: storedDirection === 'desc' ? 'desc' : DEFAULT_VIDEO_SORT.direction,
     }
   } catch {
     return DEFAULT_VIDEO_SORT
+  }
+}
+
+function clampMediaRating(value: unknown): number {
+  const rating = Number(value)
+  if (!Number.isFinite(rating)) return 0
+  return Math.max(0, Math.min(5, Math.round(rating)))
+}
+
+function loadMediaRatings(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(MEDIA_RATINGS_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    if (!parsed || typeof parsed !== 'object') return {}
+
+    const next: Record<string, number> = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const normalizedKey = typeof key === 'string' ? key.trim() : ''
+      const rating = clampMediaRating(value)
+      if (normalizedKey && rating > 0) {
+        next[normalizedKey] = rating
+      }
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+function saveMediaRatings(ratings: Record<string, number>) {
+  try {
+    localStorage.setItem(MEDIA_RATINGS_STORAGE_KEY, JSON.stringify(ratings))
+  } catch {
+    // Ignore storage failures
   }
 }
 
@@ -930,6 +966,7 @@ export default function App() {
   const [loopCurrentMedia, setLoopCurrentMedia] = useState<boolean>(loadLoopCurrentMedia)
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
   const [videoSort, setVideoSort] = useState<VideoSortState>(loadVideoSort)
+  const [fileRatings, setFileRatings] = useState<Record<string, number>>(loadMediaRatings)
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
   const [pendingAutoPlayAfterHandyUpload, setPendingAutoPlayAfterHandyUpload] = useState(false)
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCheckResult | null>(null)
@@ -959,6 +996,16 @@ export default function App() {
   const osrSerialStreamRunId = useRef(0)
 
   useEffect(() => remoteAccessoryClient.subscribe(setRemoteAccessoryState), [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void remoteAccessoryClient.connectSaved()
+    }, 2500)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [])
 
   const devicePauseSuppressUntilRef = useRef(0)
 
@@ -1263,8 +1310,9 @@ export default function App() {
       ...file,
       hasScript: file.hasScript || Boolean(manualScriptPaths[file.path]),
       hasSubtitles: file.hasSubtitles || Boolean(manualSubtitleFiles[file.path]),
+      rating: fileRatings[normalizeOffsetPathKey(file.path)] ?? 0,
     })),
-    [files, manualScriptPaths, manualSubtitleFiles]
+    [fileRatings, files, manualScriptPaths, manualSubtitleFiles]
   )
   const orderedFiles = useMemo(
     () => orderVideoFiles(displayFiles, videoSort),
@@ -1328,7 +1376,7 @@ export default function App() {
     () => getOsrSerialTCodeAxisOptions(osrSerialAxisConfigs),
     [osrSerialAxisConfigs]
   )
-  const osrSerialTCodeCommandOptions = useMemo(() => (
+  const osrSerialTCodeCommandOptions = useMemo<{ commandJoiner?: string; intervalMs?: number }>(() => (
     osrSerialProfile === 'craftyHandySr6'
       ? {
         commandJoiner: '',
@@ -1499,6 +1547,10 @@ export default function App() {
   }, [videoSort.direction, videoSort.field])
 
   useEffect(() => {
+    saveMediaRatings(fileRatings)
+  }, [fileRatings])
+
+  useEffect(() => {
     try {
       localStorage.setItem(DEVICE_PROVIDER_STORAGE_KEY, deviceProvider)
     } catch {
@@ -1635,6 +1687,12 @@ export default function App() {
       // Ignore storage failures
     }
   }, [])
+
+  useEffect(() => {
+    if (osrSerialProfile === 'craftyHandySr6' && osrSerialUpdateRate !== CRAFTY_HANDY_SR6_UPDATE_RATE) {
+      setOsrSerialUpdateRate(CRAFTY_HANDY_SR6_UPDATE_RATE)
+    }
+  }, [osrSerialProfile, osrSerialUpdateRate, setOsrSerialUpdateRate])
 
   const handleOsrSerialProfileChange = useCallback((profile: OsrSerialProfile) => {
     const normalizedProfile = normalizeOsrSerialProfile(profile)
@@ -1973,39 +2031,6 @@ export default function App() {
       setFunscriptBundle(parsedBundle)
     }
   }, [loadParsedScriptBundle])
-
-  const handleAiScriptGenerated = useCallback(async (script: unknown, modelLabel: string) => {
-    const mediaPath = currentFileRef.current
-    if (!mediaPath) {
-      return null
-    }
-
-    const result = await window.electronAPI.saveGeneratedFunscript(
-      mediaPath,
-      JSON.stringify(script, null, 2),
-      'ai-motion'
-    )
-    if (!result.ok || !result.path) {
-      throw new Error(result.error || 'Failed to save generated script.')
-    }
-
-    setManualScriptPaths((prev) => ({
-      ...prev,
-      [mediaPath]: result.path!,
-    }))
-
-    const parsedBundle = await loadParsedScriptBundle(mediaPath, result.path)
-    if (currentFileRef.current === mediaPath) {
-      setFunscriptBundle(parsedBundle)
-      const variants = await loadScriptVariants(mediaPath)
-      if (currentFileRef.current === mediaPath) {
-        setScriptVariants(variants)
-      }
-    }
-
-    console.info(`[AI Script] Generated with ${modelLabel}: ${result.path}`)
-    return result.path
-  }, [loadParsedScriptBundle, loadScriptVariants])
 
   const cancelPendingHandySync = useCallback(() => {
     handySyncRunId.current += 1
@@ -2415,7 +2440,7 @@ export default function App() {
       loadScriptBundle(filePath, options?.preferredScriptPath),
       loadScriptVariants(filePath).catch(() => []),
       resolvedType === 'audio'
-        ? window.electronAPI.findArtwork(filePath)
+        ? window.electronAPI.findArtwork(filePath, currentFolderPathRef.current || undefined)
         : Promise.resolve<string | null>(null),
     ])
 
@@ -3013,6 +3038,7 @@ export default function App() {
     setLoopCurrentMedia(false)
     setPlaybackRate(1)
     setVideoSort(DEFAULT_VIDEO_SORT)
+    setFileRatings({})
     setDeviceProvider('handy')
     setSelectedOsrSerialPortPathState('')
     setOsrSerialUpdateRateState(DEFAULT_OSR_SERIAL_UPDATE_RATE)
@@ -3892,8 +3918,13 @@ export default function App() {
       `Provider: ${deviceProvider}`,
       `Compatibility preset: ${deviceCompatibilityPreset}`,
       `Handy connected: ${handyConnected}`,
+      `Handy ping: ${handyService.ping !== null ? `${handyService.ping}ms` : 'unknown'}`,
       `Handy upload status: ${handyUploadStatus}`,
       `Handy upload error: ${handyUploadError || 'none'}`,
+      `Handy script URL: ${scriptUploadUrl ? 'ready (redacted)' : 'none'}`,
+      `Handy auto-sync status: ${handyAutoPlayStatusText || 'idle'}`,
+      `Handy auto-sync pending: ${pendingAutoPlayAfterHandyUpload ? 'yes' : 'no'}`,
+      `Effective device offset: ${effectiveDeviceTimeOffset}ms`,
       `Intiface state: ${buttplugConnectionState}`,
       `Intiface error: ${buttplugError || 'none'}`,
       `Intiface URL: ${intifaceUrlLabel}`,
@@ -3929,7 +3960,9 @@ export default function App() {
     currentFileType,
     deviceCompatibilityPreset,
     deviceProvider,
+    effectiveDeviceTimeOffset,
     handyConnected,
+    handyAutoPlayStatusText,
     handyUploadError,
     handyUploadStatus,
     manualScriptPaths,
@@ -3938,11 +3971,13 @@ export default function App() {
     osrSerialError,
     osrSerialProfile,
     osrSerialUpdateRate,
+    pendingAutoPlayAfterHandyUpload,
     playbackRate,
     primaryAxis,
     primaryScriptSource,
     runtimeAxisActions,
     scriptOffset,
+    scriptUploadUrl,
     scriptVariants,
     selectedButtplugDevice,
     selectedButtplugFeatureMappings,
@@ -3964,6 +3999,7 @@ export default function App() {
       ? `${media.error.code}${media.error.message ? ` ${media.error.message}` : ''}`
       : 'none'
     const activeScriptVariant = scriptVariants.find((variant) => variant.path === primaryScriptSource) ?? null
+    const currentListEntry = currentFile ? fileEntryByPath.get(currentFile) ?? null : null
     const scriptSourceLabel = primaryScriptSource
       ? primaryScriptSource.startsWith('generated://')
         ? primaryScriptSource
@@ -3993,6 +4029,10 @@ export default function App() {
       `Video size: ${video ? `${video.videoWidth}x${video.videoHeight}` : 'n/a'}`,
       '',
       '[Script Matching]',
+      `List entry: ${currentListEntry ? 'found' : 'not found'}`,
+      `List script icon: ${currentListEntry?.hasScript ? 'yes' : 'no'}`,
+      `List auto script path: ${currentListEntry?.autoScriptPath ? 'yes (path redacted)' : 'no'}`,
+      `List script axes: ${currentListEntry?.scriptAxes.join(', ') || 'none'}`,
       `Script source: ${scriptSourceLabel}`,
       `Manual override: ${currentFile && manualScriptPaths[currentFile] ? 'yes' : 'no'}`,
       `Script folder: ${settings.scriptFolder ? 'configured (path redacted)' : 'none'}`,
@@ -4015,7 +4055,12 @@ export default function App() {
       `Provider: ${deviceProvider}`,
       `Compatibility preset: ${deviceCompatibilityPreset}`,
       `Handy connected: ${handyConnected}`,
+      `Handy ping: ${handyService.ping !== null ? `${handyService.ping}ms` : 'unknown'}`,
       `Handy upload status: ${handyUploadStatus}`,
+      `Handy script URL: ${scriptUploadUrl ? 'ready (redacted)' : 'none'}`,
+      `Handy auto-sync status: ${handyAutoPlayStatusText || 'idle'}`,
+      `Handy auto-sync pending: ${pendingAutoPlayAfterHandyUpload ? 'yes' : 'no'}`,
+      `Effective device offset: ${effectiveDeviceTimeOffset}ms`,
       `Intiface state: ${buttplugConnectionState}`,
       `Selected Intiface device: ${selectedButtplugDevice ? `${selectedButtplugDevice.displayName} (#${selectedButtplugDevice.index})` : 'none'}`,
       `Intiface features: ${selectedButtplugDevice ? selectedButtplugDevice.features.length : 0}`,
@@ -4048,18 +4093,23 @@ export default function App() {
     currentFileType,
     deviceCompatibilityPreset,
     deviceProvider,
+    effectiveDeviceTimeOffset,
+    fileEntryByPath,
     handyConnected,
+    handyAutoPlayStatusText,
     handyUploadStatus,
     manualScriptPaths,
     mediaDurationSeconds,
     osrSerialConnectionState,
     osrSerialProfile,
     osrSerialUpdateRate,
+    pendingAutoPlayAfterHandyUpload,
     playbackRate,
     primaryAxis,
     primaryScriptSource,
     runtimeAxisActions,
     scriptOffset,
+    scriptUploadUrl,
     scriptVariants,
     selectedButtplugDevice,
     selectedOsrSerialPortPath,
@@ -4148,17 +4198,34 @@ export default function App() {
     stopOsrSerialPlayback,
   ])
 
+  const handleFileRatingChange = useCallback((file: VideoFile, rating: number) => {
+    const nextRating = clampMediaRating(rating)
+    const key = normalizeOffsetPathKey(file.path)
+    setFileRatings((current) => {
+      const next = { ...current }
+      if (nextRating > 0) {
+        next[key] = nextRating
+      } else {
+        delete next[key]
+      }
+      return next
+    })
+  }, [])
+
   const deviceInfo = useMemo(() => {
     if (deviceProvider === 'handy') {
       const uploadState = handyAutoPlayStatusText
         ? { text: handyAutoPlayStatusText, tone: handyAutoPlayStatusTone ?? 'busy' as const }
         : getHandyOverlayStatus(handyUploadStatus, handyUploadError)
+      const fallbackStatus = handyConnected
+        ? (scriptUploadUrl ? 'Ready to play' : 'Connected; waiting for script upload')
+        : null
       return {
         connected: handyConnected,
         label: 'Handy',
         detail: handyConnected && handyService.ping !== null ? `${handyService.ping}ms` : null,
-        statusText: uploadState?.text ?? null,
-        statusTone: uploadState?.tone ?? null,
+        statusText: uploadState?.text ?? fallbackStatus,
+        statusTone: uploadState?.tone ?? (handyConnected && !scriptUploadUrl ? 'busy' as const : null),
       }
     }
 
@@ -4201,6 +4268,7 @@ export default function App() {
     osrSerialUpdateRate,
     selectedButtplugDevice,
     selectedOsrSerialPort,
+    scriptUploadUrl,
   ])
 
   return (
@@ -4322,6 +4390,7 @@ export default function App() {
           scriptFolderRescanning={scriptFolderRescanning}
           videoSort={videoSort}
           onVideoSortChange={setVideoSort}
+          onFileRatingChange={handleFileRatingChange}
         />
         <VideoPlayer
           mediaSessionKey={mediaSessionKey}
@@ -4330,6 +4399,7 @@ export default function App() {
           mediaType={currentFileType}
           currentFileName={currentFile ? getFileName(currentFile) : null}
           artworkUrl={artworkUrl}
+          audioArtworkSize={settings.audioArtworkSize}
           actions={displayActions}
           scriptSource={primaryScriptSource}
           scriptDebugInfo={scriptDebugInfo}
@@ -4378,7 +4448,6 @@ export default function App() {
           rememberVideoFit={settings.rememberVideoFit}
           videoCompatibilityMode={settings.videoCompatibilityMode}
           onTryVideoCompatibilityMode={handleTryVideoCompatibilityMode}
-          onAiScriptGenerated={handleAiScriptGenerated}
           timelineHeight={settings.timelineHeight}
           timelineWindow={settings.timelineWindow}
           speedColors={settings.speedColors}

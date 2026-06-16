@@ -18,6 +18,7 @@ import { APP_LINKS, APP_SUPPORT_ICONS } from '../constants/links'
 import { checkForUpdates, type UpdateCheckResult } from '../services/updateChecker'
 import {
   AppSettings,
+  AUDIO_ARTWORK_SIZE_OPTIONS,
   MOTION_SPEED_LIMIT_MAX,
   MOTION_SPEED_LIMIT_MIN,
   MOTION_SPEED_LIMIT_PRESET_VALUES,
@@ -408,6 +409,25 @@ function AppearanceSection({
           onChange={(e) => update('subtitleFontSize', Number(e.target.value))}
           className="w-36"
         />
+      </FieldRow>
+
+      <Divider />
+
+      <FieldRow
+        label={t('settings.audioArtworkSize')}
+        description={t('settings.audioArtworkSizeDesc')}
+      >
+        <select
+          value={settings.audioArtworkSize}
+          onChange={(e) => update('audioArtworkSize', e.target.value as AppSettings['audioArtworkSize'])}
+          className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 focus:border-accent/50 outline-none min-w-[150px]"
+        >
+          {AUDIO_ARTWORK_SIZE_OPTIONS.map((size) => (
+            <option key={size} value={size}>
+              {t(`settings.audioArtworkSize.${size}`)}
+            </option>
+          ))}
+        </select>
       </FieldRow>
     </div>
   )

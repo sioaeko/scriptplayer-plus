@@ -4,7 +4,9 @@ import path from 'path'
 import fs from 'fs'
 import http from 'http'
 import https from 'https'
+import { createHash } from 'crypto'
 import { URL, pathToFileURL } from 'url'
+import { parseFile } from 'music-metadata'
 import { OsrSerialManager } from './osrSerial'
 import { SCRIPT_AXIS_DEFINITIONS, inferAxisIdFromStem, stripKnownAxisSuffix } from '../src/services/multiaxis'
 import { getVideoSubtitleMatchScore, parseSubtitleFile } from '../src/services/subtitles'
@@ -57,6 +59,7 @@ const TRAILING_VARIANT_SUFFIX_RE = /(?:[ _.-]*げっぷ音緩和差分|[ _.-]*[�
 const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|variant|edit|edited|fix|fixed|sync|offset|generated|ai|motion|experimental))+$/i
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
+const EMBEDDED_ARTWORK_CACHE_DIR = 'scriptplayer-plus-audio-artwork'
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
 })
@@ -151,7 +154,6 @@ function isLikelyNetworkPath(targetPath?: string | null): boolean {
 async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string): Promise<VideoFile[]> {
   const files: VideoFile[] = []
   const seenPaths = new Set<string>()
-  const useNetworkSafeScriptFolder = isLikelyNetworkPath(scriptFolder)
 
   for (const rawPath of filePaths) {
     if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
@@ -180,8 +182,8 @@ async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string)
       continue
     }
 
-    const useNetworkSafeScan = isLikelyNetworkPath(filePath) || useNetworkSafeScriptFolder
-    const bundle = useNetworkSafeScan ? null : readFunscriptBundle(filePath, scriptFolder)
+    const useNetworkSafeSubtitleScan = isLikelyNetworkPath(filePath) || isLikelyNetworkPath(scriptFolder)
+    const bundle = readFunscriptBundle(filePath, scriptFolder)
     const scriptAxes = SCRIPT_AXIS_DEFINITIONS
       .map((definition) => definition.id)
       .filter((axisId) => Boolean(bundle?.scripts[axisId]))
@@ -196,7 +198,7 @@ async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string)
       hasScript: scriptAxes.length > 0,
       autoScriptPath: primaryScriptPath,
       scriptAxes,
-      hasSubtitles: useNetworkSafeScan ? false : hasSubtitlesForMediaScan(filePath),
+      hasSubtitles: useNetworkSafeSubtitleScan ? false : hasSubtitlesForMediaScan(filePath),
       modifiedAt: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : 0,
       relativePath: filePath.replace(/\\/g, '/'),
     })
@@ -1026,28 +1028,16 @@ ipcMain.handle('fs:inspectMediaFiles', async (_event, filePaths: string[], scrip
 })
 
 ipcMain.handle('fs:readFunscript', async (_event, videoPath: string, scriptFolder?: string) => {
-  if (isLikelyNetworkPath(videoPath) || isLikelyNetworkPath(scriptFolder)) {
-    return null
-  }
-
   const bundle = readFunscriptBundle(videoPath, scriptFolder)
   if (!bundle?.primaryAxis) return null
   return bundle.scripts[bundle.primaryAxis] ?? null
 })
 
 ipcMain.handle('fs:readFunscriptBundle', async (_event, videoPath: string, scriptFolder?: string, preferredScriptPath?: string) => {
-  if (!preferredScriptPath && (isLikelyNetworkPath(videoPath) || isLikelyNetworkPath(scriptFolder))) {
-    return null
-  }
-
   return readFunscriptBundle(videoPath, scriptFolder, preferredScriptPath)
 })
 
 ipcMain.handle('fs:listScriptVariants', async (_event, videoPath: string, scriptFolder?: string) => {
-  if (isLikelyNetworkPath(videoPath) || isLikelyNetworkPath(scriptFolder)) {
-    return []
-  }
-
   return listScriptVariants(videoPath, scriptFolder)
 })
 
@@ -1073,37 +1063,6 @@ ipcMain.handle('fs:saveFunscript', async (_event, videoPath: string, data: strin
     return true
   } catch {
     return false
-  }
-})
-
-ipcMain.handle('fs:saveGeneratedFunscript', async (_event, videoPath: string, data: string, label?: string) => {
-  try {
-    if (typeof videoPath !== 'string' || !MEDIA_EXTS.includes(path.extname(videoPath).toLowerCase())) {
-      return { ok: false, error: 'Invalid media path.' }
-    }
-    if (typeof data !== 'string' || data.trim().length === 0) {
-      return { ok: false, error: 'No funscript data to save.' }
-    }
-
-    const ext = path.extname(videoPath)
-    const dir = path.dirname(videoPath)
-    const baseName = path.basename(videoPath, ext)
-    const safeLabel = String(label || 'ai-motion')
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      || 'ai-motion'
-    const scriptPath = path.join(dir, `${baseName}.${safeLabel}.funscript`)
-
-    fs.writeFileSync(scriptPath, data, 'utf-8')
-    invalidateFsCachesForRoot(dir)
-
-    return { ok: true, path: scriptPath }
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }
   }
 })
 
@@ -1159,13 +1118,9 @@ ipcMain.handle('fs:getVideoUrl', async (_event, filePath: string) => {
   return pathToFileURL(filePath).toString()
 })
 
-ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string) => {
+ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string, rootHint?: string) => {
   try {
-    if (isLikelyNetworkPath(mediaPath)) {
-      return null
-    }
-
-    return findArtworkForMedia(mediaPath)
+    return await findArtworkForMedia(mediaPath, rootHint)
   } catch {
     return null
   }
@@ -2239,10 +2194,422 @@ function isLoadableFunscriptJson(value: unknown): value is { actions: Array<{ at
   ))
 }
 
-function findArtworkForMedia(mediaPath: string): string | null {
-  const dir = path.dirname(mediaPath)
+async function findArtworkForMedia(mediaPath: string, rootHint?: string): Promise<string | null> {
+  const sidecarArtworkPath = findSidecarArtworkForMedia(mediaPath, rootHint)
+  if (sidecarArtworkPath) {
+    return sidecarArtworkPath
+  }
+
+  const embeddedArtworkPath = await extractEmbeddedArtworkForMedia(mediaPath)
+  if (embeddedArtworkPath) {
+    return embeddedArtworkPath
+  }
+
+  return null
+}
+
+async function extractEmbeddedArtworkForMedia(mediaPath: string): Promise<string | null> {
+  if (!AUDIO_EXTS.includes(path.extname(mediaPath).toLowerCase())) {
+    return null
+  }
+
+  let stats: fs.Stats
+  try {
+    stats = await fs.promises.stat(mediaPath)
+  } catch {
+    return null
+  }
+
+  try {
+    const metadata = await parseFile(mediaPath, {
+      duration: false,
+      skipCovers: false,
+      skipPostHeaders: true,
+    })
+    const picture = pickEmbeddedArtwork(metadata.common.picture)
+    if (!picture?.data?.length) {
+      return null
+    }
+
+    const ext = getArtworkExtensionFromMime(picture.format)
+    const cacheDir = path.join(app.getPath('userData'), EMBEDDED_ARTWORK_CACHE_DIR)
+    await fs.promises.mkdir(cacheDir, { recursive: true })
+
+    const cacheKey = createHash('sha1')
+      .update(mediaPath)
+      .update('\0')
+      .update(String(stats.mtimeMs))
+      .update('\0')
+      .update(String(stats.size))
+      .digest('hex')
+    const filePath = path.join(cacheDir, `${cacheKey}${ext}`)
+
+    try {
+      await fs.promises.access(filePath, fs.constants.R_OK)
+      return filePath
+    } catch {
+      // Cache miss, write below.
+    }
+
+    await fs.promises.writeFile(filePath, Buffer.from(picture.data))
+    return filePath
+  } catch {
+    return null
+  }
+}
+
+function pickEmbeddedArtwork(
+  pictures: Array<{ format?: string; type?: string; data: Uint8Array }> | undefined
+): { format?: string; type?: string; data: Uint8Array } | null {
+  if (!pictures || pictures.length === 0) {
+    return null
+  }
+
+  return pictures.find((picture) => /front|cover/i.test(picture.type || ''))
+    ?? pictures.find((picture) => /^image\//i.test(picture.format || ''))
+    ?? pictures[0]
+    ?? null
+}
+
+function getArtworkExtensionFromMime(mime?: string): string {
+  const normalized = (mime || '').toLowerCase()
+  if (normalized.includes('png')) return '.png'
+  if (normalized.includes('webp')) return '.webp'
+  if (normalized.includes('gif')) return '.gif'
+  if (normalized.includes('bmp')) return '.bmp'
+  return '.jpg'
+}
+
+type ArtworkCandidate = {
+  path: string
+  score: number
+}
+
+const EXACT_ARTWORK_NAMES = new Set([
+  'cover',
+  'folder',
+  'front',
+  'thumb',
+  'thumbnail',
+  'jacket',
+  'index',
+  'poster',
+])
+const COVER_ARTWORK_TOKENS = [
+  ...EXACT_ARTWORK_NAMES,
+  'package',
+  'artwork',
+]
+const PREFERRED_ARTWORK_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+const IGNORED_ARTWORK_TOKENS = ['삣삐', '띳띠', '뭐하고놀까요']
+
+function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string): string | null {
+  const workRoot = inferArtworkWorkRoot(mediaPath, rootHint)
+  if (workRoot) {
+    const workRootArtworkPath = findBestArtworkInTree(workRoot)
+    if (workRootArtworkPath) {
+      return workRootArtworkPath
+    }
+  }
+
+  const searchDirs = getArtworkSearchDirectories(mediaPath, rootHint)
+
+  for (const dir of searchDirs) {
+    const artworkPath = findBestArtworkInDirectory(mediaPath, dir, false)
+    if (artworkPath) {
+      return artworkPath
+    }
+  }
+
+  for (const dir of searchDirs) {
+    const artworkPath = findBestArtworkInDirectory(mediaPath, dir, true)
+    if (artworkPath) {
+      return artworkPath
+    }
+  }
+
+  return null
+}
+
+function inferArtworkWorkRoot(mediaPath: string, rootHint?: string): string | null {
+  const mediaDir = path.dirname(mediaPath)
+  const normalizedRoot = normalizeArtworkRootHint(mediaPath, rootHint)
+  const ancestors = getAncestorDirectories(mediaDir, normalizedRoot, 16)
+  const rjWorkRoot = ancestors.find((dir) => looksLikeRjWorkFolder(path.basename(dir)))
+  if (rjWorkRoot) {
+    return rjWorkRoot
+  }
+
+  if (normalizedRoot) {
+    const relative = path.relative(normalizedRoot, mediaDir)
+    if (!relative || relative === '.') {
+      return normalizedRoot
+    }
+
+    if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+      const firstPart = relative.split(/[\\/]+/).filter(Boolean)[0]
+      if (!firstPart || isArtworkContainerDirectory(firstPart)) {
+        return normalizedRoot
+      }
+      return path.join(normalizedRoot, firstPart)
+    }
+  }
+
+  let currentDir = mediaDir
+  let steps = 0
+  while (isArtworkContainerDirectory(path.basename(currentDir)) && steps < 5) {
+    const parent = path.dirname(currentDir)
+    if (!parent || parent === currentDir) {
+      break
+    }
+    currentDir = parent
+    steps += 1
+  }
+  return currentDir
+}
+
+function getAncestorDirectories(startDir: string, stopDir: string | null, maxSteps: number): string[] {
+  const results: string[] = []
+  let currentDir = startDir
+  let steps = 0
+
+  while (currentDir && steps <= maxSteps) {
+    appendUniquePath(results, currentDir)
+    if (stopDir && normalizePathKey(currentDir) === normalizePathKey(stopDir)) {
+      break
+    }
+
+    const parent = path.dirname(currentDir)
+    if (!parent || parent === currentDir) {
+      break
+    }
+    currentDir = parent
+    steps += 1
+  }
+
+  return results
+}
+
+function looksLikeRjWorkFolder(name: string): boolean {
+  return /\b(?:RJ|VJ|BJ)\s*\d{5,9}\b/i.test(name)
+}
+
+function isArtworkContainerDirectory(name: string): boolean {
+  const normalized = normalizeArtworkRuleName(name)
+  return normalized === 'mp3'
+    || normalized === 'wav'
+    || normalized === 'flac'
+    || normalized === 'ogg'
+    || normalized === 'aac'
+    || normalized === 'opus'
+    || normalized === 'm4a'
+    || normalized === 'audio'
+    || normalized === 'audios'
+    || normalized === 'sound'
+    || normalized === 'sounds'
+    || normalized === 'img'
+    || normalized === 'image'
+    || normalized === 'images'
+    || normalized === 'picture'
+    || normalized === 'pictures'
+    || /^(cd|disc|disk)\d*$/.test(normalized)
+}
+
+function findBestArtworkInTree(rootDir: string): string | null {
+  return findBestArtworkCandidateInTree(rootDir, 0)?.path ?? null
+}
+
+function findBestArtworkCandidateInTree(dir: string, depth: number): ArtworkCandidate | null {
+  if (depth > 5) {
+    return null
+  }
+
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return null
+  }
+
+  let bestCover: ArtworkCandidate | null = null
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue
+    }
+
+    const score = artworkCoverScore(entry.name, depth)
+    if (score === Number.NEGATIVE_INFINITY) {
+      continue
+    }
+
+    bestCover = selectBetterArtworkCandidate(bestCover, {
+      path: path.join(dir, entry.name),
+      score,
+    })
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) {
+      continue
+    }
+
+    bestCover = selectBetterArtworkCandidate(
+      bestCover,
+      findBestArtworkCandidateInTree(path.join(dir, entry.name), depth + 1)
+    )
+  }
+
+  return bestCover
+}
+
+function selectBetterArtworkCandidate(current: ArtworkCandidate | null, candidate: ArtworkCandidate | null): ArtworkCandidate | null {
+  if (!current) return candidate
+  if (!candidate) return current
+  return candidate.score > current.score ? candidate : current
+}
+
+function artworkCoverScore(fileName: string, depth: number): number {
+  const extension = path.extname(fileName).toLowerCase()
+  if (!IMAGE_EXTS.includes(extension)) {
+    return Number.NEGATIVE_INFINITY
+  }
+
+  const stem = normalizeArtworkRuleName(path.basename(fileName, extension))
+  if (!stem || IGNORED_ARTWORK_TOKENS.some((token) => stem.includes(token))) {
+    return Number.NEGATIVE_INFINITY
+  }
+
+  const looksLikeCoverName = EXACT_ARTWORK_NAMES.has(stem)
+    || COVER_ARTWORK_TOKENS.some((token) => stem.includes(token))
+  if (extension === '.gif' && !looksLikeCoverName) {
+    return Number.NEGATIVE_INFINITY
+  }
+
+  let score = 20
+  if (EXACT_ARTWORK_NAMES.has(stem)) {
+    score += 120
+  } else if (COVER_ARTWORK_TOKENS.some((token) => stem.includes(token))) {
+    score += 80
+  }
+
+  if (PREFERRED_ARTWORK_EXTS.has(extension)) {
+    score += 10
+  } else if (extension === '.gif') {
+    score -= 200
+  }
+
+  score -= depth * 12
+  return score
+}
+
+function normalizeArtworkRuleName(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function getArtworkSearchDirectories(mediaPath: string, rootHint?: string): string[] {
+  const results: string[] = []
+  const mediaDir = path.dirname(mediaPath)
+  const normalizedRoot = normalizeArtworkRootHint(mediaPath, rootHint)
+  let currentDir = mediaDir
+  let steps = 0
+  const maxAncestorSteps = normalizedRoot ? 16 : 4
+
+  while (currentDir && steps <= maxAncestorSteps) {
+    const key = normalizePathKey(currentDir)
+    if (!results.some((dir) => normalizePathKey(dir) === key)) {
+      results.push(currentDir)
+    }
+
+    if (normalizedRoot && normalizePathKey(currentDir) === normalizePathKey(normalizedRoot)) {
+      break
+    }
+
+    const parent = path.dirname(currentDir)
+    if (!parent || parent === currentDir) {
+      break
+    }
+    currentDir = parent
+    steps += 1
+  }
+
+  if (normalizedRoot && !results.some((dir) => normalizePathKey(dir) === normalizePathKey(normalizedRoot))) {
+    results.push(normalizedRoot)
+  }
+
+  return expandArtworkSearchDirectories(results)
+}
+
+function expandArtworkSearchDirectories(baseDirs: string[]): string[] {
+  const results: string[] = []
+  const artworkSubdirs = [
+    'cover',
+    'covers',
+    'artwork',
+    'artworks',
+    'image',
+    'images',
+    'img',
+    'imgs',
+    'jacket',
+    'jackets',
+    'package',
+    'packages',
+    'thumbnail',
+    'thumbnails',
+    'thumb',
+    'thumbs',
+  ]
+
+  for (const dir of baseDirs) {
+    appendUniquePath(results, dir)
+
+    for (const subdirName of artworkSubdirs) {
+      const candidateDir = path.join(dir, subdirName)
+      try {
+        if (fs.statSync(candidateDir).isDirectory()) {
+          appendUniquePath(results, candidateDir)
+        }
+      } catch {
+        // Optional artwork subfolder does not exist.
+      }
+    }
+  }
+
+  return results
+}
+
+function appendUniquePath(results: string[], filePath: string): void {
+  const key = normalizePathKey(filePath)
+  if (!results.some((entry) => normalizePathKey(entry) === key)) {
+    results.push(filePath)
+  }
+}
+
+function normalizeArtworkRootHint(mediaPath: string, rootHint?: string): string | null {
+  if (!rootHint || typeof rootHint !== 'string') {
+    return null
+  }
+
+  try {
+    const resolvedMediaPath = path.resolve(mediaPath)
+    const resolvedRoot = path.resolve(rootHint)
+    const relative = path.relative(resolvedRoot, resolvedMediaPath)
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      return null
+    }
+    return resolvedRoot
+  } catch {
+    return null
+  }
+}
+
+function findBestArtworkInDirectory(mediaPath: string, dir: string, allowFallback: boolean): string | null {
   const ext = path.extname(mediaPath)
   const baseName = path.basename(mediaPath, ext).toLowerCase()
+  const dirBaseName = path.basename(dir).toLowerCase()
+  const normalizedBaseName = normalizeArtworkMatchText(baseName)
+  const normalizedDirBaseName = normalizeArtworkMatchText(dirBaseName)
 
   let entries: string[]
   try {
@@ -2260,13 +2627,40 @@ function findArtworkForMedia(mediaPath: string): string | null {
   const sameBase = images.find((name) => path.basename(name, path.extname(name)).toLowerCase() === baseName)
   if (sameBase) return path.join(dir, sameBase)
 
-  const priorityKeywords = ['cover', 'folder', 'front', 'poster', 'preview', 'artwork', 'album', 'thumb']
+  const priorityKeywords = [
+    'main',
+    'cover',
+    'folder',
+    'front',
+    'poster',
+    'preview',
+    'artwork',
+    'album',
+    'thumb',
+    'thumbnail',
+    'jacket',
+    'package',
+    'work',
+    'title',
+    '表紙',
+    'ジャケット',
+    'パッケージ',
+    'サムネ',
+    'メイン',
+    '画像',
+  ]
   const scored = images
     .map((name) => {
       const stem = path.basename(name, path.extname(name)).toLowerCase()
+      const normalizedStem = normalizeArtworkMatchText(stem)
       let score = 0
 
+      if (normalizedStem === normalizedBaseName) score += 140
+      if (normalizedStem === normalizedDirBaseName) score += 130
       if (stem.includes(baseName)) score += 100
+      if (normalizedBaseName && normalizedStem.includes(normalizedBaseName)) score += 100
+      if (normalizedDirBaseName && normalizedStem.includes(normalizedDirBaseName)) score += 90
+      if (normalizedDirBaseName && normalizedDirBaseName.includes(normalizedStem)) score += 50
       for (const keyword of priorityKeywords) {
         if (stem === keyword) score += 80
         else if (stem.startsWith(keyword) || stem.endsWith(keyword)) score += 60
@@ -2281,7 +2675,49 @@ function findArtworkForMedia(mediaPath: string): string | null {
     return path.join(dir, scored[0].name)
   }
 
-  return path.join(dir, images[0])
+  if (!allowFallback) {
+    return null
+  }
+
+  return path.join(dir, pickRepresentativeArtworkImage(dir, images))
+}
+
+function pickRepresentativeArtworkImage(dir: string, images: string[]): string {
+  if (images.length === 1) {
+    return images[0]
+  }
+
+  return images
+    .map((name) => {
+      const filePath = path.join(dir, name)
+      const stem = path.basename(name, path.extname(name)).toLowerCase()
+      const normalizedStem = normalizeArtworkMatchText(stem)
+      let size = 0
+      try {
+        size = fs.statSync(filePath).size
+      } catch {
+        size = 0
+      }
+
+      let score = 0
+      if (normalizedStem && !/\d/.test(normalizedStem)) score += 20
+      if (/^(main|cover|folder|front|poster|jacket|package|title|work)$/i.test(stem)) score += 70
+      if (/^(img_)?main|cover|folder|front|jacket|package|title|表紙|ジャケット|パッケージ|メイン/.test(stem)) score += 45
+      if (/sample|screenshot|screen|scene|preview|thumb|ss\d*|cg\d*|サンプル|スクショ/.test(stem)) score -= 35
+      if (/^\d+$/.test(normalizedStem)) score -= 25
+      score += Math.min(25, Math.log10(Math.max(size, 1)) * 4)
+
+      return { name, score, size }
+    })
+    .sort((a, b) => b.score - a.score || b.size - a.size || a.name.localeCompare(b.name))[0]?.name ?? images[0]
+}
+
+function normalizeArtworkMatchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\[[^\]]*\]|\([^)]*\)|【[^】]*】/g, ' ')
+    .replace(/rj\s*0*(\d+)/gi, 'rj$1')
+    .replace(/[^a-z0-9가-힣ぁ-んァ-ヶ一-龯]+/g, '')
 }
 
 function findSubtitleFilesForMedia(mediaPath: string): string[] {

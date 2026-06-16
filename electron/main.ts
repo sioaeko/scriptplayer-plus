@@ -62,6 +62,7 @@ const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|varian
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
 const EMBEDDED_ARTWORK_CACHE_DIR = 'scriptplayer-plus-audio-artwork'
+const MAX_DARWIN_EMBEDDED_ARTWORK_AUTO_PARSE_BYTES = 32 * 1024 * 1024
 const MAX_ARTWORK_TREE_SCAN_ENTRIES = 800
 const ARTWORK_LOOKUP_MISS_TTL_MS = 2 * 60 * 1000
 const ARTWORK_TREE_CACHE_TTL_MS = 5 * 60 * 1000
@@ -2410,6 +2411,10 @@ async function extractEmbeddedArtworkForMedia(mediaPath: string): Promise<string
     return null
   }
 
+  if (process.platform === 'darwin' && cacheInfo.size > MAX_DARWIN_EMBEDDED_ARTWORK_AUTO_PARSE_BYTES) {
+    return null
+  }
+
   try {
     const metadata = await parseFile(mediaPath, {
       duration: false,
@@ -2444,7 +2449,7 @@ async function findCachedEmbeddedArtworkForMedia(mediaPath: string): Promise<str
   }
 }
 
-async function getEmbeddedArtworkCacheInfo(mediaPath: string): Promise<{ cacheDir: string; cacheKey: string } | null> {
+async function getEmbeddedArtworkCacheInfo(mediaPath: string): Promise<{ cacheDir: string; cacheKey: string; size: number } | null> {
   if (!AUDIO_EXTS.includes(path.extname(mediaPath).toLowerCase())) {
     return null
   }
@@ -2458,6 +2463,7 @@ async function getEmbeddedArtworkCacheInfo(mediaPath: string): Promise<{ cacheDi
 
   return {
     cacheDir: path.join(app.getPath('userData'), EMBEDDED_ARTWORK_CACHE_DIR),
+    size: stats.size,
     cacheKey: createHash('sha1')
       .update(mediaPath)
       .update('\0')

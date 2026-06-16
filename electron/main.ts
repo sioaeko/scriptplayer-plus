@@ -234,7 +234,7 @@ async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string)
       hasScript: scriptAxes.length > 0,
       autoScriptPath: primaryScriptPath,
       scriptAxes,
-      hasSubtitles: !useNetworkSafeSubtitleScan && mediaType === 'video'
+      hasSubtitles: !useNetworkSafeSubtitleScan
         ? hasSubtitlesForMediaScan(filePath)
         : false,
       modifiedAt: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : 0,

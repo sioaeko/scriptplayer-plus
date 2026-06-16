@@ -2023,10 +2023,6 @@ export default function App() {
       return parseSubtitleFile(manualSubtitle.content, manualSubtitle.path)
     }
 
-    if (mediaType === 'audio') {
-      return []
-    }
-
     const subtitleFiles = await window.electronAPI.readSubtitles(mediaPath)
     return selectSubtitleCues(mediaPath, mediaType, subtitleFiles)
   }, [manualSubtitleFiles])

@@ -12,6 +12,23 @@ import EroScriptsPanel from './EroScriptsPanel'
 
 type DeviceProvider = 'handy' | 'buttplug' | 'serial'
 type DeviceCompatibilityPreset = 'auto' | 'lovense-vibration' | 'sr1-bluetooth' | 'sr-safe-pause' | 'tcode-raw' | 'multi-axis-strict'
+const SCRIPT_VARIANT_PANEL_COLLAPSED_KEY = 'scriptplayer-plus-script-variant-panel-collapsed'
+
+function loadScriptVariantPanelCollapsed() {
+  try {
+    return localStorage.getItem(SCRIPT_VARIANT_PANEL_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function saveScriptVariantPanelCollapsed(collapsed: boolean) {
+  try {
+    localStorage.setItem(SCRIPT_VARIANT_PANEL_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    // Ignore private storage failures.
+  }
+}
 
 const DEVICE_COMPATIBILITY_PRESETS = [
   {
@@ -427,6 +444,7 @@ export default function Sidebar({
   const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null)
   const [copiedScriptPath, setCopiedScriptPath] = useState<string | null>(null)
   const [scriptMatchReportCopied, setScriptMatchReportCopied] = useState(false)
+  const [scriptVariantPanelCollapsed, setScriptVariantPanelCollapsed] = useState(loadScriptVariantPanelCollapsed)
   const autoConnectAttempted = useRef(false)
   const hoverPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copiedScriptPathTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -470,6 +488,13 @@ export default function Sidebar({
     Boolean(currentScriptPath) ||
     Boolean(scriptFolder)
   )
+  const toggleScriptVariantPanelCollapsed = useCallback(() => {
+    setScriptVariantPanelCollapsed((value) => {
+      const next = !value
+      saveScriptVariantPanelCollapsed(next)
+      return next
+    })
+  }, [])
   const hasSubfolders = folderGroups.length > 1 || (folderGroups.length === 1 && folderGroups[0].folder !== '')
   const hasRefreshableFiles = files.length > 0
   const activeDeviceConnected = deviceProvider === 'handy'
@@ -601,7 +626,8 @@ export default function Sidebar({
             })
           : ['No variants found.']
       ),
-    ]
+]
+
     const ok = await window.electronAPI.writeClipboardText(lines.join('\n'))
     if (!ok) return
 
@@ -989,10 +1015,28 @@ export default function Sidebar({
               <div className="px-2 pb-2">
                 <div className="rounded border border-surface-100/30 bg-surface-300/60 p-2">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
-                      {t('sidebar.scriptVariants')}
-                    </div>
-                    <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={toggleScriptVariantPanelCollapsed}
+                      className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-[10px] font-medium uppercase tracking-wider text-text-muted transition-colors hover:text-text-primary"
+                      title={scriptVariantPanelCollapsed ? t('sidebar.showScriptVariantInfo') : t('sidebar.hideScriptVariantInfo')}
+                      aria-label={scriptVariantPanelCollapsed ? t('sidebar.showScriptVariantInfo') : t('sidebar.hideScriptVariantInfo')}
+                    >
+                      {scriptVariantPanelCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                      <span className="truncate">{t('sidebar.scriptVariants')}</span>
+                      <span className="rounded bg-surface-100/25 px-1.5 py-0.5 text-[9px] text-text-secondary">
+                        {scriptVariants.length}
+                      </span>
+                    </button>
+                    {scriptVariantPanelCollapsed && currentScriptPath && (
+                      <div
+                        className="min-w-0 flex-1 truncate text-right font-mono text-[10px] text-text-muted"
+                        title={currentScriptPath}
+                      >
+                        {getFileName(currentScriptPath)}
+                      </div>
+                    )}
+                    <div className="flex flex-shrink-0 items-center gap-1">
                       {currentScriptPath && (
                         <>
                           <button
@@ -1034,6 +1078,8 @@ export default function Sidebar({
                       )}
                     </div>
                   </div>
+                  {!scriptVariantPanelCollapsed && (
+                    <>
                   {currentScriptPath && (
                     <div
                       className="mb-2 truncate rounded border border-surface-100/20 bg-surface-200/40 px-2 py-1.5 font-mono text-[10px] text-text-muted"
@@ -1116,6 +1162,8 @@ export default function Sidebar({
                       )
                     })}
                   </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

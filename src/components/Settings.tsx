@@ -12,6 +12,7 @@ import {
   FolderOpen,
   MessageSquare,
   RotateCcw,
+  ExternalLink,
 } from 'lucide-react'
 import { APP_VERSION } from '../constants/app'
 import { APP_LINKS, APP_SUPPORT_ICONS } from '../constants/links'
@@ -78,6 +79,11 @@ interface SettingsProps {
 type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
 const REMOTE_BUTTONS: RemoteButtonId[] = ['A', 'B', 'C']
 const REMOTE_INPUT_ACTIONS: RemoteInputActionId[] = ['click', 'double', 'hold']
+const DEFAULT_REMOTE_KEY_MAPPINGS: Record<RemoteButtonId, Record<RemoteInputActionId, RemoteCommandId>> = {
+  A: { click: 'play_pause', double: 'none', hold: 'none' },
+  B: { click: 'next_video', double: 'none', hold: 'none' },
+  C: { click: 'previous_video', double: 'none', hold: 'none' },
+}
 
 export type SettingsSection =
   | 'general'
@@ -128,7 +134,7 @@ function FieldRow({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
+    <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="min-w-0">
         <div className="text-xs text-text-primary">{label}</div>
         {description && (
@@ -137,7 +143,7 @@ function FieldRow({
           </div>
         )}
       </div>
-      <div className="flex-shrink-0">{children}</div>
+      <div className="w-full sm:w-auto">{children}</div>
     </div>
   )
 }
@@ -1132,6 +1138,9 @@ function RemoteAccessorySection({
   const { t } = useTranslation()
   const [pairingCode, setPairingCode] = useState('')
   const [pendingAction, setPendingAction] = useState<'connect' | 'pair' | 'disconnect' | 'forget' | null>(null)
+  const openFlasher = useCallback(() => {
+    void window.electronAPI?.openExternal?.(APP_LINKS.remoteFlasher)
+  }, [])
 
   const run = useCallback(async (action: typeof pendingAction, callback?: () => void | Promise<void>) => {
     if (!action || !callback) return
@@ -1143,10 +1152,10 @@ function RemoteAccessorySection({
     }
   }, [])
 
-  const keyMappings = state?.keyMappings ?? {
-    A: { click: 'play_pause', double: 'none', hold: 'none' },
-    B: { click: 'next_video', double: 'none', hold: 'none' },
-    C: { click: 'previous_video', double: 'none', hold: 'none' },
+  const keyMappings: Record<RemoteButtonId, Record<RemoteInputActionId, RemoteCommandId>> = {
+    A: { ...DEFAULT_REMOTE_KEY_MAPPINGS.A, ...(state?.keyMappings?.A ?? {}) },
+    B: { ...DEFAULT_REMOTE_KEY_MAPPINGS.B, ...(state?.keyMappings?.B ?? {}) },
+    C: { ...DEFAULT_REMOTE_KEY_MAPPINGS.C, ...(state?.keyMappings?.C ?? {}) },
   }
   const batteryText = state?.batteryMv ? `${state.batteryMv} mV` : '-'
   const pairDisabledReason = !state?.connected
@@ -1168,10 +1177,21 @@ function RemoteAccessorySection({
 
   return (
     <div>
-      <SectionHeading>{t('settings.remoteAccessory')}</SectionHeading>
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-sm font-semibold text-text-primary">{t('settings.remoteAccessory')}</h2>
+        <button
+          type="button"
+          onClick={openFlasher}
+          className="inline-flex h-8 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary sm:w-auto"
+          title={t('settings.remoteOpenFlasher')}
+        >
+          <ExternalLink size={13} />
+          {t('settings.remoteOpenFlasher')}
+        </button>
+      </div>
 
       <div className="rounded-xl border border-surface-100/25 bg-surface-300/35 p-3">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="text-xs font-medium text-text-primary">
               {state?.deviceName || t('settings.remoteNoDevice')}
@@ -1185,12 +1205,12 @@ function RemoteAccessorySection({
               </div>
             )}
           </div>
-          <div className="flex flex-shrink-0 flex-wrap justify-end gap-2">
+          <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:justify-end">
             <button
               type="button"
               disabled={!state?.supported || state?.connecting || pendingAction !== null}
               onClick={() => void run('connect', onConnect)}
-              className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-8 min-w-[116px] flex-1 items-center justify-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50 lg:flex-none"
             >
               {state?.connecting || pendingAction === 'connect' ? t('settings.remoteConnecting') : t('settings.remoteConnect')}
             </button>
@@ -1198,53 +1218,70 @@ function RemoteAccessorySection({
               type="button"
               disabled={!state?.connected || pendingAction !== null}
               onClick={() => void run('disconnect', onDisconnect)}
-              className="inline-flex h-8 items-center rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-8 min-w-[116px] flex-1 items-center justify-center rounded border border-surface-100/30 bg-surface-300 px-3 text-xs text-text-secondary transition-colors hover:border-accent/45 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 lg:flex-none"
             >
               {t('device.disconnect')}
             </button>
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-text-muted">
-          <div>{t('settings.remoteStatus')}: {state?.paired ? t('settings.remotePaired') : t('settings.remoteNotPaired')}</div>
-          <div>{t('settings.remoteFirmware')}: {state?.firmware || '-'}</div>
-          <div>{t('settings.remoteBattery')}: {batteryText}</div>
-          <div>{t('settings.remoteToken')}: {state?.pairingTokenSaved ? t('settings.remoteSaved') : '-'}</div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] lg:grid-cols-4">
+          <div className="flex min-h-[64px] flex-col justify-center rounded-lg border border-surface-100/15 bg-surface-200/35 px-4 py-2">
+            <div className="text-text-muted">{t('settings.remoteStatus')}</div>
+            <div className="mt-0.5 truncate text-text-secondary">{state?.paired ? t('settings.remotePaired') : t('settings.remoteNotPaired')}</div>
+          </div>
+          <div className="flex min-h-[64px] flex-col justify-center rounded-lg border border-surface-100/15 bg-surface-200/35 px-4 py-2">
+            <div className="text-text-muted">{t('settings.remoteFirmware')}</div>
+            <div className="mt-0.5 truncate text-text-secondary">{state?.firmware || '-'}</div>
+          </div>
+          <div className="flex min-h-[64px] flex-col justify-center rounded-lg border border-surface-100/15 bg-surface-200/35 px-4 py-2">
+            <div className="text-text-muted">{t('settings.remoteBattery')}</div>
+            <div className="mt-0.5 truncate text-text-secondary">{batteryText}</div>
+          </div>
+          <div className="flex min-h-[64px] flex-col justify-center rounded-lg border border-surface-100/15 bg-surface-200/35 px-4 py-2">
+            <div className="text-text-muted">{t('settings.remoteToken')}</div>
+            <div className="mt-0.5 truncate text-text-secondary">{state?.pairingTokenSaved ? t('settings.remoteSaved') : '-'}</div>
+          </div>
         </div>
       </div>
 
       <Divider />
 
-      <FieldRow
-        label={t('settings.remotePairCode')}
-        description={state?.pairingCode ? t('settings.remotePairCodeDesc') : t('settings.remotePairCodeEmpty')}
-      >
-        <div className="space-y-2">
+      <div className="rounded-xl border border-surface-100/25 bg-surface-300/25 p-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-text-primary">{t('settings.remotePairCode')}</div>
+            <div className="mt-1 text-[10px] leading-relaxed text-text-muted">
+              {state?.pairingCode ? t('settings.remotePairCodeDesc') : t('settings.remotePairCodeEmpty')}
+            </div>
+          </div>
+          <div className="w-full space-y-2 lg:max-w-[430px]">
           {pairDisabledReason && (
             <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
               {pairDisabledReason}
             </div>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <input
               value={pairingCode}
               maxLength={6}
               inputMode="numeric"
               onChange={(event) => setPairingCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="h-8 w-24 rounded border border-surface-100/30 bg-surface-300 px-2 text-xs text-text-primary outline-none focus:border-accent/50"
+              className="h-8 w-full rounded border border-surface-100/30 bg-surface-300 px-2 text-xs text-text-primary outline-none focus:border-accent/50 sm:w-28"
               placeholder="6-digit"
             />
             <button
               type="button"
               disabled={!state?.connected || state?.paired || pairingCode.length !== 6 || pendingAction !== null}
               onClick={() => void run('pair', () => onPair?.(pairingCode))}
-              className="inline-flex h-8 items-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-8 items-center justify-center rounded border border-accent/35 bg-accent/10 px-3 text-xs text-accent transition-colors hover:border-accent/60 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pendingAction === 'pair' ? t('settings.remotePairing') : t('settings.remotePair')}
             </button>
           </div>
         </div>
-      </FieldRow>
+        </div>
+      </div>
 
       <Divider />
 
@@ -1254,16 +1291,16 @@ function RemoteAccessorySection({
             <div className="mb-2 text-xs font-medium text-text-primary">
               {t('settings.remoteButton', { button })}
             </div>
-            <div className="grid gap-2">
+            <div className="grid gap-2 lg:grid-cols-3">
               {REMOTE_INPUT_ACTIONS.map((action) => (
-                <div key={action} className="flex items-center justify-between gap-3">
-                  <div className="text-[10px] text-text-muted">
+                <label key={action} className="block min-w-0">
+                  <div className="mb-1 text-[10px] text-text-muted">
                     {t(`settings.remoteAction.${action}`)}
                   </div>
                   <select
                     value={keyMappings[button][action]}
                     onChange={(event) => void onMappingChange?.(button, action, event.target.value as RemoteCommandId)}
-                    className="bg-surface-300 text-text-primary text-xs px-3 py-1.5 rounded border border-surface-100/30 outline-none min-w-[190px] focus:border-accent/50"
+                    className="w-full min-w-0 rounded border border-surface-100/30 bg-surface-300 px-3 py-1.5 text-xs text-text-primary outline-none focus:border-accent/50"
                   >
                     {REMOTE_COMMAND_OPTIONS.map((command) => (
                       <option key={command.id} value={command.id}>
@@ -1271,7 +1308,7 @@ function RemoteAccessorySection({
                       </option>
                     ))}
                   </select>
-                </div>
+                </label>
               ))}
             </div>
           </div>
@@ -1285,7 +1322,7 @@ function RemoteAccessorySection({
           type="button"
           disabled={pendingAction !== null}
           onClick={() => void run('forget', onForget)}
-          className="inline-flex h-8 items-center rounded border border-red-400/30 bg-red-500/10 px-3 text-xs text-red-200 transition-colors hover:border-red-300/55 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-8 w-full items-center justify-center rounded border border-red-400/30 bg-red-500/10 px-3 text-xs text-red-200 transition-colors hover:border-red-300/55 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           {t('settings.remoteForget')}
         </button>

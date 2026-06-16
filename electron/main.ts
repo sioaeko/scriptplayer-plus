@@ -46,7 +46,9 @@ const SUBTITLE_DIR_KEYWORDS = [
 ]
 const MAX_SUBTITLE_SEARCH_DEPTH = 2
 const MAX_SCAN_SUBTITLE_VALIDATION_CANDIDATES = 3
+const MAX_AUDIO_SCAN_SUBTITLE_VALIDATION_CANDIDATES = 12
 const MIN_SCAN_SUBTITLE_SCORE = 900
+const MIN_AUDIO_SCAN_SUBTITLE_SCORE = -120
 const SCAN_YIELD_INTERVAL = 25
 const NATURAL_SORTER = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
@@ -217,7 +219,7 @@ async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string)
       continue
     }
 
-    const useNetworkSafeSubtitleScan = isLikelyNetworkPath(filePath) || isLikelyNetworkPath(scriptFolder)
+    const useNetworkSafeSubtitleScan = isLikelyNetworkPath(filePath)
     const mediaType = VIDEO_EXTS.includes(ext) ? 'video' : 'audio'
     const bundle = readFunscriptBundle(filePath, scriptFolder)
     const scriptAxes = SCRIPT_AXIS_DEFINITIONS
@@ -3021,6 +3023,14 @@ function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[]
     ? rankedCandidates.slice(0, MAX_SCAN_SUBTITLE_VALIDATION_CANDIDATES)
     : rankedCandidates
   const matches: Array<{ filePath: string; score: number }> = []
+
+  if (mode === 'scan' && mediaType === 'audio') {
+    return rankedCandidates
+      .filter((candidate) => candidate.score >= MIN_AUDIO_SCAN_SUBTITLE_SCORE)
+      .slice(0, MAX_AUDIO_SCAN_SUBTITLE_VALIDATION_CANDIDATES)
+      .filter((candidate) => readSubtitleAnalysis(candidate.filePath)?.hasCues)
+      .map(({ filePath }) => filePath)
+  }
 
   if (mode === 'scan') {
     return rankedCandidates

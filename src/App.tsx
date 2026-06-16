@@ -132,8 +132,7 @@ const AUTO_SKIP_TARGET_EPSILON_MS = 250
 type DeviceTestCommand = 'L0' | 'V0' | 'V1' | 'R0' | 'stop'
 const AUTO_SKIP_END_LEAD_MS = 350
 const AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS = 4000
-const AUDIO_ARTWORK_FAST_LOOKUP_DELAY_MS = 0
-const AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS = 1500
+const AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS = 12000
 const AUTO_SKIP_MIN_POSITION_DELTA = 2
 const APP_SHORTCUT_ACTIONS: ShortcutActionId[] = ['openSettings', 'openFolder']
 const RANDOM_FALLBACK_AXIS_IDS: ScriptAxisId[] = ['L0', 'R0']
@@ -2025,10 +2024,6 @@ export default function App() {
       return parseSubtitleFile(manualSubtitle.content, manualSubtitle.path)
     }
 
-    if (mediaType === 'audio') {
-      return []
-    }
-
     const subtitleFiles = await window.electronAPI.readSubtitles(mediaPath)
     return selectSubtitleCues(mediaPath, mediaType, subtitleFiles)
   }, [manualSubtitleFiles])
@@ -2486,6 +2481,35 @@ export default function App() {
       setAutoPlayRequestId((prev) => prev + 1)
     }
 
+    if (resolvedType === 'audio') {
+      const rootHint = currentFolderPathRef.current || undefined
+      let artworkResolved = false
+      const lookupArtwork = (fastOnly = false) => {
+        if (artworkResolved || requestId !== openMediaRequestId.current) {
+          return
+        }
+
+        void window.electronAPI.findArtwork(filePath, rootHint, { fastOnly })
+          .then(async (artworkPath) => {
+            if (!artworkPath || artworkResolved || requestId !== openMediaRequestId.current) {
+              return
+            }
+            const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
+            if (artworkResolved || requestId !== openMediaRequestId.current) {
+              return
+            }
+            artworkResolved = true
+            setArtworkUrl(nextArtworkUrl)
+          })
+          .catch(() => {
+            // Artwork lookup is best-effort and must not block audio switching.
+          })
+      }
+
+      lookupArtwork(true)
+      window.setTimeout(() => lookupArtwork(false), AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS)
+    }
+
     const deferScriptVariantScan = resolvedType === 'audio'
     const deferInitialScriptBundle = resolvedType === 'audio' && !options?.preferredScriptPath
     const [nextSubtitleCues, initialParsedBundle, nextScriptVariants] = await Promise.all([
@@ -2582,33 +2606,6 @@ export default function App() {
           })
           .catch(() => {})
       }, AUDIO_DEFERRED_SCRIPT_SCAN_DELAY_MS)
-
-      const rootHint = currentFolderPathRef.current || undefined
-      let artworkResolved = false
-      const lookupArtwork = (fastOnly = false) => {
-        if (artworkResolved || requestId !== openMediaRequestId.current) {
-          return
-        }
-
-        void window.electronAPI.findArtwork(filePath, rootHint, { fastOnly })
-          .then(async (artworkPath) => {
-            if (!artworkPath || artworkResolved || requestId !== openMediaRequestId.current) {
-              return
-            }
-            const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
-            if (artworkResolved || requestId !== openMediaRequestId.current) {
-              return
-            }
-            artworkResolved = true
-            setArtworkUrl(nextArtworkUrl)
-          })
-          .catch(() => {
-            // Artwork lookup is best-effort and must not block audio switching.
-          })
-      }
-
-      window.setTimeout(() => lookupArtwork(true), AUDIO_ARTWORK_FAST_LOOKUP_DELAY_MS)
-      window.setTimeout(() => lookupArtwork(false), AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS)
     }
   }, [
     cancelPendingHandySync,

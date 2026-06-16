@@ -46,7 +46,6 @@ const SUBTITLE_DIR_KEYWORDS = [
 ]
 const MAX_SUBTITLE_SEARCH_DEPTH = 2
 const MAX_SCAN_SUBTITLE_VALIDATION_CANDIDATES = 3
-const MAX_AUDIO_SCAN_SUBTITLE_VALIDATION_CANDIDATES = 12
 const MIN_SCAN_SUBTITLE_SCORE = 900
 const MIN_AUDIO_SCAN_SUBTITLE_SCORE = -120
 const SCAN_YIELD_INTERVAL = 25
@@ -1202,7 +1201,7 @@ ipcMain.handle('fs:findArtwork', async (_event, mediaPath: string, rootHint?: st
 
 ipcMain.handle('fs:readSubtitles', async (_event, mediaPath: string) => {
   try {
-    if (AUDIO_EXTS.includes(path.extname(mediaPath).toLowerCase()) || isLikelyNetworkPath(mediaPath)) {
+    if (!MEDIA_EXTS.includes(path.extname(mediaPath).toLowerCase())) {
       return []
     }
 
@@ -3031,8 +3030,6 @@ function findSubtitleMatches(mediaPath: string, mode: 'scan' | 'full'): string[]
   if (mode === 'scan' && mediaType === 'audio') {
     return rankedCandidates
       .filter((candidate) => candidate.score >= MIN_AUDIO_SCAN_SUBTITLE_SCORE)
-      .slice(0, MAX_AUDIO_SCAN_SUBTITLE_VALIDATION_CANDIDATES)
-      .filter((candidate) => readSubtitleAnalysis(candidate.filePath)?.hasCues)
       .map(({ filePath }) => filePath)
   }
 

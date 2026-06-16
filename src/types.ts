@@ -155,6 +155,9 @@ declare global {
       minimize: () => void
       maximize: () => void
       close: () => void
+      toggleFullscreen: () => Promise<boolean>
+      isFullscreen: () => Promise<boolean>
+      onWindowFullscreenChange: (listener: (fullscreen: boolean) => void) => () => void
       setAlwaysOnTop: (enabled: boolean) => Promise<boolean>
       openVideo: () => Promise<string | null>
       openMediaFiles: () => Promise<string[]>

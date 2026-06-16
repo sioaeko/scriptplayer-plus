@@ -566,6 +566,13 @@ function createWindow() {
     },
   })
 
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen-changed', true)
+  })
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen-changed', false)
+  })
+
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || (!app.isPackaged ? 'http://localhost:5173' : '')
   if (devServerUrl) {
     void mainWindow.loadURL(devServerUrl).catch(() => {
@@ -590,7 +597,7 @@ function configureBluetoothRemoteSupport(window: BrowserWindow): void {
 
   ses.setPermissionRequestHandler((_webContents, permission, callback) => {
     const permissionName = String(permission)
-    if (permissionName === 'bluetooth' || permissionName === 'bluetoothScanning') {
+    if (permissionName === 'bluetooth' || permissionName === 'bluetoothScanning' || permissionName === 'fullscreen') {
       callback(true)
       return
     }
@@ -654,6 +661,13 @@ ipcMain.on('window:maximize', () => {
   }
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+ipcMain.handle('window:toggleFullscreen', () => {
+  if (!mainWindow) return false
+  const nextFullscreen = !mainWindow.isFullScreen()
+  mainWindow.setFullScreen(nextFullscreen)
+  return nextFullscreen
+})
+ipcMain.handle('window:isFullscreen', () => mainWindow?.isFullScreen() ?? false)
 ipcMain.handle('window:setAlwaysOnTop', (_event, enabled: boolean) => {
   mainWindow?.setAlwaysOnTop(Boolean(enabled))
   return mainWindow?.isAlwaysOnTop() ?? false

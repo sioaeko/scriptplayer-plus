@@ -982,6 +982,7 @@ export default function App() {
   const currentFolderPathRef = useRef<string | null>(null)
   const manualScriptPathsRef = useRef<Record<string, string>>(manualScriptPaths)
   const scriptFolderRef = useRef<string>(settings.scriptFolder)
+  const handyActionsRef = useRef<FunscriptAction[]>([])
   const pendingAutoPlayAfterHandyUploadRef = useRef(false)
   const skipNextHandyPlaySyncRef = useRef(false)
   const osrSerialFirstCommandReadyAtRef = useRef(0)
@@ -1277,6 +1278,10 @@ export default function App() {
     }
     return primaryAxis ? handyAxisActions[primaryAxis] ?? [] : []
   }, [handyAxisActions, primaryAxis])
+  const handyUploadSignature = useMemo(() => buildHandyActionsSignature(handyActions), [handyActions])
+  useEffect(() => {
+    handyActionsRef.current = handyActions
+  }, [handyActions])
   const waitingForGeneratedHandyScript = useMemo(() => (
     settings.noScriptRandomStrokeEnabled
     && !funscriptBundle
@@ -2844,11 +2849,7 @@ export default function App() {
           if (media) media.muted = !media.muted
           break
         case 'toggle_fullscreen':
-          if (document.fullscreenElement) {
-            await document.exitFullscreen().catch(() => undefined)
-          } else {
-            await document.documentElement.requestFullscreen().catch(() => undefined)
-          }
+          window.dispatchEvent(new CustomEvent('scriptplayer:remote-command', { detail: { command } }))
           break
         case 'toggle_fit_fill':
           window.dispatchEvent(new CustomEvent('scriptplayer:remote-command', { detail: { command } }))
@@ -3678,7 +3679,7 @@ export default function App() {
       return
     }
 
-    if (handyActions.length === 0) {
+    if (handyUploadSignature === 'empty') {
       if (!waitingForGeneratedHandyScript) {
         if (handyService.isConnected) {
           cancelPendingHandySync()
@@ -3700,7 +3701,11 @@ export default function App() {
       cancelPendingHandySync()
       handyService.cancelPendingRequests()
       await handyService.hsspStop()
-      const url = await handyService.uploadAndSetup(handyActions)
+      const actionsForUpload = handyActionsRef.current
+      if (actionsForUpload.length === 0) {
+        return
+      }
+      const url = await handyService.uploadAndSetup(actionsForUpload)
       if (cancelled || requestId !== handyUploadRequestId.current) {
         return
       }
@@ -3716,8 +3721,7 @@ export default function App() {
   }, [
     cancelPendingHandySync,
     deviceProvider,
-    effectiveDeviceTimeOffset,
-    handyActions,
+    handyUploadSignature,
     handyConnected,
     resetHandyAutoPlayState,
     waitingForGeneratedHandyScript,
@@ -3744,10 +3748,8 @@ export default function App() {
         return
       }
 
-      if (started) {
-        pendingAutoPlayAfterHandyUploadRef.current = false
-        setPendingAutoPlayAfterHandyUpload(false)
-      }
+      pendingAutoPlayAfterHandyUploadRef.current = false
+      setPendingAutoPlayAfterHandyUpload(false)
     }
 
     void runAutoPlay()
@@ -4614,6 +4616,35 @@ function getHandyOverlayStatus(
 
 function getFileName(filePath: string): string {
   return filePath.split(/[\\/]/).pop() || ''
+}
+
+function buildHandyActionsSignature(actions: FunscriptAction[]): string {
+  if (actions.length === 0) {
+    return 'empty'
+  }
+
+  let hash = 2166136261
+  for (const action of actions) {
+    const at = Math.round(action.at)
+    const pos = Math.round(action.pos)
+    hash ^= at & 0xff
+    hash = Math.imul(hash, 16777619)
+    hash ^= (at >>> 8) & 0xff
+    hash = Math.imul(hash, 16777619)
+    hash ^= pos & 0xff
+    hash = Math.imul(hash, 16777619)
+  }
+
+  const first = actions[0]
+  const last = actions[actions.length - 1]
+  return [
+    actions.length,
+    Math.round(first.at),
+    Math.round(first.pos),
+    Math.round(last.at),
+    Math.round(last.pos),
+    hash >>> 0,
+  ].join(':')
 }
 
 function selectSubtitleCues(mediaPath: string, mediaType: MediaType, subtitleFiles: SubtitleFile[]): SubtitleCue[] {

@@ -42,6 +42,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  toggleFullscreen: () => ipcRenderer.invoke('window:toggleFullscreen'),
+  isFullscreen: () => ipcRenderer.invoke('window:isFullscreen'),
+  onWindowFullscreenChange: (listener: (fullscreen: boolean) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, fullscreen: boolean) => listener(Boolean(fullscreen))
+    ipcRenderer.on('window:fullscreen-changed', wrapped)
+    return () => {
+      ipcRenderer.removeListener('window:fullscreen-changed', wrapped)
+    }
+  },
   setAlwaysOnTop: (enabled: boolean) => ipcRenderer.invoke('window:setAlwaysOnTop', enabled),
 
   // Dialogs

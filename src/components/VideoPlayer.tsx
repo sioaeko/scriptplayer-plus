@@ -591,6 +591,7 @@ export default function VideoPlayer({
   })
   const [muted, setMuted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const nativeFullscreenRef = useRef(false)
   const [videoFillEnabled, setVideoFillEnabled] = useState(() => rememberVideoFit ? loadVideoFitPreference() ?? false : false)
   const [videoFillMode, setVideoFillMode] = useState<VideoFillMode>(() => (
     rememberVideoFit && loadVideoFitPreference() !== null ? 'manual' : null
@@ -1140,12 +1141,26 @@ export default function VideoPlayer({
 
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return
-    if (document.fullscreenElement === containerRef.current) {
-      document.exitFullscreen()
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined)
     } else {
-      containerRef.current.requestFullscreen()
+      void containerRef.current.requestFullscreen().catch(() => undefined)
     }
   }, [])
+
+  useEffect(() => {
+    const handleRemoteFullscreenCommand = (event: Event) => {
+      const command = (event as CustomEvent<{ command?: string }>).detail?.command
+      if (command === 'toggle_fullscreen') {
+        toggleFullscreen()
+      }
+    }
+
+    window.addEventListener('scriptplayer:remote-command', handleRemoteFullscreenCommand)
+    return () => {
+      window.removeEventListener('scriptplayer:remote-command', handleRemoteFullscreenCommand)
+    }
+  }, [toggleFullscreen])
 
   const skip = useCallback((seconds: number) => {
     handleSeek(Math.max(0, Math.min(duration, currentTime + seconds)))
@@ -1419,10 +1434,24 @@ export default function VideoPlayer({
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === containerRef.current)
+      setIsFullscreen(nativeFullscreenRef.current || Boolean(document.fullscreenElement))
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
+  useEffect(() => {
+    void window.electronAPI.isFullscreen()
+      .then((fullscreen) => {
+        nativeFullscreenRef.current = fullscreen
+        setIsFullscreen(fullscreen || Boolean(document.fullscreenElement))
+      })
+      .catch(() => undefined)
+
+    return window.electronAPI.onWindowFullscreenChange((fullscreen) => {
+      nativeFullscreenRef.current = fullscreen
+      setIsFullscreen(fullscreen || Boolean(document.fullscreenElement))
+    })
   }, [])
 
   useEffect(() => {
@@ -1601,6 +1630,12 @@ export default function VideoPlayer({
     if (!shortcutsEnabled) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F11') {
+        e.preventDefault()
+        toggleFullscreen()
+        return
+      }
+
       if (isEditableShortcutTarget(e.target)) return
 
       const action = findMatchingShortcutAction(e, shortcutBindings, PLAYER_SHORTCUT_ACTIONS)
@@ -2056,7 +2091,7 @@ export default function VideoPlayer({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col bg-black relative"
+      className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'flex-1'} flex flex-col bg-black relative`}
       onMouseMove={handleContainerMouseMove}
       onMouseLeave={handleContainerMouseLeave}
     >

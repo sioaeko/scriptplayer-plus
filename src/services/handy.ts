@@ -5,7 +5,11 @@ const SCRIPT_UPLOAD_HOST = 'scripts01.handyfeeling.com'
 const SCRIPT_API = `https://${SCRIPT_UPLOAD_HOST}/api/script/v0`
 const HSSP_PLAY_MIN_LEAD_MS = 150
 const HSSP_PLAY_RETRY_DELAY_MS = 200
+const HSSP_MODE_TIMEOUT_MS = 6000
+const HSSP_SETUP_TIMEOUT_MS = 7000
+const HSSP_PLAY_TIMEOUT_MS = 5000
 const HSSP_STOP_TIMEOUT_MS = 1500
+const SCRIPT_UPLOAD_TIMEOUT_MS = 30000
 
 const formatUploadError = (error: unknown): string => {
   const detail = error instanceof Error ? error.message : String(error)
@@ -31,6 +35,38 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
+}
+
+class HandyRequestTimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'HandyRequestTimeoutError'
+  }
+}
+
+function createTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController()
+  let timedOut = false
+  const abortFromParent = () => controller.abort()
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+
+  if (parentSignal?.aborted) {
+    controller.abort()
+  } else {
+    parentSignal?.addEventListener('abort', abortFromParent, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    cleanup: () => {
+      clearTimeout(timeoutId)
+      parentSignal?.removeEventListener('abort', abortFromParent)
+    },
+  }
 }
 
 export class HandyService {
@@ -79,6 +115,10 @@ export class HandyService {
   private isAbortError(error: unknown): boolean {
     return (error instanceof DOMException && error.name === 'AbortError')
       || (error instanceof Error && error.name === 'AbortError')
+  }
+
+  private isTimeoutError(error: unknown): boolean {
+    return error instanceof HandyRequestTimeoutError
   }
 
   private replaceController(kind: 'upload' | 'play'): AbortSignal {
@@ -214,10 +254,11 @@ export class HandyService {
 
   async setMode(mode: number, signal?: AbortSignal): Promise<boolean> {
     if (!this.connected) return false
+    const request = createTimeoutSignal(signal, HSSP_MODE_TIMEOUT_MS)
     try {
       const response = await fetch(`${HANDY_API}/mode`, {
         method: 'PUT',
-        signal,
+        signal: request.signal,
         headers: {
           'X-Connection-Key': this.connectionKey,
           'Content-Type': 'application/json',
@@ -232,11 +273,17 @@ export class HandyService {
       }
       return ok
     } catch (e) {
+      if (request.timedOut()) {
+        console.warn('[Handy] setMode timed out')
+        return false
+      }
       if (this.isAbortError(e) || signal?.aborted) {
         return false
       }
       console.error('[Handy] setMode error:', e)
       return false
+    } finally {
+      request.cleanup()
     }
   }
 
@@ -255,16 +302,28 @@ export class HandyService {
         return false
       }
 
-      const response = await fetch(`${HANDY_API}/hssp/setup`, {
-        method: 'PUT',
-        signal,
-        headers: {
-          'X-Connection-Key': this.connectionKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url }),
-      })
-      const data = await this.readResponseData(response)
+      const { response, data } = await (async () => {
+        const request = createTimeoutSignal(signal, HSSP_SETUP_TIMEOUT_MS)
+        try {
+          const response = await fetch(`${HANDY_API}/hssp/setup`, {
+            method: 'PUT',
+            signal: request.signal,
+            headers: {
+              'X-Connection-Key': this.connectionKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ url }),
+          })
+          return { response, data: await this.readResponseData(response) }
+        } catch (e) {
+          if (request.timedOut()) {
+            throw new HandyRequestTimeoutError('HSSP setup timed out')
+          }
+          throw e
+        } finally {
+          request.cleanup()
+        }
+      })()
       console.log('[Handy] setHSSP response:', data)
 
       if (signal?.aborted) {
@@ -279,6 +338,11 @@ export class HandyService {
         return false
       }
     } catch (e) {
+      if (this.isTimeoutError(e)) {
+        console.warn('[Handy] setHSSP timed out')
+        this.setUploadStatus('error', e instanceof Error ? e.message : 'HSSP setup timed out')
+        return false
+      }
       if (this.isAbortError(e) || signal?.aborted) {
         return false
       }
@@ -311,17 +375,27 @@ export class HandyService {
           estimatedServerTime: Math.max(0, Math.round(estimatedServerTime + leadMs)),
           startTime: Math.max(0, Math.round(startTime)),
         }
-        const response = await fetch(`${HANDY_API}/hssp/play`, {
-          method: 'PUT',
-          signal,
-          headers: {
-            'X-Connection-Key': this.connectionKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        })
-        const data = await this.readResponseData(response)
-        return { response, data, payload }
+        const request = createTimeoutSignal(signal, HSSP_PLAY_TIMEOUT_MS)
+        try {
+          const response = await fetch(`${HANDY_API}/hssp/play`, {
+            method: 'PUT',
+            signal: request.signal,
+            headers: {
+              'X-Connection-Key': this.connectionKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          })
+          const data = await this.readResponseData(response)
+          return { response, data, payload }
+        } catch (e) {
+          if (request.timedOut()) {
+            throw new HandyRequestTimeoutError('HSSP play timed out')
+          }
+          throw e
+        } finally {
+          request.cleanup()
+        }
       }
 
       let { response, data, payload } = await attemptPlay(serverTime)
@@ -350,6 +424,11 @@ export class HandyService {
       this.setUploadStatus('error', `HSSP play failed: ${data.error || data.result || response.status}`)
       return false
     } catch (e) {
+      if (this.isTimeoutError(e)) {
+        console.warn('[Handy] hsspPlay timed out')
+        this.setUploadStatus('error', e instanceof Error ? e.message : 'HSSP play timed out')
+        return false
+      }
       if (this.isAbortError(e) || signal.aborted) {
         return false
       }
@@ -424,12 +503,24 @@ export class HandyService {
 
     try {
       console.log(`[Handy] uploading script (${actions.length} actions) to ${SCRIPT_API}/temp/upload ...`)
-      const response = await fetch(`${SCRIPT_API}/temp/upload`, {
-        method: 'POST',
-        signal,
-        headers: { 'accept': 'application/json' },
-        body: formData,
-      })
+      const uploadRequest = createTimeoutSignal(signal, SCRIPT_UPLOAD_TIMEOUT_MS)
+      const response = await (async () => {
+        try {
+          return await fetch(`${SCRIPT_API}/temp/upload`, {
+            method: 'POST',
+            signal: uploadRequest.signal,
+            headers: { 'accept': 'application/json' },
+            body: formData,
+          })
+        } catch (e) {
+          if (uploadRequest.timedOut()) {
+            throw new HandyRequestTimeoutError('Script upload timed out')
+          }
+          throw e
+        } finally {
+          uploadRequest.cleanup()
+        }
+      })()
 
       if (signal.aborted) {
         return null
@@ -468,6 +559,11 @@ export class HandyService {
 
       return url
     } catch (e) {
+      if (this.isTimeoutError(e)) {
+        console.error('[Handy] upload timed out:', e)
+        this.setUploadStatus('error', e instanceof Error ? e.message : 'Script upload timed out')
+        return null
+      }
       if (this.isAbortError(e) || signal.aborted) {
         return null
       }

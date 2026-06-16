@@ -1641,13 +1641,16 @@ function listScriptVariants(mediaPath: string, scriptFolder?: string): ScriptVar
     for (const entry of listFunscriptFileEntries(context.dir, context.recursive)) {
       const ext = path.extname(entry.name).toLowerCase()
       const stem = path.basename(entry.name, ext)
+      const directStemMatch = matchesScriptVariantMediaBaseName(stem, normalizedMediaBaseName)
       const directoryBundleStem = context.source === 'scriptFolder'
         ? getScriptVariantDirectoryBundleStem(entry, normalizedMediaBaseName, mediaBaseName)
         : null
-      if (!matchesScriptVariantMediaBaseName(stem, normalizedMediaBaseName) && !directoryBundleStem) continue
+      if (!directStemMatch && !directoryBundleStem) continue
 
       const strippedBundleStem = stripKnownAxisSuffixPreserveCase(stem)
-      const bundleStem = strippedBundleStem || directoryBundleStem || stem
+      const bundleStem = directoryBundleStem && !directStemMatch
+        ? directoryBundleStem
+        : (strippedBundleStem || directoryBundleStem || stem)
       const dirKey = getDirectoryRealPathKeySync(entry.dir)
       const variantKey = `${dirKey}::${normalizePathKey(bundleStem)}`
       const axisId = inferAxisIdFromStem(stem) ?? 'L0'

@@ -485,8 +485,7 @@ export default function Sidebar({
   const showScriptVariantPanel = Boolean(currentFile) && (
     scriptVariants.length > 0 ||
     scriptVariantOverrideActive ||
-    Boolean(currentScriptPath) ||
-    Boolean(scriptFolder)
+    Boolean(currentScriptPath)
   )
   const toggleScriptVariantPanelCollapsed = useCallback(() => {
     setScriptVariantPanelCollapsed((value) => {

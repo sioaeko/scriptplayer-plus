@@ -61,7 +61,6 @@ const TRAILING_VARIANT_WORD_SUFFIX_RE = /(?:[ _.-]+(?:audio|alt|alternate|varian
 const FUNSCRIPT_EXTS = ['.funscript', '.json', '.csv']
 const SEGMENT_REPEAT_STORE_FILE = 'ScriptPlayerPlus.segments.json'
 const EMBEDDED_ARTWORK_CACHE_DIR = 'scriptplayer-plus-audio-artwork'
-const MAX_EMBEDDED_ARTWORK_SCAN_BYTES = 32 * 1024 * 1024
 const MAX_ARTWORK_TREE_SCAN_ENTRIES = 800
 const osrSerialManager = new OsrSerialManager((state) => {
   mainWindow?.webContents.send('osrSerial:stateChanged', state)
@@ -2372,10 +2371,6 @@ async function extractEmbeddedArtworkForMedia(mediaPath: string): Promise<string
   } catch {
     return null
   }
-  if (stats.size > MAX_EMBEDDED_ARTWORK_SCAN_BYTES) {
-    return null
-  }
-
   try {
     const metadata = await parseFile(mediaPath, {
       duration: false,
@@ -2492,7 +2487,6 @@ function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string): strin
     }
   }
 
-  artworkLookupCache.set(cacheKey, null)
   return null
 }
 

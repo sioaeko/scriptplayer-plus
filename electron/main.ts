@@ -133,6 +133,11 @@ interface BundledScriptIndex {
   axes: BundledScriptAxisIndex
 }
 
+interface CachedBundledScriptIndex {
+  index: BundledScriptIndex
+  scannedAt: number
+}
+
 function createBundledScriptIndex(): BundledScriptIndex {
   return {
     locations: new Map(),
@@ -140,6 +145,9 @@ function createBundledScriptIndex(): BundledScriptIndex {
     axes: new Map(),
   }
 }
+
+const scriptFolderIndexCache = new Map<string, CachedBundledScriptIndex>()
+const SCRIPT_FOLDER_INDEX_CACHE_TTL_MS = 60_000
 
 function normalizePathKey(targetPath: string): string {
   return process.platform === 'win32' ? targetPath.toLowerCase() : targetPath
@@ -260,6 +268,12 @@ function invalidateFsCachesForRoot(rootPath: string) {
   for (const cacheKey of Array.from(subtitleAnalysisCache.keys())) {
     if (isSamePathOrChildPath(normalizePathKey(path.resolve(cacheKey)), normalizedRoot)) {
       subtitleAnalysisCache.delete(cacheKey)
+    }
+  }
+
+  for (const cacheKey of Array.from(scriptFolderIndexCache.keys())) {
+    if (isSamePathOrChildPath(cacheKey, normalizedRoot) || isSamePathOrChildPath(normalizedRoot, cacheKey)) {
+      scriptFolderIndexCache.delete(cacheKey)
     }
   }
 }
@@ -805,9 +819,6 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
   try {
     const useNetworkSafeScan = isLikelyNetworkPath(dirPath) || isLikelyNetworkPath(scriptFolder)
     invalidateFsCachesForRoot(dirPath)
-    if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(dirPath)) {
-      invalidateFsCachesForRoot(scriptFolder)
-    }
 
     const files: Array<{
       name: string
@@ -830,7 +841,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
       topLevelGroup: string
     }> = []
     const bundledScriptIndex = createBundledScriptIndex()
-    const scriptFolderIndex = createBundledScriptIndex()
+    let scriptFolderIndex = createBundledScriptIndex()
     let scannedEntries = 0
     const visitedDirectories = new Set<string>()
 
@@ -908,55 +919,7 @@ ipcMain.handle('fs:readDir', async (_event, dirPath: string, scriptFolder?: stri
     await scanDir(dirPath, '')
 
     if (scriptFolder && normalizePathKey(scriptFolder) !== normalizePathKey(dirPath)) {
-      const visitedScriptFolderDirs = new Set<string>()
-
-      const scanScriptFolderDir = async (dir: string, prefix: string): Promise<void> => {
-        const visitKey = await getDirectoryRealPathKey(dir)
-        if (visitedScriptFolderDirs.has(visitKey)) {
-          return
-        }
-        visitedScriptFolderDirs.add(visitKey)
-
-        let entries: fs.Dirent[]
-        try {
-          entries = await fs.promises.readdir(dir, { withFileTypes: true })
-        } catch {
-          return
-        }
-
-        directoryEntryNameCache.set(
-          normalizePathKey(dir),
-          new Set(entries.map((entry) => entry.name.toLowerCase()))
-        )
-
-        for (const entry of entries) {
-          await maybeYieldDuringScan()
-          const fullPath = path.join(dir, entry.name)
-
-          if (entry.isSymbolicLink()) {
-            continue
-          }
-
-          if (entry.isDirectory()) {
-            await scanScriptFolderDir(fullPath, prefix ? `${prefix}/${entry.name}` : entry.name)
-            continue
-          }
-
-          if (!entry.isFile()) {
-            continue
-          }
-
-          indexBundledScriptFile(
-            scriptFolderIndex,
-            dir,
-            prefix.split('/')[0] ?? '',
-            entry.name,
-            fullPath
-          )
-        }
-      }
-
-      await scanScriptFolderDir(scriptFolder, '')
+      scriptFolderIndex = await getCachedScriptFolderIndex(scriptFolder, maybeYieldDuringScan)
     }
 
     const hasRootLevelMedia = pendingMediaFiles.some((mediaFile) => !mediaFile.relativePath.includes('/'))
@@ -1525,6 +1488,71 @@ function listFunscriptFileEntries(rootDir: string, recursive: boolean): Funscrip
   }
 
   return results
+}
+
+async function getCachedScriptFolderIndex(
+  scriptFolder: string,
+  maybeYieldDuringScan?: () => Promise<void>
+): Promise<BundledScriptIndex> {
+  const cacheKey = normalizePathKey(path.resolve(scriptFolder))
+  const cached = scriptFolderIndexCache.get(cacheKey)
+  const now = Date.now()
+  if (cached && now - cached.scannedAt < SCRIPT_FOLDER_INDEX_CACHE_TTL_MS) {
+    return cached.index
+  }
+
+  const index = createBundledScriptIndex()
+  const visitedScriptFolderDirs = new Set<string>()
+
+  const scanScriptFolderDir = async (dir: string, prefix: string): Promise<void> => {
+    const visitKey = await getDirectoryRealPathKey(dir)
+    if (visitedScriptFolderDirs.has(visitKey)) {
+      return
+    }
+    visitedScriptFolderDirs.add(visitKey)
+
+    let entries: fs.Dirent[]
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    directoryEntryNameCache.set(
+      normalizePathKey(dir),
+      new Set(entries.map((entry) => entry.name.toLowerCase()))
+    )
+
+    for (const entry of entries) {
+      await maybeYieldDuringScan?.()
+      const fullPath = path.join(dir, entry.name)
+
+      if (entry.isSymbolicLink()) {
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        await scanScriptFolderDir(fullPath, prefix ? `${prefix}/${entry.name}` : entry.name)
+        continue
+      }
+
+      if (!entry.isFile()) {
+        continue
+      }
+
+      indexBundledScriptFile(
+        index,
+        dir,
+        prefix.split('/')[0] ?? '',
+        entry.name,
+        fullPath
+      )
+    }
+  }
+
+  await scanScriptFolderDir(scriptFolder, '')
+  scriptFolderIndexCache.set(cacheKey, { index, scannedAt: now })
+  return index
 }
 
 function buildScriptVariantLabel(mediaBaseName: string, bundleStem: string): string {
@@ -2305,21 +2333,19 @@ const COVER_ARTWORK_TOKENS = [
 ]
 const PREFERRED_ARTWORK_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 const IGNORED_ARTWORK_TOKENS = ['삣삐', '띳띠', '뭐하고놀까요']
+const artworkLookupCache = new Map<string, string | null>()
 
 function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string): string | null {
-  const workRoot = inferArtworkWorkRoot(mediaPath, rootHint)
-  if (workRoot) {
-    const workRootArtworkPath = findBestArtworkInTree(workRoot)
-    if (workRootArtworkPath) {
-      return workRootArtworkPath
-    }
+  const cacheKey = `${normalizePathKey(mediaPath)}::${rootHint ? normalizePathKey(rootHint) : ''}`
+  if (artworkLookupCache.has(cacheKey)) {
+    return artworkLookupCache.get(cacheKey) ?? null
   }
-
   const searchDirs = getArtworkSearchDirectories(mediaPath, rootHint)
 
   for (const dir of searchDirs) {
     const artworkPath = findBestArtworkInDirectory(mediaPath, dir, false)
     if (artworkPath) {
+      artworkLookupCache.set(cacheKey, artworkPath)
       return artworkPath
     }
   }
@@ -2327,10 +2353,21 @@ function findSidecarArtworkForMedia(mediaPath: string, rootHint?: string): strin
   for (const dir of searchDirs) {
     const artworkPath = findBestArtworkInDirectory(mediaPath, dir, true)
     if (artworkPath) {
+      artworkLookupCache.set(cacheKey, artworkPath)
       return artworkPath
     }
   }
 
+  const workRoot = inferArtworkWorkRoot(mediaPath, rootHint)
+  if (workRoot) {
+    const workRootArtworkPath = findBestArtworkInTree(workRoot)
+    if (workRootArtworkPath) {
+      artworkLookupCache.set(cacheKey, workRootArtworkPath)
+      return workRootArtworkPath
+    }
+  }
+
+  artworkLookupCache.set(cacheKey, null)
   return null
 }
 

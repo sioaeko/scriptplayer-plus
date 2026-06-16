@@ -2447,14 +2447,11 @@ export default function App() {
     setScriptVariants([])
     setArtworkUrl(null)
 
-    const [url, nextSubtitleCues, initialParsedBundle, nextScriptVariants, artworkPath] = await Promise.all([
+    const [url, nextSubtitleCues, initialParsedBundle, nextScriptVariants] = await Promise.all([
       window.electronAPI.getVideoUrl(filePath),
       loadSubtitleCues(filePath, resolvedType),
       loadScriptBundle(filePath, options?.preferredScriptPath),
       loadScriptVariants(filePath).catch(() => []),
-      resolvedType === 'audio'
-        ? window.electronAPI.findArtwork(filePath, currentFolderPathRef.current || undefined)
-        : Promise.resolve<string | null>(null),
     ])
 
     let parsedBundle = initialParsedBundle
@@ -2499,12 +2496,22 @@ export default function App() {
       }
     }
 
-    if (artworkPath) {
-      const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
-      if (requestId !== openMediaRequestId.current) {
-        return
-      }
-      setArtworkUrl(nextArtworkUrl)
+    if (resolvedType === 'audio') {
+      const rootHint = currentFolderPathRef.current || undefined
+      void window.electronAPI.findArtwork(filePath, rootHint)
+        .then(async (artworkPath) => {
+          if (!artworkPath || requestId !== openMediaRequestId.current) {
+            return
+          }
+          const nextArtworkUrl = await window.electronAPI.getVideoUrl(artworkPath)
+          if (requestId !== openMediaRequestId.current) {
+            return
+          }
+          setArtworkUrl(nextArtworkUrl)
+        })
+        .catch(() => {
+          // Artwork lookup is best-effort and must not block audio switching.
+        })
     }
   }, [
     cancelPendingHandySync,

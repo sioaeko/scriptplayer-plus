@@ -670,24 +670,26 @@ export default function Sidebar({
     setHoverPreview(null)
 
     hoverPreviewTimer.current = setTimeout(() => {
-      setHoverPreview({
-        file,
-        x: position.x,
-        y: position.y,
-        url: cachedUrl,
-      })
-
-      if (cachedUrl) return
+      if (cachedUrl) {
+        setHoverPreview({
+          file,
+          x: position.x,
+          y: position.y,
+          url: cachedUrl,
+        })
+        return
+      }
 
       void window.electronAPI.getVideoUrl(file.path)
         .then((url) => {
           hoverPreviewUrlCache.current.set(file.path, url)
           if (hoverPreviewRequestId.current !== requestId) return
-          setHoverPreview((current) => (
-            current && current.file.path === file.path
-              ? { ...current, url }
-              : current
-          ))
+          setHoverPreview({
+            file,
+            x: position.x,
+            y: position.y,
+            url,
+          })
         })
         .catch(() => {
           if (hoverPreviewRequestId.current !== requestId) return
@@ -1802,11 +1804,7 @@ export default function Sidebar({
                   void previewVideo.play().catch(() => {})
                 }}
               />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-black/80 text-text-muted">
-                <RefreshCw size={18} className="animate-spin" />
-              </div>
-            )}
+            ) : null}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-5">
               <div className="truncate text-[11px] font-medium text-white">
                 {hoverPreview.file.name}

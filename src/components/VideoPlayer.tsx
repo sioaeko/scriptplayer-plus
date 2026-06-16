@@ -1390,18 +1390,29 @@ export default function VideoPlayer({
   // Show device overlay for connection/status changes.
   const prevDeviceConnected = useRef<boolean | undefined>(undefined)
   const prevStatusText = useRef<string | undefined>(undefined)
+  const hasSeenDeviceInfo = useRef(false)
   useEffect(() => {
-    const connectionChanged = deviceInfo && prevDeviceConnected.current !== deviceInfo.connected
-    const statusChanged = deviceInfo && prevStatusText.current !== (deviceInfo.statusText || '')
+    if (!deviceInfo) return
 
-    if (connectionChanged || statusChanged) {
-      if (deviceInfo) {
-        prevDeviceConnected.current = deviceInfo.connected
-        prevStatusText.current = deviceInfo.statusText || ''
-      }
+    const wasInitialized = hasSeenDeviceInfo.current
+    const previousConnected = prevDeviceConnected.current
+    const previousStatusText = prevStatusText.current ?? ''
+    const nextStatusText = deviceInfo.statusText || ''
+
+    prevDeviceConnected.current = deviceInfo.connected
+    prevStatusText.current = nextStatusText
+    hasSeenDeviceInfo.current = true
+
+    const connectionChanged = wasInitialized && previousConnected !== deviceInfo.connected
+    const statusChanged = wasInitialized && previousStatusText !== nextStatusText
+    const shouldShowInitial = !wasInitialized && (deviceInfo.connected || Boolean(nextStatusText))
+    const shouldShowConnectionChange = connectionChanged && (deviceInfo.connected || previousConnected === true)
+    const shouldShowStatusChange = statusChanged && Boolean(nextStatusText) && (deviceInfo.connected || deviceInfo.statusTone === 'error')
+
+    if (shouldShowInitial || shouldShowConnectionChange || shouldShowStatusChange) {
       setShowDeviceOverlay(true)
       if (deviceOverlayTimer.current) clearTimeout(deviceOverlayTimer.current)
-      const delay = statusChanged ? 4000 : 2000
+      const delay = shouldShowStatusChange ? 4000 : 2000
       deviceOverlayTimer.current = setTimeout(() => setShowDeviceOverlay(false), delay)
     }
   }, [deviceInfo?.connected, deviceInfo?.label, deviceInfo?.statusText])

@@ -2515,19 +2515,16 @@ export default function App() {
       window.setTimeout(() => lookupArtwork(false), AUDIO_ARTWORK_FULL_LOOKUP_DELAY_MS)
     }
 
-    const deferScriptVariantScan = resolvedType === 'audio'
-    const deferInitialScriptBundle = resolvedType === 'audio' && !options?.preferredScriptPath
+    const preferredScriptPath = manualScriptPathsRef.current[filePath] ?? options?.preferredScriptPath
+    const deferInitialScriptBundle = resolvedType === 'audio' && !preferredScriptPath
     const [nextSubtitleCues, initialParsedBundle, nextScriptVariants] = await Promise.all([
       loadSubtitleCues(filePath, resolvedType),
       deferInitialScriptBundle
         ? Promise.resolve<FunscriptBundle | null>(null)
-        : loadScriptBundle(filePath, options?.preferredScriptPath, {
-          skipVariantFallback: deferScriptVariantScan,
-          localOnly: deferScriptVariantScan,
+        : loadScriptBundle(filePath, preferredScriptPath, {
+          skipVariantFallback: true,
         }),
-      deferScriptVariantScan
-        ? Promise.resolve<ScriptVariantOption[]>([])
-        : loadScriptVariants(filePath).catch(() => []),
+      loadScriptVariants(filePath, { localOnly: true }).catch(() => []),
     ])
 
     let parsedBundle = initialParsedBundle
@@ -2569,7 +2566,7 @@ export default function App() {
         }
 
         void Promise.all([
-          loadScriptBundle(filePath, options?.preferredScriptPath, {
+          loadScriptBundle(filePath, preferredScriptPath, {
             skipVariantFallback: true,
             localOnly: true,
           }),

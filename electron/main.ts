@@ -221,7 +221,9 @@ async function inspectMediaFilePaths(filePaths: string[], scriptFolder?: string)
 
     const useNetworkSafeSubtitleScan = isLikelyNetworkPath(filePath)
     const mediaType = VIDEO_EXTS.includes(ext) ? 'video' : 'audio'
-    const bundle = readFunscriptBundle(filePath, scriptFolder)
+    const bundle = readFunscriptBundle(filePath, scriptFolder, undefined, {
+      skipVariantFallback: true,
+    })
     const scriptAxes = SCRIPT_AXIS_DEFINITIONS
       .map((definition) => definition.id)
       .filter((axisId) => Boolean(bundle?.scripts[axisId]))

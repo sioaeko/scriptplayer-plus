@@ -703,7 +703,7 @@ function TimelineSection({
         <input
           type="range"
           min={40}
-          max={120}
+          max={240}
           step={4}
           value={settings.timelineHeight}
           onChange={(e) => update('timelineHeight', Number(e.target.value))}

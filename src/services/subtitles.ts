@@ -233,12 +233,14 @@ export function getVideoSubtitleMatchScore(mediaPath: string, subtitleFile: Subt
   const mediaHasEpisode = mediaInfo.episodeKeys.length > 0
   const subtitleHasEpisode = subtitleInfo.episodeKeys.length > 0
   const sharesEpisode = hasSharedValue(mediaInfo.episodeKeys, subtitleInfo.episodeKeys)
-  const sharedTitleTokenCount = countSharedTokens(mediaInfo.titleTokens, subtitleInfo.titleTokens)
+  const sharedTitleTokens = getSharedTokens(mediaInfo.titleTokens, subtitleInfo.titleTokens)
+  const sharedTitleTokenCount = sharedTitleTokens.length
   const sharedFolderTokenCount = countSharedTokens(mediaInfo.folderTokens, subtitleInfo.folderTokens)
   const sharedContextTokenCount = countSharedTokens(mediaInfo.contextTokens, subtitleInfo.contextTokens)
   const hasDirectTitleOverlap = hasOverlappingPhrase(mediaInfo.titlePhrases, subtitleInfo.titlePhrases)
   const hasDirectContextOverlap = hasOverlappingPhrase(mediaInfo.contextPhrases, subtitleInfo.contextPhrases)
-  const hasStrongTitleEvidence = hasDirectTitleOverlap || sharedTitleTokenCount > 0 || subtitleInfo.directNameHints > 0
+  const hasTitleTokenEvidence = hasMeaningfulTitleTokenOverlap(sharedTitleTokens, mediaInfo.titleTokens, subtitleInfo.titleTokens)
+  const hasStrongTitleEvidence = hasDirectTitleOverlap || hasTitleTokenEvidence || subtitleInfo.directNameHints > 0
   const hasWorkEvidence = hasStrongTitleEvidence
     || sharedFolderTokenCount > 0
     || hasDirectContextOverlap
@@ -286,6 +288,10 @@ export function getVideoSubtitleMatchScore(mediaPath: string, subtitleFile: Subt
   if (mediaHasEpisode) {
     if (!hasWorkEvidence && !subtitleInfo.isEpisodeOnly) return -1
     return score >= 650 ? score : -1
+  }
+
+  if (!hasStrongTitleEvidence) {
+    return -1
   }
 
   return hasWorkEvidence ? score : -1
@@ -552,9 +558,33 @@ function extractEpisodeKeys(value: string): string[] {
 }
 
 function countSharedTokens(left: string[], right: string[]): number {
-  if (left.length === 0 || right.length === 0) return 0
+  return getSharedTokens(left, right).length
+}
+
+function getSharedTokens(left: string[], right: string[]): string[] {
+  if (left.length === 0 || right.length === 0) return []
   const rightSet = new Set(right)
-  return left.filter((token) => rightSet.has(token)).length
+  return left.filter((token) => rightSet.has(token))
+}
+
+function hasMeaningfulTitleTokenOverlap(sharedTokens: string[], mediaTokens: string[], subtitleTokens: string[]): boolean {
+  if (sharedTokens.length >= 2) {
+    return true
+  }
+
+  if (sharedTokens.length !== 1) {
+    return false
+  }
+
+  const [token] = sharedTokens
+  if (!token) {
+    return false
+  }
+
+  const mediaHasOnlyThisTitle = mediaTokens.length === 1
+  const subtitleHasOnlyThisTitle = subtitleTokens.length === 1
+  const tokenIsSpecific = token.length >= 5 || /[\uAC00-\uD7A3\u3040-\u30FF\u4E00-\u9FFF]/.test(token)
+  return tokenIsSpecific && (mediaHasOnlyThisTitle || subtitleHasOnlyThisTitle)
 }
 
 function hasSharedValue(left: string[], right: string[]): boolean {

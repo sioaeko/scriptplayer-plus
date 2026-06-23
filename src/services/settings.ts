@@ -54,7 +54,7 @@ export interface AppSettings {
   // Timeline
   showHeatmapByDefault: boolean
   showTimelineByDefault: boolean
-  timelineHeight: number // px, 40-120
+  timelineHeight: number // px, 40-240
   timelineWindow: number // seconds, 5-30
   speedColors: boolean
 

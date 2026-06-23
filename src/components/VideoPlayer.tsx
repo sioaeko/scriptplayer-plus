@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, type CSSProperties } from 'react'
+import { useRef, useEffect, useCallback, useMemo, useState, type CSSProperties } from 'react'
 import {
   Play,
   Pause,
@@ -24,7 +24,7 @@ import {
   FolderOpen,
   Trash2,
 } from 'lucide-react'
-import { FunscriptAction, MediaType, PlaybackMode, ScriptVariantOption, SubtitleCue, VideoFile } from '../types'
+import { FunscriptAction, MediaType, PlaybackMode, ScriptAxisId, ScriptVariantOption, SubtitleCue, VideoFile } from '../types'
 import { useTranslation } from '../i18n'
 import type { AudioArtworkSize } from '../services/settings'
 import { getActiveSubtitleText } from '../services/subtitles'
@@ -89,6 +89,8 @@ interface VideoPlayerProps {
   artworkUrl: string | null
   audioArtworkSize?: AudioArtworkSize
   actions: FunscriptAction[]
+  timelineAxisActions?: Partial<Record<ScriptAxisId, FunscriptAction[]>>
+  availableTimelineAxes?: ScriptAxisId[]
   scriptSource?: string | null
   scriptDebugInfo?: ScriptDebugInfo | null
   scriptFolder?: string
@@ -503,6 +505,8 @@ export default function VideoPlayer({
   artworkUrl,
   audioArtworkSize = 'medium',
   actions,
+  timelineAxisActions,
+  availableTimelineAxes = [],
   scriptSource = null,
   scriptDebugInfo = null,
   scriptFolder = '',
@@ -565,6 +569,7 @@ export default function VideoPlayer({
   const [showSegmentRepeatControls, setShowSegmentRepeatControls] = useState(false)
   const [showHeatmap, setShowHeatmap] = useState(defaultShowHeatmap)
   const [showTimeline, setShowTimeline] = useState(defaultShowTimeline)
+  const [selectedTimelineAxes, setSelectedTimelineAxes] = useState<ScriptAxisId[]>([])
   const deviceOverlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scriptOffsetFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const strokeControlsRef = useRef<HTMLDivElement>(null)
@@ -627,6 +632,22 @@ export default function VideoPlayer({
   const progressScrubbingRef = useRef(false)
   const progressSeekTimeRef = useRef<number | null>(null)
   const effectiveCurrentTime = isProgressScrubbing && progressPreviewTime !== null ? progressPreviewTime : currentTime
+  const timelineAxisIds = useMemo(() => (
+    availableTimelineAxes.filter((axisId) => (timelineAxisActions?.[axisId]?.length ?? 0) > 0)
+  ), [availableTimelineAxes, timelineAxisActions])
+  const selectedTimelineSeries = useMemo(() => (
+    selectedTimelineAxes
+      .filter((axisId) => timelineAxisIds.includes(axisId))
+      .map((axisId) => ({
+        axisId,
+        actions: timelineAxisActions?.[axisId] ?? [],
+      }))
+      .filter((entry) => entry.actions.length > 0)
+  ), [selectedTimelineAxes, timelineAxisActions, timelineAxisIds])
+  const visibleTimelineAxisCount = selectedTimelineSeries.length || (actions.length > 0 ? 1 : 0)
+  const effectiveTimelineHeight = showTimeline && visibleTimelineAxisCount > 1
+    ? Math.max(timelineHeight, Math.min(260, 18 + visibleTimelineAxisCount * 42))
+    : timelineHeight
   const currentSubtitleText = showSubtitles ? getActiveSubtitleText(subtitleCues, effectiveCurrentTime) : ''
   const firstActionTimeSeconds = actions.length > 0 ? Math.max(0, actions[0].at / 1000) : null
   const currentScriptPath = isRealScriptSource(scriptSource) ? scriptSource : null
@@ -1473,6 +1494,21 @@ export default function VideoPlayer({
   }, [strokeRangeMax, strokeRangeMin])
 
   useEffect(() => {
+    setSelectedTimelineAxes((current) => {
+      if (timelineAxisIds.length === 0) {
+        return []
+      }
+
+      const kept = current.filter((axisId) => timelineAxisIds.includes(axisId))
+      if (kept.length > 0) {
+        return kept
+      }
+
+      return [timelineAxisIds.includes('L0') ? 'L0' : timelineAxisIds[0]]
+    })
+  }, [mediaStateKey, timelineAxisIds])
+
+  useEffect(() => {
     scriptOffsetRef.current = scriptOffset
   }, [scriptOffset])
 
@@ -1886,7 +1922,7 @@ export default function VideoPlayer({
         cancelAnimationFrame(frame)
       }
     }
-  }, [autoFitVideoByAspect, mediaRef, mediaStateKey, mediaType, showHeatmap, showTimeline, timelineHeight, videoFillMode, videoUrl])
+  }, [autoFitVideoByAspect, effectiveTimelineHeight, mediaRef, mediaStateKey, mediaType, showHeatmap, showTimeline, videoFillMode, videoUrl])
 
   useEffect(() => {
     setShowSubtitles(subtitleCues.length > 0)
@@ -1922,7 +1958,7 @@ export default function VideoPlayer({
       observer?.disconnect()
       window.removeEventListener('resize', updateOverlayHeight)
     }
-  }, [fullscreenScriptVisible, showHeatmap, showTimeline, timelineHeight])
+  }, [effectiveTimelineHeight, fullscreenScriptVisible, showHeatmap, showTimeline])
 
   useEffect(() => {
     if (!isFullscreen) {
@@ -2829,16 +2865,52 @@ export default function VideoPlayer({
             </div>
           )}
           {showTimeline && (
-            <div style={{ height: timelineHeight }}>
-              <ScriptTimeline
-                key={`timeline-inline-${mediaStateKey}`}
-                actions={actions}
-                currentTime={effectiveCurrentTime}
-                duration={duration}
-                onSeek={handleSeek}
-                windowSize={timelineWindow}
-              />
-            </div>
+            <>
+              {timelineAxisIds.length > 1 && (
+                <div className="flex items-center gap-1 overflow-x-auto border-b border-surface-100/15 bg-black/28 px-3 py-1.5">
+                  <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                    {t('player.timelineAxes')}
+                  </span>
+                  {timelineAxisIds.map((axisId) => {
+                    const active = selectedTimelineAxes.includes(axisId)
+                    return (
+                      <button
+                        key={axisId}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedTimelineAxes((current) => {
+                            if (current.includes(axisId)) {
+                              return current.length <= 1 ? current : current.filter((item) => item !== axisId)
+                            }
+
+                            return [...current, axisId]
+                          })
+                        }}
+                        className={`rounded-md border px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors ${
+                          active
+                            ? 'border-accent/50 bg-accent/20 text-accent'
+                            : 'border-surface-100/20 bg-surface-300/60 text-text-secondary hover:text-text-primary'
+                        }`}
+                      >
+                        {axisId}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <div style={{ height: effectiveTimelineHeight }}>
+                <ScriptTimeline
+                  key={`timeline-inline-${mediaStateKey}`}
+                  actions={actions}
+                  axisSeries={selectedTimelineSeries}
+                  currentTime={effectiveCurrentTime}
+                  duration={duration}
+                  onSeek={handleSeek}
+                  windowSize={timelineWindow}
+                />
+              </div>
+            </>
           )}
         </div>
       )}
@@ -2862,16 +2934,52 @@ export default function VideoPlayer({
               </div>
             )}
             {showTimeline && (
-              <div style={{ height: timelineHeight }}>
-                <ScriptTimeline
-                  key={`timeline-fullscreen-${mediaStateKey}`}
-                  actions={actions}
-                  currentTime={effectiveCurrentTime}
-                  duration={duration}
-                  onSeek={handleSeek}
-                  windowSize={timelineWindow}
-                />
-              </div>
+              <>
+                {timelineAxisIds.length > 1 && (
+                  <div className="flex items-center gap-1 overflow-x-auto border-b border-white/10 bg-black/35 px-3 py-1.5">
+                    <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+                      {t('player.timelineAxes')}
+                    </span>
+                    {timelineAxisIds.map((axisId) => {
+                      const active = selectedTimelineAxes.includes(axisId)
+                      return (
+                        <button
+                          key={axisId}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedTimelineAxes((current) => {
+                              if (current.includes(axisId)) {
+                                return current.length <= 1 ? current : current.filter((item) => item !== axisId)
+                              }
+
+                              return [...current, axisId]
+                            })
+                          }}
+                          className={`rounded-md border px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors ${
+                            active
+                              ? 'border-accent/50 bg-accent/20 text-accent'
+                              : 'border-surface-100/20 bg-surface-300/60 text-text-secondary hover:text-text-primary'
+                          }`}
+                        >
+                          {axisId}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                <div style={{ height: effectiveTimelineHeight }}>
+                  <ScriptTimeline
+                    key={`timeline-fullscreen-${mediaStateKey}`}
+                    actions={actions}
+                    axisSeries={selectedTimelineSeries}
+                    currentTime={effectiveCurrentTime}
+                    duration={duration}
+                    onSeek={handleSeek}
+                    windowSize={timelineWindow}
+                  />
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -4011,16 +4119,9 @@ function getVideoDiagnosticsIssueKey(snapshot: PlaybackDiagnosticsSnapshot | nul
     return 'player.videoIssueNoVideoFrame'
   }
 
-  if (
-    snapshot.currentTime >= 5 &&
-    snapshot.blackFrameSample?.available &&
-    snapshot.blackFrameSample.reason === 'mostly-black-frame'
-  ) {
-    return 'player.videoIssueBlackFrame'
-  }
-
-  // Frame drops and wall-clock gaps are useful in copied diagnostics, but they
-  // are too noisy for an in-player warning because normal app work such as
+  // Black-frame samples, frame drops, and wall-clock gaps are useful in copied
+  // diagnostics, but they are too noisy for an in-player warning because normal
+  // videos can contain long black transitions and normal app work such as
   // seeking, switching scripts, changing generated patterns, focus changes, or
   // GPU state changes can briefly spike those counters.
   return null

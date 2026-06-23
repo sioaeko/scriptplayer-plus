@@ -1,9 +1,15 @@
 import { useRef, useEffect, useCallback } from 'react'
-import { FunscriptAction } from '../types'
+import { FunscriptAction, ScriptAxisId } from '../types'
 import { getActionsInRange, getSpeed } from '../services/funscript'
+
+export interface ScriptTimelineAxisSeries {
+  axisId: ScriptAxisId
+  actions: FunscriptAction[]
+}
 
 interface ScriptTimelineProps {
   actions: FunscriptAction[]
+  axisSeries?: ScriptTimelineAxisSeries[]
   currentTime: number // seconds
   duration: number // seconds
   onSeek: (time: number) => void
@@ -13,7 +19,8 @@ interface ScriptTimelineProps {
 const DEFAULT_WINDOW = 10
 const COLORS = {
   bg: '#181825',
-  grid: '#1e1e2e',
+  grid: '#45475a',
+  gridStrong: '#6c7086',
   line: '#cba6f7',
   lineGlow: 'rgba(203, 166, 247, 0.3)',
   dot: '#cba6f7',
@@ -22,6 +29,20 @@ const COLORS = {
   medium: '#f9e2af',
   fast: '#fab387',
   veryFast: '#f38ba8',
+}
+
+const AXIS_COLORS: Record<ScriptAxisId, { line: string; glow: string; dot: string }> = {
+  L0: { line: '#cba6f7', glow: 'rgba(203, 166, 247, 0.22)', dot: '#cba6f7' },
+  L1: { line: '#89b4fa', glow: 'rgba(137, 180, 250, 0.20)', dot: '#89b4fa' },
+  L2: { line: '#94e2d5', glow: 'rgba(148, 226, 213, 0.18)', dot: '#94e2d5' },
+  R0: { line: '#f38ba8', glow: 'rgba(243, 139, 168, 0.20)', dot: '#f38ba8' },
+  R1: { line: '#fab387', glow: 'rgba(250, 179, 135, 0.18)', dot: '#fab387' },
+  R2: { line: '#a6e3a1', glow: 'rgba(166, 227, 161, 0.18)', dot: '#a6e3a1' },
+  V0: { line: '#f9e2af', glow: 'rgba(249, 226, 175, 0.18)', dot: '#f9e2af' },
+  V1: { line: '#eba0ac', glow: 'rgba(235, 160, 172, 0.18)', dot: '#eba0ac' },
+  A0: { line: '#74c7ec', glow: 'rgba(116, 199, 236, 0.18)', dot: '#74c7ec' },
+  A1: { line: '#b4befe', glow: 'rgba(180, 190, 254, 0.18)', dot: '#b4befe' },
+  A2: { line: '#f5c2e7', glow: 'rgba(245, 194, 231, 0.18)', dot: '#f5c2e7' },
 }
 
 function getSpeedColor(speed: number): string {
@@ -33,6 +54,7 @@ function getSpeedColor(speed: number): string {
 
 export default function ScriptTimeline({
   actions,
+  axisSeries,
   currentTime,
   duration,
   onSeek,
@@ -68,7 +90,9 @@ export default function ScriptTimeline({
 
     const w = rect.width
     const h = rect.height
-    const padding = { top: 8, bottom: 8, left: 0, right: 0 }
+    const series = normalizeTimelineSeries(axisSeries, actions)
+    const multiAxis = series.length > 1
+    const padding = { top: 8, bottom: 12, left: multiAxis ? 36 : 0, right: 0 }
     const plotW = w - padding.left - padding.right
     const plotH = h - padding.top - padding.bottom
 
@@ -86,8 +110,9 @@ export default function ScriptTimeline({
     ctx.lineWidth = 1
     for (let i = 0; i <= 4; i++) {
       const y = padding.top + (plotH * i) / 4
+      ctx.strokeStyle = i === 0 || i === 2 || i === 4 ? COLORS.gridStrong : COLORS.grid
       ctx.beginPath()
-      ctx.moveTo(0, y)
+      ctx.moveTo(padding.left, y)
       ctx.lineTo(w, y)
       ctx.stroke()
     }
@@ -111,76 +136,100 @@ export default function ScriptTimeline({
       }
     }
 
-    // Get visible actions
-    const visibleActions = getActionsInRange(actions, startMs, endMs)
+    const laneGap = multiAxis ? 6 : 0
+    const laneHeight = multiAxis ? Math.max(18, (plotH - laneGap * (series.length - 1)) / series.length) : plotH
 
-    if (visibleActions.length >= 2) {
-      // Draw speed-colored segments
-      for (let i = 0; i < visibleActions.length - 1; i++) {
-        const a = visibleActions[i]
-        const b = visibleActions[i + 1]
-        const speed = getSpeed(a, b)
+    series.forEach((entry, index) => {
+      const axisColors = AXIS_COLORS[entry.axisId]
+      const laneTop = multiAxis
+        ? padding.top + index * (laneHeight + laneGap)
+        : padding.top
+      const laneBottom = laneTop + laneHeight
+      const laneCenter = laneTop + laneHeight / 2
+      const visibleActions = getActionsInRange(entry.actions, startMs, endMs)
 
-        const x1 = padding.left + ((a.at - startMs) / (endMs - startMs)) * plotW
-        const y1 = padding.top + plotH - (a.pos / 100) * plotH
-        const x2 = padding.left + ((b.at - startMs) / (endMs - startMs)) * plotW
-        const y2 = padding.top + plotH - (b.pos / 100) * plotH
-
-        // Glow
-        ctx.strokeStyle = getSpeedColor(speed)
-        ctx.globalAlpha = 0.15
-        ctx.lineWidth = 6
+      if (multiAxis) {
+        ctx.fillStyle = 'rgba(30, 30, 46, 0.55)'
+        ctx.fillRect(0, laneTop, w, laneHeight)
+        ctx.strokeStyle = COLORS.gridStrong
+        ctx.globalAlpha = 0.65
         ctx.beginPath()
-        ctx.moveTo(x1, y1)
-        ctx.lineTo(x2, y2)
-        ctx.stroke()
-
-        // Main line
-        ctx.globalAlpha = 0.9
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(x1, y1)
-        ctx.lineTo(x2, y2)
+        ctx.moveTo(padding.left, laneCenter)
+        ctx.lineTo(w, laneCenter)
         ctx.stroke()
         ctx.globalAlpha = 1
+        ctx.fillStyle = axisColors.line
+        ctx.font = '10px system-ui'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(entry.axisId, 8, laneCenter)
       }
 
-      // Draw dots at action points
-      for (const action of visibleActions) {
+      if (visibleActions.length >= 2) {
+        for (let i = 0; i < visibleActions.length - 1; i++) {
+          const a = visibleActions[i]
+          const b = visibleActions[i + 1]
+          const speed = getSpeed(a, b)
+
+          const x1 = padding.left + ((a.at - startMs) / (endMs - startMs)) * plotW
+          const y1 = laneBottom - (a.pos / 100) * laneHeight
+          const x2 = padding.left + ((b.at - startMs) / (endMs - startMs)) * plotW
+          const y2 = laneBottom - (b.pos / 100) * laneHeight
+
+          ctx.strokeStyle = multiAxis ? axisColors.glow : getSpeedColor(speed)
+          ctx.globalAlpha = multiAxis ? 1 : 0.15
+          ctx.lineWidth = multiAxis ? 5 : 6
+          ctx.beginPath()
+          ctx.moveTo(x1, y1)
+          ctx.lineTo(x2, y2)
+          ctx.stroke()
+
+          ctx.strokeStyle = multiAxis ? axisColors.line : getSpeedColor(speed)
+          ctx.globalAlpha = 0.92
+          ctx.lineWidth = multiAxis ? 1.8 : 2
+          ctx.beginPath()
+          ctx.moveTo(x1, y1)
+          ctx.lineTo(x2, y2)
+          ctx.stroke()
+          ctx.globalAlpha = 1
+        }
+
+        for (const action of visibleActions) {
+          const x = padding.left + ((action.at - startMs) / (endMs - startMs)) * plotW
+          const y = laneBottom - (action.pos / 100) * laneHeight
+
+          ctx.fillStyle = multiAxis ? axisColors.dot : COLORS.dot
+          ctx.beginPath()
+          ctx.arc(x, y, multiAxis ? 2.4 : 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      } else if (visibleActions.length === 1) {
+        const action = visibleActions[0]
         const x = padding.left + ((action.at - startMs) / (endMs - startMs)) * plotW
-        const y = padding.top + plotH - (action.pos / 100) * plotH
+        const y = laneBottom - (action.pos / 100) * laneHeight
 
-        ctx.fillStyle = COLORS.dot
+        ctx.strokeStyle = multiAxis ? axisColors.glow : COLORS.lineGlow
+        ctx.lineWidth = multiAxis ? 5 : 6
         ctx.beginPath()
-        ctx.arc(x, y, 3, 0, Math.PI * 2)
-        ctx.fill()
-      }
-    } else if (visibleActions.length === 1) {
-      const action = visibleActions[0]
-      const x = padding.left + ((action.at - startMs) / (endMs - startMs)) * plotW
-      const y = padding.top + plotH - (action.pos / 100) * plotH
+        ctx.moveTo(padding.left, y)
+        ctx.lineTo(w, y)
+        ctx.stroke()
 
-      ctx.strokeStyle = COLORS.lineGlow
-      ctx.lineWidth = 6
-      ctx.beginPath()
-      ctx.moveTo(0, y)
-      ctx.lineTo(w, y)
-      ctx.stroke()
-
-      ctx.strokeStyle = COLORS.line
-      ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.moveTo(0, y)
-      ctx.lineTo(w, y)
-      ctx.stroke()
-
-      if (x >= 0 && x <= w) {
-        ctx.fillStyle = COLORS.dot
+        ctx.strokeStyle = multiAxis ? axisColors.line : COLORS.line
+        ctx.lineWidth = multiAxis ? 1.8 : 2
         ctx.beginPath()
-        ctx.arc(x, y, 3, 0, Math.PI * 2)
-        ctx.fill()
+        ctx.moveTo(padding.left, y)
+        ctx.lineTo(w, y)
+        ctx.stroke()
+
+        if (x >= padding.left && x <= w) {
+          ctx.fillStyle = multiAxis ? axisColors.dot : COLORS.dot
+          ctx.beginPath()
+          ctx.arc(x, y, multiAxis ? 2.4 : 3, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
-    }
+    })
 
     // Playhead
     const playheadX = w / 2
@@ -200,7 +249,7 @@ export default function ScriptTimeline({
     gradient.addColorStop(1, 'transparent')
     ctx.fillStyle = gradient
     ctx.fillRect(playheadX - 20, 0, 40, h)
-  }, [actions, currentTime])
+  }, [actions, axisSeries, currentTime, windowSize])
 
   useEffect(() => {
     const frame = requestAnimationFrame(draw)
@@ -244,4 +293,19 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function normalizeTimelineSeries(
+  axisSeries: ScriptTimelineAxisSeries[] | undefined,
+  fallbackActions: FunscriptAction[]
+): ScriptTimelineAxisSeries[] {
+  const explicitSeries = axisSeries
+    ?.filter((entry) => entry.actions.length > 0)
+    .slice(0, 6)
+
+  if (explicitSeries && explicitSeries.length > 0) {
+    return explicitSeries
+  }
+
+  return fallbackActions.length > 0 ? [{ axisId: 'L0', actions: fallbackActions }] : []
 }

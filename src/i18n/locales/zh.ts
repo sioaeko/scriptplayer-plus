@@ -99,6 +99,7 @@ const zh: Record<string, string> = {
   'player.nextShort': '\u4E0B\u4E00\u4E2A',
   'player.scriptLoaded': '\u52A8\u4F5C {count} \u6761',
   'player.scriptStartsAt': '\u52A8\u4F5C {count} \u6761 \u00B7 \u9996\u6B21 {time}',
+  'player.timelineAxes': 'Axes',
   'player.scriptOffset': '脚本偏移',
   'player.scriptOffsetDesc': '可用时保存到此脚本，否则保存到当前媒体文件。',
   'player.resetScriptOffset': '重置脚本偏移',

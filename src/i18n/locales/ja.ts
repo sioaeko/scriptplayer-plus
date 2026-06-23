@@ -99,6 +99,7 @@ const ja: Record<string, string> = {
   'player.nextShort': '\u6B21\u3078',
   'player.scriptLoaded': '\u30A2\u30AF\u30B7\u30E7\u30F3 {count}\u4EF6',
   'player.scriptStartsAt': '\u30A2\u30AF\u30B7\u30E7\u30F3 {count}\u4EF6 \u30FB \u6700\u521D {time}',
+  'player.timelineAxes': 'Axes',
   'player.scriptOffset': 'スクリプトオフセット',
   'player.scriptOffsetDesc': '可能な場合はこのスクリプトに、そうでなければ現在のメディアに保存します。',
   'player.resetScriptOffset': 'スクリプトオフセットをリセット',

@@ -107,6 +107,7 @@ const OSR_SERIAL_AXIS_CONFIGS_STORAGE_KEY = 'scriptplayer-osr-serial-axis-config
 const VIDEO_SORT_FIELD_STORAGE_KEY = 'scriptplayer-video-sort-field'
 const VIDEO_SORT_DIRECTION_STORAGE_KEY = 'scriptplayer-video-sort-direction'
 const MEDIA_RATINGS_STORAGE_KEY = 'scriptplayer-media-ratings-v1'
+const SCRIPT_STROKE_RANGES_STORAGE_KEY = 'scriptplayer-script-stroke-ranges-v1'
 const SCRIPT_OFFSET_STORAGE_KEY = 'scriptplayer-script-offsets-v1'
 const CURRENT_PLAYLIST_STORAGE_KEY = 'scriptplayer-current-playlist-v1'
 const VOLUME_STORAGE_KEY = 'volume'
@@ -434,6 +435,11 @@ function clampMediaRating(value: unknown): number {
   return Math.max(0, Math.min(5, Math.round(rating)))
 }
 
+interface StoredScriptStrokeRange {
+  min: number
+  max: number
+}
+
 function loadMediaRatings(): Record<string, number> {
   try {
     const raw = localStorage.getItem(MEDIA_RATINGS_STORAGE_KEY)
@@ -460,6 +466,107 @@ function saveMediaRatings(ratings: Record<string, number>) {
   } catch {
     // Ignore storage failures
   }
+}
+
+function clampStoredStrokeRange(value: unknown): StoredScriptStrokeRange | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as { min?: unknown; max?: unknown }
+  const min = Number(raw.min)
+  const max = Number(raw.max)
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null
+
+  const clampedMin = Math.max(0, Math.min(100, Math.round(min)))
+  const clampedMax = Math.max(0, Math.min(100, Math.round(max)))
+  return {
+    min: Math.min(clampedMin, clampedMax),
+    max: Math.max(clampedMin, clampedMax),
+  }
+}
+
+function loadScriptStrokeRanges(): Record<string, StoredScriptStrokeRange> {
+  try {
+    const raw = localStorage.getItem(SCRIPT_STROKE_RANGES_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    if (!parsed || typeof parsed !== 'object') return {}
+
+    const next: Record<string, StoredScriptStrokeRange> = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const normalizedKey = typeof key === 'string' ? key.trim() : ''
+      const range = clampStoredStrokeRange(value)
+      if (normalizedKey && range) {
+        next[normalizedKey] = range
+      }
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+function saveScriptStrokeRanges(ranges: Record<string, StoredScriptStrokeRange>) {
+  try {
+    localStorage.setItem(SCRIPT_STROKE_RANGES_STORAGE_KEY, JSON.stringify(ranges))
+  } catch {
+    // Ignore storage failures
+  }
+}
+
+function getMediaRatingKeys(file: VideoFile): string[] {
+  const keys = [
+    normalizeOffsetPathKey(file.path),
+    getMediaStableStorageKey(file),
+  ]
+
+  return keys.filter((key, index): key is string => Boolean(key) && keys.indexOf(key) === index)
+}
+
+function getMediaStableStorageKey(file: VideoFile): string {
+  const name = normalizeOffsetPathKey(file.name)
+  const modifiedAt = Number.isFinite(file.modifiedAt) && file.modifiedAt > 0
+    ? Math.round(file.modifiedAt)
+    : 0
+
+  return `media:${file.type}:${name}:${modifiedAt}`
+}
+
+function getMediaRating(file: VideoFile, ratings: Record<string, number>): number {
+  for (const key of getMediaRatingKeys(file)) {
+    const rating = ratings[key]
+    if (rating) return rating
+  }
+
+  return 0
+}
+
+function getScriptStrokeRangeKeys(mediaPath: string | null, scriptSource: string | null): string[] {
+  const keys: string[] = []
+  if (scriptSource && !scriptSource.startsWith('generated://')) {
+    const scriptPathKey = normalizeOffsetPathKey(scriptSource)
+    const scriptNameKey = normalizeOffsetPathKey(getFileName(scriptSource))
+    if (scriptPathKey) keys.push(`script-path:${scriptPathKey}`)
+    if (scriptNameKey) keys.push(`script-name:${scriptNameKey}`)
+  }
+
+  if (mediaPath) {
+    const mediaPathKey = normalizeOffsetPathKey(mediaPath)
+    const mediaNameKey = normalizeOffsetPathKey(getFileName(mediaPath))
+    if (mediaPathKey) keys.push(`media-path:${mediaPathKey}`)
+    if (mediaNameKey) keys.push(`media-name:${mediaNameKey}`)
+  }
+
+  return keys.filter((key, index) => key && keys.indexOf(key) === index)
+}
+
+function getStoredScriptStrokeRange(
+  ranges: Record<string, StoredScriptStrokeRange>,
+  keys: string[]
+): StoredScriptStrokeRange | null {
+  for (const key of keys) {
+    const range = ranges[key]
+    if (range) return range
+  }
+
+  return null
 }
 
 function clampScriptOffset(value: number): number {
@@ -971,6 +1078,7 @@ export default function App() {
   const [playbackRate, setPlaybackRate] = useState<number>(loadPlaybackRate)
   const [videoSort, setVideoSort] = useState<VideoSortState>(loadVideoSort)
   const [fileRatings, setFileRatings] = useState<Record<string, number>>(loadMediaRatings)
+  const [scriptStrokeRanges, setScriptStrokeRanges] = useState<Record<string, StoredScriptStrokeRange>>(loadScriptStrokeRanges)
   const [autoPlayRequestId, setAutoPlayRequestId] = useState(0)
   const [pendingAutoPlayAfterHandyUpload, setPendingAutoPlayAfterHandyUpload] = useState(false)
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCheckResult | null>(null)
@@ -1323,6 +1431,32 @@ export default function App() {
     settings.showScriptDebugInfo,
     t,
   ])
+  const activeScriptStrokeRangeKeys = useMemo(
+    () => getScriptStrokeRangeKeys(currentFile, primaryScriptSource),
+    [currentFile, primaryScriptSource]
+  )
+
+  useEffect(() => {
+    const storedRange = getStoredScriptStrokeRange(scriptStrokeRanges, activeScriptStrokeRangeKeys)
+    if (!storedRange) return
+
+    setSettings((current) => {
+      if (
+        current.strokeRangeMin === storedRange.min
+        && current.strokeRangeMax === storedRange.max
+      ) {
+        return current
+      }
+
+      const next = {
+        ...current,
+        strokeRangeMin: storedRange.min,
+        strokeRangeMax: storedRange.max,
+      }
+      saveSettings(next)
+      return next
+    })
+  }, [activeScriptStrokeRangeKeys, scriptStrokeRanges])
   const autoSkipMotionModel = useMemo(
     () => collectAutoSkipMotionModel(autoSkipAxisActions, effectiveDeviceTimeOffset),
     [autoSkipAxisActions, effectiveDeviceTimeOffset]
@@ -1332,10 +1466,30 @@ export default function App() {
       ...file,
       hasScript: file.hasScript || Boolean(manualScriptPaths[file.path]),
       hasSubtitles: file.hasSubtitles || Boolean(manualSubtitleFiles[file.path]),
-      rating: fileRatings[normalizeOffsetPathKey(file.path)] ?? 0,
+      rating: getMediaRating(file, fileRatings),
     })),
     [fileRatings, files, manualScriptPaths, manualSubtitleFiles]
   )
+  useEffect(() => {
+    setFileRatings((current) => {
+      let changed = false
+      const next = { ...current }
+
+      for (const file of files) {
+        const keys = getMediaRatingKeys(file)
+        const rating = keys.map((key) => current[key]).find((value) => Boolean(value)) ?? 0
+        if (!rating) continue
+
+        for (const key of keys) {
+          if (next[key] === rating) continue
+          next[key] = rating
+          changed = true
+        }
+      }
+
+      return changed ? next : current
+    })
+  }, [files])
   const orderedFiles = useMemo(
     () => orderVideoFiles(displayFiles, videoSort),
     [displayFiles, videoSort]
@@ -1613,6 +1767,10 @@ export default function App() {
   }, [buttplugFeatureMappingStore])
 
   useEffect(() => {
+    saveScriptStrokeRanges(scriptStrokeRanges)
+  }, [scriptStrokeRanges])
+
+  useEffect(() => {
     if (!playlistMode) {
       return
     }
@@ -1623,7 +1781,26 @@ export default function App() {
   const handleSettingsChange = useCallback((newSettings: AppSettings) => {
     setSettings(newSettings)
     saveSettings(newSettings)
-  }, [])
+    if (
+      activeScriptStrokeRangeKeys.length > 0
+      && (
+        newSettings.strokeRangeMin !== settings.strokeRangeMin
+        || newSettings.strokeRangeMax !== settings.strokeRangeMax
+      )
+    ) {
+      const nextRange = {
+        min: Math.min(newSettings.strokeRangeMin, newSettings.strokeRangeMax),
+        max: Math.max(newSettings.strokeRangeMin, newSettings.strokeRangeMax),
+      }
+      setScriptStrokeRanges((current) => {
+        const next = { ...current }
+        for (const key of activeScriptStrokeRangeKeys) {
+          next[key] = nextRange
+        }
+        return next
+      })
+    }
+  }, [activeScriptStrokeRangeKeys, settings.strokeRangeMax, settings.strokeRangeMin])
 
   const closeScriptMatchDialog = useCallback(() => {
     setScriptMatchDialog(null)
@@ -1644,11 +1821,24 @@ export default function App() {
   }, [])
 
   const handleQuickStrokeRangeChange = useCallback((min: number, max: number) => {
+    const nextRange = {
+      min: Math.min(min, max),
+      max: Math.max(min, max),
+    }
     patchSettings({
-      strokeRangeMin: Math.min(min, max),
-      strokeRangeMax: Math.max(min, max),
+      strokeRangeMin: nextRange.min,
+      strokeRangeMax: nextRange.max,
     })
-  }, [patchSettings])
+    if (activeScriptStrokeRangeKeys.length > 0) {
+      setScriptStrokeRanges((current) => {
+        const next = { ...current }
+        for (const key of activeScriptStrokeRangeKeys) {
+          next[key] = nextRange
+        }
+        return next
+      })
+    }
+  }, [activeScriptStrokeRangeKeys, patchSettings])
 
   const handleQuickInvertStrokeChange = useCallback((invert: boolean) => {
     patchSettings({ invertStroke: invert })
@@ -4313,13 +4503,17 @@ export default function App() {
 
   const handleFileRatingChange = useCallback((file: VideoFile, rating: number) => {
     const nextRating = clampMediaRating(rating)
-    const key = normalizeOffsetPathKey(file.path)
+    const keys = getMediaRatingKeys(file)
     setFileRatings((current) => {
       const next = { ...current }
       if (nextRating > 0) {
-        next[key] = nextRating
+        for (const key of keys) {
+          next[key] = nextRating
+        }
       } else {
-        delete next[key]
+        for (const key of keys) {
+          delete next[key]
+        }
       }
       return next
     })
@@ -4520,6 +4714,8 @@ export default function App() {
           onScriptVariantReset={handleQuickScriptVariantReset}
           onManualScriptSelect={currentSidebarFile ? () => handleManualScriptSelect(currentSidebarFile) : undefined}
           subtitleCues={subtitleCues}
+          timelineAxisActions={displayAxisActions}
+          availableTimelineAxes={availableScriptAxes}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
           onPause={handlePause}

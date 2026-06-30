@@ -268,6 +268,17 @@ npm run build:linux
 - Tailwind CSS
 - Vite
 
+## Acknowledgments
+
+<p align="center">
+  <img src="docs/funosr.png" width="160" alt="FunOSR logo">
+</p>
+
+<p align="center">
+  FunOSR serial device hardware provided by <b>FunOSR</b> (manufacturer).<br>
+  Thank you for supplying test equipment used during development.
+</p>
+
 ## License
 
 `ScriptPlayer+ End User License Agreement`

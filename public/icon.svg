@@ -1,0 +1,41 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="112" y1="82" x2="906" y2="930" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#313244"/>
+      <stop offset="0.48" stop-color="#1E1E2E"/>
+      <stop offset="1" stop-color="#11111B"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(512 500) rotate(90) scale(390)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CBA6F7" stop-opacity="0.19"/>
+      <stop offset="1" stop-color="#CBA6F7" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="284" y1="250" x2="782" y2="750" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5C2E7"/>
+      <stop offset="0.55" stop-color="#CBA6F7"/>
+      <stop offset="1" stop-color="#A98AF4"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="286" y1="292" x2="488" y2="716" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.98"/>
+      <stop offset="1" stop-color="#EAD9FF" stop-opacity="0.86"/>
+    </linearGradient>
+    <clipPath id="playClip">
+      <path d="M326 246C294 226 252 249 252 288V736C252 775 294 798 326 778L770 554C806 536 806 488 770 470Z"/>
+    </clipPath>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="34" stdDeviation="34" flood-color="#00040A" flood-opacity="0.56"/>
+    </filter>
+  </defs>
+
+  <rect x="48" y="48" width="928" height="928" rx="236" fill="url(#bg)"/>
+  <rect x="48" y="48" width="928" height="928" rx="236" fill="url(#halo)"/>
+  <rect x="69" y="69" width="886" height="886" rx="218" fill="none" stroke="#FFFFFF" stroke-opacity="0.065" stroke-width="6"/>
+
+  <g filter="url(#shadow)">
+    <path d="M326 246C294 226 252 249 252 288V736C252 775 294 798 326 778L770 554C806 536 806 488 770 470Z" fill="url(#mark)"/>
+    <g clip-path="url(#playClip)">
+      <path d="M230 198L500 354V670L230 826Z" fill="url(#fold)"/>
+      <path d="M500 354L770 470C806 488 806 536 770 554L500 670Z" fill="#FFFFFF" fill-opacity="0.08"/>
+    </g>
+    <path d="M500 354V670" stroke="#160F24" stroke-opacity="0.2" stroke-width="12"/>
+  </g>
+</svg>

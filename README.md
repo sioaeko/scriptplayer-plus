@@ -5,9 +5,9 @@
 <h1 align="center">ScriptPlayer+</h1>
 
 <p align="center">
-  A modern desktop player for <b>local funscript playback</b>, with a cleaner playback UI,
-  <b>The Handy</b> sync, <b>Intiface / Buttplug</b> multi-axis routing, <b>FunOSR serial</b> support,
-  in-app <b>EroScripts</b> browsing, and a media library that is actually pleasant to use.
+  A cross-platform video and audio player built for <b>local funscript playback</b>, with
+  <b>The Handy</b>, <b>FunOSR</b>, and <b>Intiface / Buttplug</b> device support,
+  multi-axis tools, an organized media library, and experimental compatibility playback options.
 </p>
 
 <p align="center">
@@ -157,48 +157,60 @@ The focus is straightforward: clean playback, clean device control, and an effic
 
 - Plays local video files: `MP4`, `MKV`, `AVI`, `WebM`, `MOV`, `WMV`
 - Plays local audio files: `MP3`, `WAV`, `FLAC`, `M4A`, `AAC`, `OGG`, `OPUS`, `WMA`
+- Offers a visual library workspace alongside the collapsible classic file panel
 - Detects matching bundled funscripts, supports separate script folders, and can auto-pick unique fallback matches
 - Shows a quick script variant panel when multiple matching script bundles are available
 - Detects matching external subtitle files and lets you load subtitles manually
 - Shows hover video preview inside the file list
-- Sorts the library by path, file name, or last modified time
+- Sorts the library by path, file name, rating, duration, or last modified time
 - Separates repeat-current-media, `Auto Next Play`, shuffle playback, and adjustable playback rate
 - Supports drag and drop for opening media directly
-- Automatically picks matching cover art for audio playback when available
+- Searches audio metadata and work folders for matching cover art and subtitles
+- Includes optional volume boost up to `150%` for quiet audio
 
 ### Script Visualization And Control
 
-- Real-time scrolling timeline with configurable window size and height
+- Real-time scrolling timeline with selectable multi-axis tracks and configurable height
 - Full-media heatmap with speed-based color visualization
 - Quick `STR` stroke controls in the playback bar
-- Stroke range min / max controls and inverse stroke toggle
+- Range Extender controls with per-media stroke range storage and inverse stroke toggle
+- Per-media script offset from `-60s` to `+60s`, with direct decimal-second entry and fine-step buttons
 - Optional random fallback stroke generation for media without scripts
-- Automatic skipping for long empty script gaps in sparse scripts
-- Multi-axis funscript bundle loading and routing
+- Gap filling, delayed automatic skipping, and sparse-script controls
+- Multi-axis bundles using `axes[]` or `channels{}` plus separate per-axis funscript files
 
 ### Devices And Script Sources
 
-- `The Handy` sync with upload, setup, and time offset handling
+- `The Handy` API v2 sync with upload, setup, time offset handling, network diagnostics, and a compatibility mode for slower legacy hardware
 - `Intiface / Buttplug` multi-axis mapping for linear, rotate, and scalar features
-- `FunOSR` serial / COM output with adjustable update rate
+- `FunOSR` serial and Bluetooth COM profiles, adjustable update rate, axis mapping, reconnect handling, and motion smoothing
+- Dedicated accessory pairing, automatic reconnect, key mapping, and direct flasher access
+- Experimental external viewer launch support for `JAVPlayer`, `JAVPlayerEZ`, `mpv`, `PotPlayer`, `VLC`, and custom executables
+- Experimental FFmpeg fallback playback for video that Electron cannot decode directly
 - In-app `EroScripts` login, browsing, searching, and downloading
 - Session persistence for EroScripts login on the local machine
 
-## What's New In v0.2.0
+## What's New In v0.3.0
 
-- Added stronger script matching with recursive script-folder scanning, script variants, drag-and-drop script matching, and a manual match dialog
-- Added per-script / per-media offset controls with configurable keyboard shortcuts
-- Added device output smoothing through Motion Speed Limit presets
-- Added script debug tools, including current script path, source, axes, offset, copy path, reveal in Explorer, and reload actions
-- Added script-folder rescan, Always on Top, folder collapse persistence, and improved same-media script variant handling
+- Reworked the application around a unified navigation layout and a visual library workspace, while keeping the classic file panel available and collapsible
+- Expanded multi-axis parsing and visualization, including bundled `axes[]` / `channels{}` scripts, selectable simultaneous axis tracks, and adjustable timeline height
+- Added Range Extender workflows, per-media output ranges, motion smoothing controls, and direct script-offset input up to `±60s`
+- Improved Handy upload / HSSP recovery, added legacy Handy compatibility settings, and introduced Handy network latency diagnostics
+- Improved FunOSR serial and Bluetooth COM behavior with device profiles, reconnect-safe output, pause / home options, and smoother motion presets
+- Added experimental External Viewer Mode for JAVPlayer, JAVPlayerEZ, mpv, PotPlayer, VLC, and custom players
+- Added an experimental FFmpeg compatibility engine for media that Chromium cannot decode directly
+- Improved audio cover-art and subtitle discovery, added optional `150%` volume boost, and reduced heavy startup work
+- Added dedicated accessory automatic reconnect and improved pairing / flasher access
+- Added same-version hotfix detection, in-app hotfix notes, and installer handoff
+- Fixed playlist script rematching and several script-folder indexing, gap-fill, black-frame warning, and media metadata regressions
 
 ## Download
 
 | Platform | Package | Notes |
 | --- | --- | --- |
-| Windows x64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | Portable build, extract and run `ScriptPlayerPlus.exe` |
-| macOS x64 / arm64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | ZIP package, move `ScriptPlayerPlus.app` to Applications |
-| Linux x64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | `AppImage` build is published with each tagged release |
+| Windows x64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | Installer and portable ZIP |
+| macOS x64 / arm64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | DMG and ZIP packages |
+| Linux x64 | [Latest release](https://github.com/sioaeko/scriptplayer-plus/releases/latest) | AppImage, DEB, and archive packages when available |
 
 ## Supported Files
 
@@ -211,42 +223,13 @@ The focus is straightforward: clean playback, clean device control, and an effic
 ## Current Notes
 
 - Embedded subtitle tracks inside video containers are not parsed yet. Use external subtitle files for now.
-- Linux release output currently targets `x64 AppImage`.
-- The Japanese and Chinese READMEs under [`docs/`](docs) have not been refreshed to the same level as this main README yet.
+- External Viewer Mode launches every supported target, but transport control and synchronization depth vary by player.
+- FFmpeg compatibility playback is experimental and requires a working FFmpeg executable to be installed or selected in settings.
+- Device output currently uses one active provider at a time; simultaneous Handy + Intiface / FunOSR output is not supported yet.
 
-## Build From Source
+## Source Availability
 
-Use Node.js `20.x`. The project pins `20.20.2` in [`.nvmrc`](.nvmrc).
-
-```bash
-git clone https://github.com/sioaeko/scriptplayer-plus.git
-cd scriptplayer-plus
-npm install
-```
-
-Run the app in development:
-
-```bash
-npm run electron:dev
-```
-
-Build for Windows:
-
-```bash
-npm run build:win
-```
-
-Build for macOS:
-
-```bash
-npm run build:mac
-```
-
-Build for Linux:
-
-```bash
-npm run build:linux
-```
+ScriptPlayer+ is currently distributed as signed or packaged desktop binaries under its EULA. The public repository is used for releases, update metadata, documentation, and issue tracking; the full application source is not publicly distributed.
 
 ## Keyboard Shortcuts
 

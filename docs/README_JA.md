@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://www.patreon.com/cw/sioaeko0">
+    <img alt="PatreonでScriptPlayer+を支援" src="https://img.shields.io/badge/Patreon-Support%20Development-FF424D?logo=patreon&logoColor=white">
+  </a>
+</p>
+
+<p align="center">
   <a href="../README.md">English</a> · <a href="README_KO.md">한국어</a> · <a href="README_JA.md">日本語</a> · <a href="README_ZH.md">中文</a>
 </p>
 

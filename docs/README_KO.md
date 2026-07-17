@@ -18,9 +18,6 @@
     <img alt="Downloads" src="https://img.shields.io/github/downloads/sioaeko/scriptplayer-plus/total?label=Downloads">
   </a>
   <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-1f2937">
-  <a href="https://www.patreon.com/cw/sioaeko0">
-    <img alt="Patreon에서 ScriptPlayer+ 후원" src="https://img.shields.io/badge/Patreon-Support%20Development-FF424D?logo=patreon&logoColor=white">
-  </a>
   <img alt="License" src="https://img.shields.io/badge/License-EULA-111827">
 </p>
 

@@ -45,6 +45,11 @@
   Click the hero image or the demo cards below to open the short product videos.
 </p>
 
+## Release and recovery
+
+- [0.6.2 release notes](docs/releases/v0.6.2.md)
+- [Update and recovery guide](docs/UPDATE_AND_RECOVERY.md)
+
 ## Why ScriptPlayer+
 
 ScriptPlayer+ is for people who already have local media and scripts and want a player that feels current.

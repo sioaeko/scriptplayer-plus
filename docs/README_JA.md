@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
+    <img alt="アプリのダウンロード数" title="プレリリースを含むインストーラーとアプリアーカイブのダウンロード数です。更新用メタデータなどは除外し、利用者数とは異なります。" src="https://raw.githubusercontent.com/sioaeko/scriptplayer-plus/download-stats/downloads.svg">
+  </a>
+</p>
+
+<p align="center">
   <a href="../README.md">English</a> · <a href="README_KO.md">한국어</a> · <a href="README_JA.md">日本語</a> · <a href="README_ZH.md">中文</a>
 </p>
 

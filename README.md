@@ -15,7 +15,7 @@
     <img alt="Latest Release" src="https://img.shields.io/github/v/release/sioaeko/scriptplayer-plus?display_name=tag&label=Latest%20Release">
   </a>
   <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
-    <img alt="Downloads" src="https://img.shields.io/github/downloads/sioaeko/scriptplayer-plus/total?label=Downloads">
+    <img alt="Application downloads" title="Installer and app archive downloads across all releases, including prereleases. Excludes update metadata and other attachments; not unique users." src="https://raw.githubusercontent.com/sioaeko/scriptplayer-plus/download-stats/downloads.svg">
   </a>
   <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-1f2937">
   <img alt="License" src="https://img.shields.io/badge/License-EULA-111827">

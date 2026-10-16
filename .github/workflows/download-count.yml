@@ -1,0 +1,61 @@
+name: Update application download count
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  release:
+    types: [published, edited, deleted]
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/scripts/update-download-badge*'
+      - '.github/workflows/download-count.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: application-download-count
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository == 'sioaeko/scriptplayer-plus'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the counter
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: master
+          path: source
+          persist-credentials: false
+          sparse-checkout: .github
+      - name: Check out the published badge
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: download-stats
+          path: badge-data
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Check counting rules
+        run: node --test source/.github/scripts/update-download-badge.test.mjs
+      - name: Count application packages across all releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node source/.github/scripts/update-download-badge.mjs --output-dir badge-data
+      - name: Publish the badge when counts change
+        working-directory: badge-data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add downloads.svg downloads.json statistics.json
+          if git diff --cached --quiet; then
+            echo 'Download counts are unchanged.'
+            exit 0
+          fi
+          git commit -m 'Update application package download count'
+          git push origin HEAD:download-stats

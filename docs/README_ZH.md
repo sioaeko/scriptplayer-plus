@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
+    <img alt="应用下载次数" title="统计所有版本（含预发布版）的安装程序和应用压缩包下载次数，排除更新元数据等附件，不代表用户人数。" src="https://raw.githubusercontent.com/sioaeko/scriptplayer-plus/download-stats/downloads.svg">
+  </a>
+</p>
+
+<p align="center">
   <a href="../README.md">English</a> · <a href="README_KO.md">한국어</a> · <a href="README_JA.md">日本語</a> · <a href="README_ZH.md">中文</a>
 </p>
 

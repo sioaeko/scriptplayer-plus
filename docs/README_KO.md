@@ -15,7 +15,7 @@
     <img alt="Latest Release" src="https://img.shields.io/github/v/release/sioaeko/scriptplayer-plus?display_name=tag&label=Latest%20Release">
   </a>
   <a href="https://github.com/sioaeko/scriptplayer-plus/releases/latest">
-    <img alt="Downloads" src="https://img.shields.io/github/downloads/sioaeko/scriptplayer-plus/total?label=Downloads">
+    <img alt="프로그램 다운로드" title="베타를 포함한 전체 릴리스의 설치 파일·앱 압축본 다운로드 수입니다. 업데이트 안내 파일과 기타 첨부 파일은 제외하며, 사용자 수와는 다릅니다." src="https://raw.githubusercontent.com/sioaeko/scriptplayer-plus/download-stats/downloads.svg">
   </a>
   <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-1f2937">
   <img alt="License" src="https://img.shields.io/badge/License-EULA-111827">

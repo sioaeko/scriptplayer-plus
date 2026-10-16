@@ -1,0 +1,1111 @@
+{
+  "repository": "sioaeko/scriptplayer-plus",
+  "scope": "Currently published GitHub installers and application archives, including prereleases. Repeat downloads and updates count separately. Deleted/replaced assets and other distribution channels are not included.",
+  "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
+  "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
+  "totals": {
+    "downloads": 12921,
+    "stable": 12658,
+    "prerelease": 263,
+    "excluded": 89053
+  },
+  "platforms": {
+    "Windows": 11142,
+    "macOS": 697,
+    "Linux": 1082
+  },
+  "releases": [
+    {
+      "tag": "v0.7.1-beta.1",
+      "prerelease": true,
+      "downloads": 25
+    },
+    {
+      "tag": "v0.7.0",
+      "prerelease": false,
+      "downloads": 840
+    },
+    {
+      "tag": "v0.6.3",
+      "prerelease": false,
+      "downloads": 1093
+    },
+    {
+      "tag": "v0.6.2",
+      "prerelease": false,
+      "downloads": 1146
+    },
+    {
+      "tag": "v0.6.2-rc.5",
+      "prerelease": true,
+      "downloads": 76
+    },
+    {
+      "tag": "v0.6.2-rc.4",
+      "prerelease": true,
+      "downloads": 15
+    },
+    {
+      "tag": "v0.6.2-rc.3",
+      "prerelease": true,
+      "downloads": 18
+    },
+    {
+      "tag": "v0.6.2-rc.2",
+      "prerelease": true,
+      "downloads": 6
+    },
+    {
+      "tag": "v0.6.2-rc.1",
+      "prerelease": true,
+      "downloads": 58
+    },
+    {
+      "tag": "v0.6.1",
+      "prerelease": false,
+      "downloads": 1137
+    },
+    {
+      "tag": "v0.6.0",
+      "prerelease": false,
+      "downloads": 101
+    },
+    {
+      "tag": "v0.5.1",
+      "prerelease": false,
+      "downloads": 1036
+    },
+    {
+      "tag": "v0.5.0",
+      "prerelease": false,
+      "downloads": 633
+    },
+    {
+      "tag": "v0.4.0",
+      "prerelease": false,
+      "downloads": 1074
+    },
+    {
+      "tag": "v0.3.0",
+      "prerelease": false,
+      "downloads": 744
+    },
+    {
+      "tag": "v0.2.8",
+      "prerelease": false,
+      "downloads": 413
+    },
+    {
+      "tag": "v0.2.7",
+      "prerelease": false,
+      "downloads": 658
+    },
+    {
+      "tag": "v0.2.6",
+      "prerelease": false,
+      "downloads": 562
+    },
+    {
+      "tag": "v0.2.5",
+      "prerelease": false,
+      "downloads": 532
+    },
+    {
+      "tag": "v0.2.4",
+      "prerelease": false,
+      "downloads": 305
+    },
+    {
+      "tag": "v0.2.3",
+      "prerelease": false,
+      "downloads": 355
+    },
+    {
+      "tag": "v0.2.2",
+      "prerelease": false,
+      "downloads": 220
+    },
+    {
+      "tag": "v0.2.1",
+      "prerelease": false,
+      "downloads": 285
+    },
+    {
+      "tag": "v0.2.0",
+      "prerelease": false,
+      "downloads": 485
+    },
+    {
+      "tag": "v0.1.9",
+      "prerelease": false,
+      "downloads": 165
+    },
+    {
+      "tag": "v0.1.8",
+      "prerelease": false,
+      "downloads": 262
+    },
+    {
+      "tag": "v0.1.7",
+      "prerelease": false,
+      "downloads": 220
+    },
+    {
+      "tag": "v0.1.7-exp.3",
+      "prerelease": true,
+      "downloads": 18
+    },
+    {
+      "tag": "v0.1.7-exp.1",
+      "prerelease": true,
+      "downloads": 0
+    },
+    {
+      "tag": "v0.1.6",
+      "prerelease": false,
+      "downloads": 135
+    },
+    {
+      "tag": "v0.1.5",
+      "prerelease": false,
+      "downloads": 174
+    },
+    {
+      "tag": "v0.1.5-exp.8",
+      "prerelease": true,
+      "downloads": 9
+    },
+    {
+      "tag": "v0.1.5-exp.7",
+      "prerelease": true,
+      "downloads": 4
+    },
+    {
+      "tag": "v0.1.5-exp.6",
+      "prerelease": true,
+      "downloads": 5
+    },
+    {
+      "tag": "v0.1.5-exp.5",
+      "prerelease": true,
+      "downloads": 3
+    },
+    {
+      "tag": "v0.1.5-exp.4",
+      "prerelease": true,
+      "downloads": 4
+    },
+    {
+      "tag": "v0.1.5-exp.3",
+      "prerelease": true,
+      "downloads": 2
+    },
+    {
+      "tag": "v0.1.5-exp.2",
+      "prerelease": true,
+      "downloads": 19
+    },
+    {
+      "tag": "v0.1.5-exp.1",
+      "prerelease": true,
+      "downloads": 1
+    },
+    {
+      "tag": "v0.1.4",
+      "prerelease": false,
+      "downloads": 28
+    },
+    {
+      "tag": "v0.1.3",
+      "prerelease": false,
+      "downloads": 10
+    },
+    {
+      "tag": "v0.1.2",
+      "prerelease": false,
+      "downloads": 37
+    },
+    {
+      "tag": "v0.1.1",
+      "prerelease": false,
+      "downloads": 8
+    }
+  ],
+  "assets": [
+    {
+      "release": "v0.7.1-beta.1",
+      "name": "ScriptPlayerPlus-v0.7.1-beta.1-win-x64.zip",
+      "downloads": 25
+    },
+    {
+      "release": "v0.7.0",
+      "name": "ScriptPlayerPlus-0.7.0-arm64-mac.dmg",
+      "downloads": 23
+    },
+    {
+      "release": "v0.7.0",
+      "name": "ScriptPlayerPlus-0.7.0-arm64-mac.zip",
+      "downloads": 3
+    },
+    {
+      "release": "v0.7.0",
+      "name": "ScriptPlayerPlus-0.7.0-linux-amd64.deb",
+      "downloads": 7
+    },
+    {
+      "release": "v0.7.0",
+      "name": "ScriptPlayerPlus-0.7.0-linux-x64.tar.gz",
+      "downloads": 17
+    },
+    {
+      "release": "v0.7.0",
+      "name": "ScriptPlayerPlus-0.7.0-linux-x86_64.AppImage",
+      "downloads": 65
+    },
+    {
+      "release": "v0.7.0",
+      "name": "ScriptPlayerPlus-Setup-0.7.0.exe",
+      "downloads": 589
+    },
+    {
+      "release": "v0.7.0",
+      "name": "ScriptPlayerPlus-v0.7.0-win-x64.zip",
+      "downloads": 136
+    },
+    {
+      "release": "v0.6.3",
+      "name": "ScriptPlayerPlus-0.6.3-arm64-mac.dmg",
+      "downloads": 45
+    },
+    {
+      "release": "v0.6.3",
+      "name": "ScriptPlayerPlus-0.6.3-arm64-mac.zip",
+      "downloads": 9
+    },
+    {
+      "release": "v0.6.3",
+      "name": "ScriptPlayerPlus-0.6.3-linux-amd64.deb",
+      "downloads": 6
+    },
+    {
+      "release": "v0.6.3",
+      "name": "ScriptPlayerPlus-0.6.3-linux-x64.tar.gz",
+      "downloads": 15
+    },
+    {
+      "release": "v0.6.3",
+      "name": "ScriptPlayerPlus-0.6.3-linux-x86_64.AppImage",
+      "downloads": 50
+    },
+    {
+      "release": "v0.6.3",
+      "name": "ScriptPlayerPlus-Setup-0.6.3.exe",
+      "downloads": 722
+    },
+    {
+      "release": "v0.6.3",
+      "name": "ScriptPlayerPlus-v0.6.3-win-x64.zip",
+      "downloads": 246
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-0.6.2-arm64-mac.dmg",
+      "downloads": 36
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-0.6.2-arm64-mac.zip",
+      "downloads": 17
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-0.6.2-linux-amd64.deb",
+      "downloads": 11
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-0.6.2-linux-x64.tar.gz",
+      "downloads": 25
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-0.6.2-linux-x86_64.AppImage",
+      "downloads": 64
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-0.6.2-x64-mac.dmg",
+      "downloads": 14
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-0.6.2-x64-mac.zip",
+      "downloads": 7
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-Setup-0.6.2.exe",
+      "downloads": 736
+    },
+    {
+      "release": "v0.6.2",
+      "name": "ScriptPlayerPlus-v0.6.2-win-x64.zip",
+      "downloads": 236
+    },
+    {
+      "release": "v0.6.2-rc.5",
+      "name": "ScriptPlayerPlus-v0.6.2-rc.5-win-x64.zip",
+      "downloads": 76
+    },
+    {
+      "release": "v0.6.2-rc.4",
+      "name": "ScriptPlayerPlus-v0.6.2-rc.4-win-x64.zip",
+      "downloads": 15
+    },
+    {
+      "release": "v0.6.2-rc.3",
+      "name": "ScriptPlayerPlus-v0.6.2-rc.3-win-x64.zip",
+      "downloads": 18
+    },
+    {
+      "release": "v0.6.2-rc.2",
+      "name": "ScriptPlayerPlus-v0.6.2-rc.2-win-x64.zip",
+      "downloads": 6
+    },
+    {
+      "release": "v0.6.2-rc.1",
+      "name": "ScriptPlayerPlus-v0.6.2-rc.1-win-x64.zip",
+      "downloads": 58
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-0.6.1-arm64-mac.dmg",
+      "downloads": 37
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-0.6.1-arm64-mac.zip",
+      "downloads": 7
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-0.6.1-linux-amd64.deb",
+      "downloads": 18
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-0.6.1-linux-x64.tar.gz",
+      "downloads": 21
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-0.6.1-linux-x86_64.AppImage",
+      "downloads": 74
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-0.6.1-x64-mac.dmg",
+      "downloads": 7
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-0.6.1-x64-mac.zip",
+      "downloads": 1
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-Setup-0.6.1.exe",
+      "downloads": 707
+    },
+    {
+      "release": "v0.6.1",
+      "name": "ScriptPlayerPlus-v0.6.1-win-x64.zip",
+      "downloads": 265
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-0.6.0-arm64-mac.dmg",
+      "downloads": 6
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-0.6.0-arm64-mac.zip",
+      "downloads": 0
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-0.6.0-linux-amd64.deb",
+      "downloads": 2
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-0.6.0-linux-x64.tar.gz",
+      "downloads": 1
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-0.6.0-linux-x86_64.AppImage",
+      "downloads": 3
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-0.6.0-x64-mac.dmg",
+      "downloads": 0
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-0.6.0-x64-mac.zip",
+      "downloads": 0
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-Setup-0.6.0.exe",
+      "downloads": 79
+    },
+    {
+      "release": "v0.6.0",
+      "name": "ScriptPlayerPlus-v0.6.0-win-x64.zip",
+      "downloads": 10
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-0.5.1-arm64-mac.dmg",
+      "downloads": 65
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-0.5.1-arm64-mac.zip",
+      "downloads": 6
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-0.5.1-linux-amd64.deb",
+      "downloads": 13
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-0.5.1-linux-x64.tar.gz",
+      "downloads": 22
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-0.5.1-linux-x86_64.AppImage",
+      "downloads": 64
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-0.5.1-x64-mac.dmg",
+      "downloads": 3
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-0.5.1-x64-mac.zip",
+      "downloads": 7
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-Setup-0.5.1.exe",
+      "downloads": 655
+    },
+    {
+      "release": "v0.5.1",
+      "name": "ScriptPlayerPlus-v0.5.1-win-x64.zip",
+      "downloads": 201
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-0.5.0-arm64-mac.dmg",
+      "downloads": 14
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-0.5.0-arm64-mac.zip",
+      "downloads": 2
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-0.5.0-linux-amd64.deb",
+      "downloads": 7
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-0.5.0-linux-x64.tar.gz",
+      "downloads": 5
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-0.5.0-linux-x86_64.AppImage",
+      "downloads": 29
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-0.5.0-x64-mac.dmg",
+      "downloads": 6
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-0.5.0-x64-mac.zip",
+      "downloads": 2
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-Setup-0.5.0.exe",
+      "downloads": 404
+    },
+    {
+      "release": "v0.5.0",
+      "name": "ScriptPlayerPlus-v0.5.0-win-x64.zip",
+      "downloads": 164
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-0.4.0-arm64-mac.dmg",
+      "downloads": 20
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-0.4.0-arm64-mac.zip",
+      "downloads": 8
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-0.4.0-linux-amd64.deb",
+      "downloads": 15
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-0.4.0-linux-x64.tar.gz",
+      "downloads": 22
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-0.4.0-linux-x86_64.AppImage",
+      "downloads": 86
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-0.4.0-x64-mac.dmg",
+      "downloads": 9
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-0.4.0-x64-mac.zip",
+      "downloads": 10
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-Setup-0.4.0.exe",
+      "downloads": 573
+    },
+    {
+      "release": "v0.4.0",
+      "name": "ScriptPlayerPlus-v0.4.0-win-x64.zip",
+      "downloads": 331
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-0.3.0-arm64-mac.dmg",
+      "downloads": 23
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-0.3.0-arm64-mac.zip",
+      "downloads": 9
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-0.3.0-linux-amd64.deb",
+      "downloads": 9
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-0.3.0-linux-x64.tar.gz",
+      "downloads": 16
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-0.3.0-linux-x86_64.AppImage",
+      "downloads": 40
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-0.3.0-x64-mac.dmg",
+      "downloads": 6
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-0.3.0-x64-mac.zip",
+      "downloads": 1
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-Setup-0.3.0.exe",
+      "downloads": 373
+    },
+    {
+      "release": "v0.3.0",
+      "name": "ScriptPlayerPlus-v0.3.0-win-x64.zip",
+      "downloads": 267
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-0.2.8-arm64-mac.dmg",
+      "downloads": 16
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-0.2.8-arm64-mac.zip",
+      "downloads": 6
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-0.2.8-linux-amd64.deb",
+      "downloads": 6
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-0.2.8-linux-x64.tar.gz",
+      "downloads": 14
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-0.2.8-linux-x86_64.AppImage",
+      "downloads": 24
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-0.2.8-x64-mac.dmg",
+      "downloads": 1
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-0.2.8-x64-mac.zip",
+      "downloads": 1
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-Setup-0.2.8.exe",
+      "downloads": 157
+    },
+    {
+      "release": "v0.2.8",
+      "name": "ScriptPlayerPlus-v0.2.8-win-x64.zip",
+      "downloads": 188
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-0.2.7-arm64-mac.dmg",
+      "downloads": 16
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-0.2.7-arm64-mac.zip",
+      "downloads": 10
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-0.2.7-linux-amd64.deb",
+      "downloads": 6
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-0.2.7-linux-x64.tar.gz",
+      "downloads": 19
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-0.2.7-linux-x86_64.AppImage",
+      "downloads": 35
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-0.2.7-x64-mac.dmg",
+      "downloads": 4
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-0.2.7-x64-mac.zip",
+      "downloads": 3
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus-v0.2.7-win-x64.zip",
+      "downloads": 344
+    },
+    {
+      "release": "v0.2.7",
+      "name": "ScriptPlayerPlus.Setup.0.2.7.exe",
+      "downloads": 221
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-0.2.6-arm64-mac.dmg",
+      "downloads": 8
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-0.2.6-arm64-mac.zip",
+      "downloads": 5
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-0.2.6-linux-amd64.deb",
+      "downloads": 4
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-0.2.6-linux-x64.tar.gz",
+      "downloads": 6
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-0.2.6-linux-x86_64.AppImage",
+      "downloads": 34
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-0.2.6-x64-mac.dmg",
+      "downloads": 2
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-0.2.6-x64-mac.zip",
+      "downloads": 2
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-Setup-0.2.6.exe",
+      "downloads": 242
+    },
+    {
+      "release": "v0.2.6",
+      "name": "ScriptPlayerPlus-v0.2.6-win-x64.zip",
+      "downloads": 259
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-0.2.5-arm64-mac.dmg",
+      "downloads": 23
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-0.2.5-arm64-mac.zip",
+      "downloads": 7
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-0.2.5-linux-amd64.deb",
+      "downloads": 5
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-0.2.5-linux-x64.tar.gz",
+      "downloads": 9
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-0.2.5-linux-x86_64.AppImage",
+      "downloads": 31
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-0.2.5-x64-mac.dmg",
+      "downloads": 4
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-0.2.5-x64-mac.zip",
+      "downloads": 2
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-Setup-0.2.5.exe",
+      "downloads": 211
+    },
+    {
+      "release": "v0.2.5",
+      "name": "ScriptPlayerPlus-v0.2.5-win-x64.zip",
+      "downloads": 240
+    },
+    {
+      "release": "v0.2.4",
+      "name": "ScriptPlayerPlus-0.2.4-arm64-mac.zip",
+      "downloads": 12
+    },
+    {
+      "release": "v0.2.4",
+      "name": "ScriptPlayerPlus-0.2.4-mac.zip",
+      "downloads": 9
+    },
+    {
+      "release": "v0.2.4",
+      "name": "ScriptPlayerPlus-0.2.4.AppImage",
+      "downloads": 19
+    },
+    {
+      "release": "v0.2.4",
+      "name": "ScriptPlayerPlus-v0.2.4-win-x64.zip",
+      "downloads": 265
+    },
+    {
+      "release": "v0.2.3",
+      "name": "ScriptPlayerPlus-0.2.3-arm64-mac.zip",
+      "downloads": 18
+    },
+    {
+      "release": "v0.2.3",
+      "name": "ScriptPlayerPlus-0.2.3-mac.zip",
+      "downloads": 12
+    },
+    {
+      "release": "v0.2.3",
+      "name": "ScriptPlayerPlus-0.2.3.AppImage",
+      "downloads": 38
+    },
+    {
+      "release": "v0.2.3",
+      "name": "ScriptPlayerPlus-v0.2.3-win-x64.zip",
+      "downloads": 287
+    },
+    {
+      "release": "v0.2.2",
+      "name": "ScriptPlayerPlus-0.2.2-arm64-mac.zip",
+      "downloads": 10
+    },
+    {
+      "release": "v0.2.2",
+      "name": "ScriptPlayerPlus-0.2.2-mac.zip",
+      "downloads": 5
+    },
+    {
+      "release": "v0.2.2",
+      "name": "ScriptPlayerPlus-0.2.2.AppImage",
+      "downloads": 15
+    },
+    {
+      "release": "v0.2.2",
+      "name": "ScriptPlayerPlus-v0.2.2-win-x64.zip",
+      "downloads": 190
+    },
+    {
+      "release": "v0.2.1",
+      "name": "ScriptPlayerPlus-0.2.1-arm64-mac.zip",
+      "downloads": 14
+    },
+    {
+      "release": "v0.2.1",
+      "name": "ScriptPlayerPlus-0.2.1-mac.zip",
+      "downloads": 9
+    },
+    {
+      "release": "v0.2.1",
+      "name": "ScriptPlayerPlus-0.2.1.AppImage",
+      "downloads": 28
+    },
+    {
+      "release": "v0.2.1",
+      "name": "ScriptPlayerPlus-v0.2.1-win-x64.zip",
+      "downloads": 234
+    },
+    {
+      "release": "v0.2.0",
+      "name": "ScriptPlayerPlus-0.2.0-arm64-mac.zip",
+      "downloads": 20
+    },
+    {
+      "release": "v0.2.0",
+      "name": "ScriptPlayerPlus-0.2.0-mac.zip",
+      "downloads": 6
+    },
+    {
+      "release": "v0.2.0",
+      "name": "ScriptPlayerPlus-0.2.0.AppImage",
+      "downloads": 21
+    },
+    {
+      "release": "v0.2.0",
+      "name": "ScriptPlayerPlus-v0.2.0-win-x64.zip",
+      "downloads": 438
+    },
+    {
+      "release": "v0.1.9",
+      "name": "ScriptPlayerPlus-0.1.9-arm64-mac.zip",
+      "downloads": 5
+    },
+    {
+      "release": "v0.1.9",
+      "name": "ScriptPlayerPlus-0.1.9-mac.zip",
+      "downloads": 1
+    },
+    {
+      "release": "v0.1.9",
+      "name": "ScriptPlayerPlus-0.1.9.AppImage",
+      "downloads": 10
+    },
+    {
+      "release": "v0.1.9",
+      "name": "ScriptPlayerPlus-v0.1.9-win-x64.zip",
+      "downloads": 149
+    },
+    {
+      "release": "v0.1.8",
+      "name": "ScriptPlayerPlus-0.1.8-arm64-mac.zip",
+      "downloads": 13
+    },
+    {
+      "release": "v0.1.8",
+      "name": "ScriptPlayerPlus-0.1.8-mac.zip",
+      "downloads": 7
+    },
+    {
+      "release": "v0.1.8",
+      "name": "ScriptPlayerPlus-0.1.8.AppImage",
+      "downloads": 16
+    },
+    {
+      "release": "v0.1.8",
+      "name": "ScriptPlayerPlus-v0.1.8-win-x64.zip",
+      "downloads": 226
+    },
+    {
+      "release": "v0.1.7",
+      "name": "ScriptPlayerPlus-0.1.7-arm64-mac.zip",
+      "downloads": 9
+    },
+    {
+      "release": "v0.1.7",
+      "name": "ScriptPlayerPlus-0.1.7-mac.zip",
+      "downloads": 6
+    },
+    {
+      "release": "v0.1.7",
+      "name": "ScriptPlayerPlus-0.1.7.AppImage",
+      "downloads": 18
+    },
+    {
+      "release": "v0.1.7",
+      "name": "ScriptPlayerPlus-v0.1.7-win-x64.zip",
+      "downloads": 187
+    },
+    {
+      "release": "v0.1.7-exp.3",
+      "name": "ScriptPlayerPlus-0.1.7-arm64-mac.zip",
+      "downloads": 3
+    },
+    {
+      "release": "v0.1.7-exp.3",
+      "name": "ScriptPlayerPlus-0.1.7-mac.zip",
+      "downloads": 3
+    },
+    {
+      "release": "v0.1.7-exp.3",
+      "name": "ScriptPlayerPlus-v0.1.7-exp.3-windows-x64.zip",
+      "downloads": 12
+    },
+    {
+      "release": "v0.1.6",
+      "name": "ScriptPlayerPlus-0.1.6-arm64-mac.zip",
+      "downloads": 8
+    },
+    {
+      "release": "v0.1.6",
+      "name": "ScriptPlayerPlus-0.1.6-mac.zip",
+      "downloads": 3
+    },
+    {
+      "release": "v0.1.6",
+      "name": "ScriptPlayerPlus-v0.1.6-win-x64.zip",
+      "downloads": 124
+    },
+    {
+      "release": "v0.1.5",
+      "name": "ScriptPlayerPlus-0.1.5-arm64-mac.zip",
+      "downloads": 3
+    },
+    {
+      "release": "v0.1.5",
+      "name": "ScriptPlayerPlus-0.1.5-mac.zip",
+      "downloads": 8
+    },
+    {
+      "release": "v0.1.5",
+      "name": "ScriptPlayerPlus-0.1.5-Windows-x64.zip",
+      "downloads": 146
+    },
+    {
+      "release": "v0.1.5",
+      "name": "ScriptPlayerPlus-0.1.5.AppImage",
+      "downloads": 17
+    },
+    {
+      "release": "v0.1.5-exp.8",
+      "name": "ScriptPlayerPlus-0.1.5-exp.8-Windows-x64.zip",
+      "downloads": 9
+    },
+    {
+      "release": "v0.1.5-exp.7",
+      "name": "ScriptPlayerPlus-0.1.5-exp.7-Windows-x64.zip",
+      "downloads": 4
+    },
+    {
+      "release": "v0.1.5-exp.6",
+      "name": "ScriptPlayerPlus-0.1.5-exp.6-Windows-x64.zip",
+      "downloads": 5
+    },
+    {
+      "release": "v0.1.5-exp.5",
+      "name": "ScriptPlayerPlus-0.1.5-exp.5-Windows-x64.zip",
+      "downloads": 3
+    },
+    {
+      "release": "v0.1.5-exp.4",
+      "name": "ScriptPlayerPlus-0.1.5-exp.4-Windows-x64.zip",
+      "downloads": 4
+    },
+    {
+      "release": "v0.1.5-exp.3",
+      "name": "ScriptPlayerPlus-0.1.5-exp.3-Windows-x64.zip",
+      "downloads": 2
+    },
+    {
+      "release": "v0.1.5-exp.2",
+      "name": "ScriptPlayerPlus-0.1.5-exp.2-Windows-x64.zip",
+      "downloads": 19
+    },
+    {
+      "release": "v0.1.5-exp.1",
+      "name": "ScriptPlayerPlus-0.1.5-exp.1-Windows-x64.zip",
+      "downloads": 1
+    },
+    {
+      "release": "v0.1.4",
+      "name": "ScriptPlayerPlus-0.1.4-Windows-x64.zip",
+      "downloads": 28
+    },
+    {
+      "release": "v0.1.3",
+      "name": "ScriptPlayerPlus-0.1.3-Windows-x64.zip",
+      "downloads": 10
+    },
+    {
+      "release": "v0.1.2",
+      "name": "ScriptPlayerPlus-0.1.2-Windows-x64.zip",
+      "downloads": 37
+    },
+    {
+      "release": "v0.1.1",
+      "name": "ScriptPlayerPlus-0.1.1-arm64-mac.zip",
+      "downloads": 0
+    },
+    {
+      "release": "v0.1.1",
+      "name": "ScriptPlayerPlus-0.1.1-mac-intel.zip",
+      "downloads": 0
+    },
+    {
+      "release": "v0.1.1",
+      "name": "ScriptPlayerPlus-0.1.1-Windows-x64.zip",
+      "downloads": 8
+    }
+  ]
+}

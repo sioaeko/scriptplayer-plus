@@ -4,15 +4,15 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 13191,
-    "stable": 12910,
+    "downloads": 13206,
+    "stable": 12925,
     "prerelease": 281,
-    "excluded": 93621
+    "excluded": 93863
   },
   "platforms": {
-    "Windows": 11373,
-    "macOS": 715,
-    "Linux": 1103
+    "Windows": 11386,
+    "macOS": 716,
+    "Linux": 1104
   },
   "releases": [
     {
@@ -23,7 +23,7 @@
     {
       "tag": "v0.7.0",
       "prerelease": false,
-      "downloads": 1070
+      "downloads": 1083
     },
     {
       "tag": "v0.6.3",
@@ -83,7 +83,7 @@
     {
       "tag": "v0.4.0",
       "prerelease": false,
-      "downloads": 1075
+      "downloads": 1076
     },
     {
       "tag": "v0.3.0",
@@ -98,7 +98,7 @@
     {
       "tag": "v0.2.7",
       "prerelease": false,
-      "downloads": 659
+      "downloads": 660
     },
     {
       "tag": "v0.2.6",
@@ -240,7 +240,7 @@
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-0.7.0-arm64-mac.dmg",
-      "downloads": 36
+      "downloads": 37
     },
     {
       "release": "v0.7.0",
@@ -250,7 +250,7 @@
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-0.7.0-linux-amd64.deb",
-      "downloads": 7
+      "downloads": 8
     },
     {
       "release": "v0.7.0",
@@ -265,12 +265,12 @@
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-Setup-0.7.0.exe",
-      "downloads": 734
+      "downloads": 743
     },
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-v0.7.0-win-x64.zip",
-      "downloads": 186
+      "downloads": 188
     },
     {
       "release": "v0.6.3",
@@ -600,7 +600,7 @@
     {
       "release": "v0.4.0",
       "name": "ScriptPlayerPlus-v0.4.0-win-x64.zip",
-      "downloads": 332
+      "downloads": 333
     },
     {
       "release": "v0.3.0",
@@ -730,7 +730,7 @@
     {
       "release": "v0.2.7",
       "name": "ScriptPlayerPlus-v0.2.7-win-x64.zip",
-      "downloads": 345
+      "downloads": 346
     },
     {
       "release": "v0.2.7",

@@ -4,13 +4,13 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 13282,
-    "stable": 12993,
+    "downloads": 13289,
+    "stable": 13000,
     "prerelease": 289,
-    "excluded": 95668
+    "excluded": 95830
   },
   "platforms": {
-    "Windows": 11453,
+    "Windows": 11460,
     "macOS": 719,
     "Linux": 1110
   },
@@ -23,7 +23,7 @@
     {
       "tag": "v0.7.0",
       "prerelease": false,
-      "downloads": 1146
+      "downloads": 1153
     },
     {
       "tag": "v0.6.3",
@@ -265,12 +265,12 @@
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-Setup-0.7.0.exe",
-      "downloads": 777
+      "downloads": 782
     },
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-v0.7.0-win-x64.zip",
-      "downloads": 209
+      "downloads": 211
     },
     {
       "release": "v0.6.3",

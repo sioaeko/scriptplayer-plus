@@ -4,21 +4,21 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 13357,
-    "stable": 13061,
+    "downloads": 13381,
+    "stable": 13085,
     "prerelease": 296,
-    "excluded": 97276
+    "excluded": 97425
   },
   "platforms": {
-    "Windows": 11524,
+    "Windows": 11544,
     "macOS": 720,
-    "Linux": 1113
+    "Linux": 1117
   },
   "releases": [
     {
       "tag": "v0.7.1",
       "prerelease": false,
-      "downloads": 0
+      "downloads": 22
     },
     {
       "tag": "v0.7.1-beta.1",
@@ -33,7 +33,7 @@
     {
       "tag": "v0.6.3",
       "prerelease": false,
-      "downloads": 1111
+      "downloads": 1112
     },
     {
       "tag": "v0.6.2",
@@ -68,7 +68,7 @@
     {
       "tag": "v0.6.1",
       "prerelease": false,
-      "downloads": 1137
+      "downloads": 1138
     },
     {
       "tag": "v0.6.0",
@@ -255,22 +255,22 @@
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-0.7.1-linux-x64.tar.gz",
-      "downloads": 0
+      "downloads": 1
     },
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-0.7.1-linux-x86_64.AppImage",
-      "downloads": 0
+      "downloads": 1
     },
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-Setup-0.7.1.exe",
-      "downloads": 0
+      "downloads": 19
     },
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-v0.7.1-win-x64.zip",
-      "downloads": 0
+      "downloads": 1
     },
     {
       "release": "v0.7.1-beta.1",
@@ -335,7 +335,7 @@
     {
       "release": "v0.6.3",
       "name": "ScriptPlayerPlus-0.6.3-linux-x86_64.AppImage",
-      "downloads": 50
+      "downloads": 51
     },
     {
       "release": "v0.6.3",
@@ -440,7 +440,7 @@
     {
       "release": "v0.6.1",
       "name": "ScriptPlayerPlus-0.6.1-linux-x86_64.AppImage",
-      "downloads": 74
+      "downloads": 75
     },
     {
       "release": "v0.6.1",

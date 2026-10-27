@@ -4,21 +4,21 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 13816,
-    "stable": 13520,
+    "downloads": 13846,
+    "stable": 13550,
     "prerelease": 296,
-    "excluded": 100359
+    "excluded": 100580
   },
   "platforms": {
-    "Windows": 11946,
+    "Windows": 11975,
     "macOS": 731,
-    "Linux": 1139
+    "Linux": 1140
   },
   "releases": [
     {
       "tag": "v0.7.1",
       "prerelease": false,
-      "downloads": 440
+      "downloads": 465
     },
     {
       "tag": "v0.7.1-beta.1",
@@ -28,7 +28,7 @@
     {
       "tag": "v0.7.0",
       "prerelease": false,
-      "downloads": 1217
+      "downloads": 1221
     },
     {
       "tag": "v0.6.3",
@@ -153,7 +153,7 @@
     {
       "tag": "v0.1.7",
       "prerelease": false,
-      "downloads": 227
+      "downloads": 228
     },
     {
       "tag": "v0.1.7-exp.3",
@@ -265,12 +265,12 @@
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-Setup-0.7.1.exe",
-      "downloads": 351
+      "downloads": 370
     },
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-v0.7.1-win-x64.zip",
-      "downloads": 57
+      "downloads": 63
     },
     {
       "release": "v0.7.1-beta.1",
@@ -300,17 +300,17 @@
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-0.7.0-linux-x86_64.AppImage",
-      "downloads": 88
+      "downloads": 89
     },
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-Setup-0.7.0.exe",
-      "downloads": 827
+      "downloads": 829
     },
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-v0.7.0-win-x64.zip",
-      "downloads": 226
+      "downloads": 227
     },
     {
       "release": "v0.6.3",
@@ -1025,7 +1025,7 @@
     {
       "release": "v0.1.7",
       "name": "ScriptPlayerPlus-v0.1.7-win-x64.zip",
-      "downloads": 190
+      "downloads": 191
     },
     {
       "release": "v0.1.7-exp.3",

@@ -4,26 +4,26 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 15167,
-    "stable": 14850,
+    "downloads": 15215,
+    "stable": 14898,
     "prerelease": 317,
-    "excluded": 114877
+    "excluded": 115404
   },
   "platforms": {
-    "Windows": 13029,
-    "macOS": 862,
-    "Linux": 1276
+    "Windows": 13067,
+    "macOS": 868,
+    "Linux": 1280
   },
   "releases": [
     {
       "tag": "v0.7.2",
       "prerelease": false,
-      "downloads": 495
+      "downloads": 540
     },
     {
       "tag": "v0.7.1",
       "prerelease": false,
-      "downloads": 1040
+      "downloads": 1041
     },
     {
       "tag": "v0.7.1-beta.1",
@@ -78,7 +78,7 @@
     {
       "tag": "v0.6.0",
       "prerelease": false,
-      "downloads": 105
+      "downloads": 106
     },
     {
       "tag": "v0.5.1",
@@ -148,7 +148,7 @@
     {
       "tag": "v0.1.9",
       "prerelease": false,
-      "downloads": 173
+      "downloads": 174
     },
     {
       "tag": "v0.1.8",
@@ -245,12 +245,12 @@
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-0.7.2-arm64-mac.dmg",
-      "downloads": 27
+      "downloads": 32
     },
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-0.7.2-arm64-mac.zip",
-      "downloads": 5
+      "downloads": 6
     },
     {
       "release": "v0.7.2",
@@ -265,17 +265,17 @@
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-0.7.2-linux-x86_64.AppImage",
-      "downloads": 20
+      "downloads": 22
     },
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-Setup-0.7.2.exe",
-      "downloads": 344
+      "downloads": 375
     },
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-v0.7.2-win-x64.zip",
-      "downloads": 84
+      "downloads": 90
     },
     {
       "release": "v0.7.1",
@@ -305,7 +305,7 @@
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-Setup-0.7.1.exe",
-      "downloads": 741
+      "downloads": 742
     },
     {
       "release": "v0.7.1",
@@ -520,7 +520,7 @@
     {
       "release": "v0.6.0",
       "name": "ScriptPlayerPlus-0.6.0-linux-x64.tar.gz",
-      "downloads": 1
+      "downloads": 2
     },
     {
       "release": "v0.6.0",
@@ -1020,7 +1020,7 @@
     {
       "release": "v0.1.9",
       "name": "ScriptPlayerPlus-0.1.9.AppImage",
-      "downloads": 12
+      "downloads": 13
     },
     {
       "release": "v0.1.9",

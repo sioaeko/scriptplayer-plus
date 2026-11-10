@@ -4,21 +4,21 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 15142,
-    "stable": 14825,
+    "downloads": 15167,
+    "stable": 14850,
     "prerelease": 317,
-    "excluded": 114635
+    "excluded": 114877
   },
   "platforms": {
-    "Windows": 13005,
+    "Windows": 13029,
     "macOS": 862,
-    "Linux": 1275
+    "Linux": 1276
   },
   "releases": [
     {
       "tag": "v0.7.2",
       "prerelease": false,
-      "downloads": 473
+      "downloads": 495
     },
     {
       "tag": "v0.7.1",
@@ -38,12 +38,12 @@
     {
       "tag": "v0.6.3",
       "prerelease": false,
-      "downloads": 1126
+      "downloads": 1127
     },
     {
       "tag": "v0.6.2",
       "prerelease": false,
-      "downloads": 1162
+      "downloads": 1163
     },
     {
       "tag": "v0.6.2-rc.5",
@@ -153,7 +153,7 @@
     {
       "tag": "v0.1.8",
       "prerelease": false,
-      "downloads": 273
+      "downloads": 274
     },
     {
       "tag": "v0.1.7",
@@ -270,12 +270,12 @@
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-Setup-0.7.2.exe",
-      "downloads": 328
+      "downloads": 344
     },
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-v0.7.2-win-x64.zip",
-      "downloads": 78
+      "downloads": 84
     },
     {
       "release": "v0.7.1",
@@ -380,7 +380,7 @@
     {
       "release": "v0.6.3",
       "name": "ScriptPlayerPlus-Setup-0.6.3.exe",
-      "downloads": 736
+      "downloads": 737
     },
     {
       "release": "v0.6.3",
@@ -405,7 +405,7 @@
     {
       "release": "v0.6.2",
       "name": "ScriptPlayerPlus-0.6.2-linux-x64.tar.gz",
-      "downloads": 27
+      "downloads": 28
     },
     {
       "release": "v0.6.2",
@@ -1045,7 +1045,7 @@
     {
       "release": "v0.1.8",
       "name": "ScriptPlayerPlus-v0.1.8-win-x64.zip",
-      "downloads": 233
+      "downloads": 234
     },
     {
       "release": "v0.1.7",

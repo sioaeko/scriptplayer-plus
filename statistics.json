@@ -4,21 +4,21 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 15647,
-    "stable": 15330,
+    "downloads": 15666,
+    "stable": 15349,
     "prerelease": 317,
-    "excluded": 122820
+    "excluded": 123164
   },
   "platforms": {
-    "Windows": 13442,
+    "Windows": 13458,
     "macOS": 880,
-    "Linux": 1325
+    "Linux": 1328
   },
   "releases": [
     {
       "tag": "v0.7.2",
       "prerelease": false,
-      "downloads": 929
+      "downloads": 945
     },
     {
       "tag": "v0.7.1",
@@ -33,7 +33,7 @@
     {
       "tag": "v0.7.0",
       "prerelease": false,
-      "downloads": 1258
+      "downloads": 1259
     },
     {
       "tag": "v0.6.3",
@@ -88,7 +88,7 @@
     {
       "tag": "v0.5.0",
       "prerelease": false,
-      "downloads": 646
+      "downloads": 648
     },
     {
       "tag": "v0.4.0",
@@ -255,12 +255,12 @@
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-0.7.2-linux-amd64.deb",
-      "downloads": 6
+      "downloads": 7
     },
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-0.7.2-linux-x64.tar.gz",
-      "downloads": 18
+      "downloads": 19
     },
     {
       "release": "v0.7.2",
@@ -270,12 +270,12 @@
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-Setup-0.7.2.exe",
-      "downloads": 629
+      "downloads": 639
     },
     {
       "release": "v0.7.2",
       "name": "ScriptPlayerPlus-v0.7.2-win-x64.zip",
-      "downloads": 178
+      "downloads": 182
     },
     {
       "release": "v0.7.1",
@@ -340,7 +340,7 @@
     {
       "release": "v0.7.0",
       "name": "ScriptPlayerPlus-0.7.0-linux-x86_64.AppImage",
-      "downloads": 90
+      "downloads": 91
     },
     {
       "release": "v0.7.0",
@@ -635,7 +635,7 @@
     {
       "release": "v0.5.0",
       "name": "ScriptPlayerPlus-v0.5.0-win-x64.zip",
-      "downloads": 167
+      "downloads": 169
     },
     {
       "release": "v0.4.0",

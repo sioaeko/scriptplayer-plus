@@ -4,21 +4,21 @@
   "packagePattern": "^ScriptPlayerPlus[-.].*\\.(exe|zip|dmg|deb|AppImage|tar\\.gz)$",
   "excluded": "Update manifests, blockmaps, hotfix metadata, checksums, documentation and media.",
   "totals": {
-    "downloads": 16273,
-    "stable": 15956,
+    "downloads": 16335,
+    "stable": 16018,
     "prerelease": 317,
-    "excluded": 128793
+    "excluded": 129271
   },
   "platforms": {
-    "Windows": 13991,
-    "macOS": 912,
-    "Linux": 1370
+    "Windows": 14047,
+    "macOS": 913,
+    "Linux": 1375
   },
   "releases": [
     {
       "tag": "v0.7.3",
       "prerelease": false,
-      "downloads": 477
+      "downloads": 537
     },
     {
       "tag": "v0.7.2",
@@ -28,7 +28,7 @@
     {
       "tag": "v0.7.1",
       "prerelease": false,
-      "downloads": 1052
+      "downloads": 1053
     },
     {
       "tag": "v0.7.1-beta.1",
@@ -108,7 +108,7 @@
     {
       "tag": "v0.2.8",
       "prerelease": false,
-      "downloads": 422
+      "downloads": 423
     },
     {
       "tag": "v0.2.7",
@@ -250,7 +250,7 @@
     {
       "release": "v0.7.3",
       "name": "ScriptPlayerPlus-0.7.3-arm64-mac.dmg",
-      "downloads": 16
+      "downloads": 17
     },
     {
       "release": "v0.7.3",
@@ -270,17 +270,17 @@
     {
       "release": "v0.7.3",
       "name": "ScriptPlayerPlus-0.7.3-linux-x86_64.AppImage",
-      "downloads": 19
+      "downloads": 24
     },
     {
       "release": "v0.7.3",
       "name": "ScriptPlayerPlus-Setup-0.7.3.exe",
-      "downloads": 362
+      "downloads": 408
     },
     {
       "release": "v0.7.3",
       "name": "ScriptPlayerPlus-v0.7.3-win-x64.zip",
-      "downloads": 61
+      "downloads": 69
     },
     {
       "release": "v0.7.2",
@@ -345,7 +345,7 @@
     {
       "release": "v0.7.1",
       "name": "ScriptPlayerPlus-Setup-0.7.1.exe",
-      "downloads": 747
+      "downloads": 748
     },
     {
       "release": "v0.7.1",
@@ -810,7 +810,7 @@
     {
       "release": "v0.2.8",
       "name": "ScriptPlayerPlus-v0.2.8-win-x64.zip",
-      "downloads": 189
+      "downloads": 190
     },
     {
       "release": "v0.2.7",
